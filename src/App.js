@@ -326,7 +326,7 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
             <React.Fragment key={i}>
               <tr>
                 <td><div className="art-name">{a.name}</div><div className="art-id">{a.article}</div></td>
-                <td><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}/{a.xyz}</span></td>
+                <td><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}{a.xyz ? `/${a.xyz}` : ''}</span></td>
                 <td>{fmt(a.stock)}</td>
                 <td style={{ color: a.status === 'CRITICAL' ? '#ef4444' : a.status === 'WATCH' ? '#f97316' : '#94a3b8' }}>{fmtDays(a.coverage_days)}</td>
                 <td><span className="status-chip" style={{ background: statusColor(a.status) + '22', color: statusColor(a.status), border: `1px solid ${statusColor(a.status)}44` }}>{statusLabel(a.status)}</span></td>
@@ -456,7 +456,7 @@ function SlottingTab({ data }) {
             {moves.map((a, i) => (
               <tr key={i}>
                 <td><div className="art-name">{a.name}</div><div className="art-id">{a.article}</div></td>
-                <td><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}/{a.xyz}</span></td>
+                <td><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}{a.xyz ? `/${a.xyz}` : ''}</span></td>
                 <td>Zon {a.loc}</td>
                 <td style={{ color: '#3b82f6', fontWeight: 600 }}>Zon {a.recommended_zone}</td>
                 <td><span className="status-chip" style={{ background: (priorityColor[a.move_priority] || '#6b7280') + '22', color: priorityColor[a.move_priority] || '#6b7280', border: `1px solid ${(priorityColor[a.move_priority] || '#6b7280')}44` }}>{priorityLabel[a.move_priority] || a.move_priority}</span></td>
@@ -568,66 +568,145 @@ function CapitalTab({ data }) {
 function AbcXyzTab({ data }) {
   const { abc_distribution, articles, summary } = data;
   const hasCost = summary.has_cost_data;
-  const [selected, setSelected] = useState('AX');
-  const classes = ['AX', 'AY', 'AZ', 'BX', 'BY', 'BZ', 'CX', 'CY', 'CZ'];
-  const matrix = {};
-  classes.forEach(c => {
-    const abc = c[0], xyz = c[1];
-    matrix[c] = articles?.filter(a => a.abc === abc && a.xyz === xyz) || [];
+  const xyzAvailable = summary.xyz_available === true;
+  const [selected, setSelected] = useState('A');
+
+  // ABC-only distribution (when no XYZ)
+  const abcGroups = {};
+  ['A', 'B', 'C'].forEach(abc => {
+    abcGroups[abc] = articles?.filter(a => a.abc === abc) || [];
   });
+
+  // ABC/XYZ matrix (when XYZ available)
+  const matrix = {};
+  ['A', 'B', 'C'].forEach(abc => {
+    ['X', 'Y', 'Z'].forEach(xyz => {
+      const key = abc + xyz;
+      matrix[key] = articles?.filter(a => a.abc === abc && a.xyz === xyz) || [];
+    });
+  });
+
   return (
     <div className="tab-content">
       {!hasCost && (
         <div className="info-banner">
           <Icon name="info" size={16} />
-          ABC-klassning baseras på förbrukning (demand_per_day) — inköpspris saknas. XYZ är X för alla artiklar (kräver historisk data).
+          ABC-klassning baseras på förbrukning (demand_per_day) — inköpspris saknas i filen.
         </div>
       )}
-      <div className="section">
-        <h3>ABC/XYZ-matris</h3>
-        <table className="matrix-table">
-          <thead>
-            <tr>
-              <th></th>
-              <th>X — Stabil</th>
-              <th>Y — Varierande</th>
-              <th>Z — Oregelbunden</th>
-            </tr>
-          </thead>
-          <tbody>
-            {['A', 'B', 'C'].map(abc => (
-              <tr key={abc}>
-                <td className="matrix-label" style={{ color: abcColor(abc) }}>{abc}</td>
-                {['X', 'Y', 'Z'].map(xyz => {
-                  const key = abc + xyz;
-                  const count = matrix[key]?.length || 0;
-                  const value = matrix[key]?.reduce((sum, a) => sum + (a.stock_value || 0), 0) || 0;
+      {!xyzAvailable && (
+        <div className="info-banner xyz-missing-banner">
+          <Icon name="info" size={16} />
+          <div>
+            <strong>XYZ-analys kräver historisk månadsdata</strong>
+            <p>Lägg till kolumner för varje period (t.ex. <code>jan</code>, <code>feb</code>…<code>dec</code> eller <code>period_1</code>…<code>period_12</code>) med respektive månads förbrukning. Då beräknar Logitide variationskoefficienten och klassificerar X (stabil), Y (varierande) och Z (oregelbunden) automatiskt.</p>
+          </div>
+        </div>
+      )}
+
+      {xyzAvailable ? (
+        <>
+          <div className="section">
+            <h3>ABC/XYZ-matris</h3>
+            <table className="matrix-table">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>X — Stabil</th>
+                  <th>Y — Varierande</th>
+                  <th>Z — Oregelbunden</th>
+                </tr>
+              </thead>
+              <tbody>
+                {['A', 'B', 'C'].map(abc => (
+                  <tr key={abc}>
+                    <td className="matrix-label" style={{ color: abcColor(abc) }}>{abc}</td>
+                    {['X', 'Y', 'Z'].map(xyz => {
+                      const key = abc + xyz;
+                      const count = matrix[key]?.length || 0;
+                      const value = matrix[key]?.reduce((sum, a) => sum + (a.stock_value || 0), 0) || 0;
+                      return (
+                        <td
+                          key={xyz}
+                          className={`matrix-cell ${selected === key ? 'selected' : ''} ${count > 0 ? 'has-data' : ''}`}
+                          onClick={() => count > 0 && setSelected(key)}
+                        >
+                          <div className="matrix-key">{key}</div>
+                          <div className="matrix-count">{count}</div>
+                          {hasCost && <div className="matrix-val">{fmtKr(value)}</div>}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="section">
+            <h3>{selected} — {matrix[selected]?.length || 0} artiklar</h3>
+            <div className="article-chips">
+              {matrix[selected]?.map((a, i) => (
+                <span key={i} className="article-chip">{a.article} {a.name}</span>
+              ))}
+              {matrix[selected]?.length === 0 && <p className="empty-msg">Inga artiklar i denna kategori</p>}
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="section">
+            <h3>ABC-matris</h3>
+            <table className="matrix-table">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Antal artiklar</th>
+                  <th>Lagervärde</th>
+                  <th>X — Stabil</th>
+                  <th>Y — Varierande</th>
+                  <th>Z — Oregelbunden</th>
+                </tr>
+              </thead>
+              <tbody>
+                {['A', 'B', 'C'].map(abc => {
+                  const count = abcGroups[abc]?.length || 0;
+                  const value = abcGroups[abc]?.reduce((sum, a) => sum + (a.stock_value || 0), 0) || 0;
                   return (
-                    <td
-                      key={xyz}
-                      className={`matrix-cell ${selected === key ? 'selected' : ''} ${count > 0 ? 'has-data' : ''}`}
-                      onClick={() => count > 0 && setSelected(key)}
-                    >
-                      <div className="matrix-key">{key}</div>
-                      <div className="matrix-count">{count}</div>
-                      {hasCost && <div className="matrix-val">{fmtKr(value)}</div>}
-                    </td>
+                    <tr key={abc}>
+                      <td className="matrix-label" style={{ color: abcColor(abc) }}>{abc}</td>
+                      <td
+                        className={`matrix-cell has-data ${selected === abc ? 'selected' : ''}`}
+                        onClick={() => setSelected(abc)}
+                      >
+                        <div className="matrix-count">{count}</div>
+                        {hasCost && <div className="matrix-val">{fmtKr(value)}</div>}
+                      </td>
+                      <td className={`matrix-cell has-data ${selected === abc ? 'selected' : ''}`}
+                        onClick={() => setSelected(abc)}>
+                        {hasCost ? <div className="matrix-val">{fmtKr(value)}</div> : <div className="matrix-val">—</div>}
+                      </td>
+                      {['X', 'Y', 'Z'].map(xyz => (
+                        <td key={xyz} className="matrix-cell xyz-unavailable" title="XYZ kräver historisk månadsdata">
+                          <div className="matrix-key xyz-dash">—</div>
+                        </td>
+                      ))}
+                    </tr>
                   );
                 })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="section">
-        <h3>{selected} — {matrix[selected]?.length || 0} artiklar</h3>
-        <div className="article-chips">
-          {matrix[selected]?.map((a, i) => (
-            <span key={i} className="article-chip">{a.article} {a.name}</span>
-          ))}
-          {matrix[selected]?.length === 0 && <p className="empty-msg">Inga artiklar i denna kategori</p>}
-        </div>
-      </div>
+              </tbody>
+            </table>
+          </div>
+          <div className="section">
+            <h3>{selected}-artiklar — {abcGroups[selected]?.length || 0} st</h3>
+            <div className="article-chips">
+              {abcGroups[selected]?.map((a, i) => (
+                <span key={i} className="article-chip">{a.article} {a.name}</span>
+              ))}
+              {abcGroups[selected]?.length === 0 && <p className="empty-msg">Inga artiklar i denna kategori</p>}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
