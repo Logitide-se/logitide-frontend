@@ -450,7 +450,7 @@ function SlottingTab({ data }) {
         <p className="section-desc">Slottinglistan baseras på ABC/XYZ-klassificering och förbrukningsmönster. Exakt placering bestäms av lageransvarig.</p>
         <table className="article-table">
           <thead>
-            <tr><th>ARTIKEL</th><th>ABC/XYZ</th><th>NUVARANDE</th><th>REKOMMENDERAD</th><th>PRIORITET</th><th>✓</th></tr>
+            <tr><th>ARTIKEL</th><th>ABC</th><th>NUVARANDE</th><th>REKOMMENDERAD</th><th>PRIORITET</th><th>✓</th></tr>
           </thead>
           <tbody>
             {moves.map((a, i) => (
@@ -733,7 +733,7 @@ function Dashboard({ data, onReset }) {
   const { summary } = data;
   const tabs = [
     { id: 'overview', label: 'Översikt', icon: 'home' },
-    { id: 'abcxyz', label: 'ABC/XYZ', icon: 'grid' },
+    { id: 'abcxyz', label: summary?.xyz_available ? 'ABC/XYZ' : 'ABC', icon: 'grid' },
     { id: 'purchasing', label: 'Inköp', icon: 'trending', badge: summary?.articles_to_order },
     { id: 'slotting', label: 'Slotting', icon: 'move', badge: summary?.has_location_data ? summary?.articles_to_move : null },
     { id: 'capital', label: 'Kapital', icon: 'money', badge: summary?.has_cost_data ? (summary?.dead_stock + (summary?.overstock || 0)) : null },
