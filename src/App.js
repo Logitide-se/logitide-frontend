@@ -775,7 +775,7 @@ function Dashboard({ data, onReset }) {
             <span className="data-dot">●</span> Data aktiv<br />
             <span className="data-count">{fmt(summary?.total_articles)} artiklar</span>
           </div>
-          <div className="version">v2.2 · {summary?.analysis_timestamp}</div>
+          <div className="version">v2.3.2 · {summary?.analysis_timestamp}</div>
           <button className="pdf-btn" onClick={() => openPDFReport(data)} title="Generera månadsrapport som PDF">
             <Icon name="download" size={13} /> Månadsrapport PDF
           </button>
