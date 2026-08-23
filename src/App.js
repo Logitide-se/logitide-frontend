@@ -208,8 +208,8 @@ function OverviewTab({ data }) {
           color="#f97316" />
         <KpiCard
           label="BUNDET KAPITAL"
-          value={hasCost ? fmtKr(summary.overstock_value_sek) : null}
-          sub={hasCost ? 'i överlager' : null}
+          value={hasCost ? fmtKr(summary.total_stock_value_sek) : null}
+          sub={hasCost ? `varav ${fmtKr(summary.overstock_value_sek)} överlager` : null}
           color="#a855f7"
           missingReason={!hasCost ? 'Kräver inköpspris (cost) i filen' : null}
         />
@@ -474,10 +474,11 @@ function SlottingTab({ data }) {
 function CapitalTab({ data }) {
   const { summary, articles } = data;
   const hasCost = summary.has_cost_data;
-  const [tab, setTab] = useState('overstock');
   const overstock = articles?.filter(a => a.status === 'OVERSTOCK').sort((a, b) => b.overstock_value - a.overstock_value) || [];
   const deadStock = articles?.filter(a => a.status === 'DEAD_STOCK').sort((a, b) => b.dead_stock_value - a.dead_stock_value) || [];
   const toOrder = articles?.filter(a => a.order_qty > 0) || [];
+  const defaultTab = overstock.length > 0 ? 'overstock' : toOrder.length > 0 ? 'purchasing' : 'dead_stock';
+  const [tab, setTab] = useState(defaultTab);
   if (!hasCost) {
     return (
       <div className="tab-content">
@@ -501,9 +502,9 @@ function CapitalTab({ data }) {
   return (
     <div className="tab-content">
       <div className="kpi-grid-3">
-        <KpiCard label="BUNDET KAPITAL" value={fmtKr(summary.overstock_value_sek)} sub="i överlager" color="#a855f7" />
-        <KpiCard label="INKÖPSBEHOV" value={fmtKr(summary.total_order_value_sek)} sub="" color="#3b82f6" />
-        <KpiCard label="DÖTT LAGER" value={`${summary.dead_stock} art.`} sub={fmtKr(summary.dead_stock_value_sek)} color="#6b7280" />
+        <KpiCard label="BUNDET KAPITAL" value={fmtKr(summary.total_stock_value_sek)} sub={`varav ${fmtKr(summary.overstock_value_sek)} överlager`} color="#a855f7" />
+        <KpiCard label="INKÖPSBEHOV" value={fmtKr(summary.total_order_value_sek)} sub={`${fmt(summary.articles_to_order)} artiklar`} color="#3b82f6" />
+        <KpiCard label="DÖTT LAGER" value={`${fmt(summary.dead_stock)} art.`} sub={fmtKr(summary.dead_stock_value_sek)} color="#6b7280" />
       </div>
       <div className="capital-tabs">
         <button className={`cap-tab ${tab === 'overstock' ? 'active' : ''}`} onClick={() => setTab('overstock')}>Överlager ({overstock.length})</button>
@@ -631,6 +632,12 @@ function AbcXyzTab({ data }) {
   );
 }
 
+// ─── PDF RAPPORT ───────────────────────────────────────────────────────
+function openPDFReport(analysis) {
+  const payload = btoa(unescape(encodeURIComponent(JSON.stringify(analysis))));
+  window.open('/rapport.html#' + payload, '_blank');
+}
+
 // ─── CSV EXPORT ────────────────────────────────────────────────────────
 function exportCSV(rows) {
   const headers = ['article', 'name', 'abc', 'xyz', 'loc', 'recommended_zone', 'move_priority'];
@@ -690,6 +697,9 @@ function Dashboard({ data, onReset }) {
             <span className="data-count">{fmt(summary?.total_articles)} artiklar</span>
           </div>
           <div className="version">v2.2 · {summary?.analysis_timestamp}</div>
+          <button className="pdf-btn" onClick={() => openPDFReport(data)} title="Generera månadsrapport som PDF">
+            <Icon name="download" size={13} /> Månadsrapport PDF
+          </button>
         </div>
       </div>
       <div className="main-content">
