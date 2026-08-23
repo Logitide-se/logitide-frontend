@@ -193,3 +193,38 @@ input { font-family: inherit; }
   .two-col { grid-template-columns: 1fr; }
   .top-tabs { display: none; }
 }
+/* ─── DATA QUALITY BANNER ─── */
+.data-quality-banner { background: #d2992208; border: 1px solid #d2992233; border-radius: 10px; margin-bottom: 1rem; overflow: hidden; }
+.dq-header { display: flex; align-items: center; gap: 10px; padding: .75rem 1rem; cursor: pointer; user-select: none; }
+.dq-header:hover { background: #d2992211; }
+.dq-icon { color: #d29922; flex-shrink: 0; }
+.dq-title { flex: 1; font-size: 0.85rem; font-weight: 600; color: #d29922; }
+.dq-toggle { font-size: 0.7rem; color: #d29922; }
+.dq-body { padding: .75rem 1rem 1rem; border-top: 1px solid #d2992222; }
+.dq-row { display: flex; align-items: baseline; gap: 12px; padding: .35rem 0; border-bottom: 1px solid #d2992211; }
+.dq-row:last-of-type { border-bottom: none; }
+.dq-field { font-size: 0.8rem; font-weight: 700; color: var(--text2); min-width: 180px; }
+.dq-impact { font-size: 0.8rem; color: var(--text3); }
+.dq-tip { margin-top: .75rem; font-size: 0.78rem; color: var(--text3); font-style: italic; }
+
+/* ─── KPI MISSING STATE ─── */
+.kpi-missing { opacity: 0.7; border-style: dashed; }
+.kpi-dash { color: var(--text3) !important; font-size: 1.8rem; font-weight: 800; line-height: 1; margin-bottom: .25rem; }
+.kpi-missing-reason { font-size: 0.7rem; color: var(--text3); margin-top: .25rem; font-style: italic; line-height: 1.4; }
+
+/* ─── EMPTY STATE ─── */
+.empty-state { text-align: center; padding: 2.5rem 2rem; }
+.empty-icon { font-size: 2.5rem; margin-bottom: .75rem; }
+.empty-state h4 { font-size: 1rem; font-weight: 700; color: var(--text2); margin-bottom: .5rem; }
+.empty-state p { font-size: 0.85rem; color: var(--text3); max-width: 380px; margin: 0 auto .75rem; line-height: 1.6; }
+.empty-tip { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: .6rem 1rem; display: inline-block; font-size: 0.8rem; color: var(--text2); }
+.empty-available { margin-top: 1rem; font-size: 0.82rem; color: var(--green); font-weight: 600; }
+
+/* ─── INFO BANNER ─── */
+.info-banner { background: #3b82f611; border: 1px solid #3b82f633; border-radius: 8px; padding: .6rem 1rem; display: flex; align-items: center; gap: 8px; margin-bottom: 1rem; font-size: 0.82rem; color: var(--blue); }
+
+/* ─── SECTION NOTE ─── */
+.section-note { font-size: 0.78rem; color: var(--text3); font-style: italic; margin-top: .5rem; }
+
+/* ─── ABC DIM (no cost data) ─── */
+.abc-dim { opacity: 0.45; }
