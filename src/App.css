@@ -228,3 +228,8 @@ input { font-family: inherit; }
 
 /* ─── ABC DIM (no cost data) ─── */
 .abc-dim { opacity: 0.45; }
+.xyz-missing-banner { align-items: flex-start; }
+.xyz-missing-banner p { margin: 4px 0 0; font-size: 12px; opacity: 0.85; }
+.xyz-missing-banner code { background: rgba(255,255,255,0.15); padding: 1px 5px; border-radius: 3px; }
+.xyz-unavailable { opacity: 0.25; cursor: not-allowed !important; }
+.xyz-dash { font-size: 18px; color: #6b7280; }
