@@ -477,7 +477,7 @@ function CapitalTab({ data }) {
   const overstock = articles?.filter(a => a.status === 'OVERSTOCK').sort((a, b) => b.overstock_value - a.overstock_value) || [];
   const deadStock = articles?.filter(a => a.status === 'DEAD_STOCK').sort((a, b) => b.dead_stock_value - a.dead_stock_value) || [];
   const toOrder = articles?.filter(a => a.order_qty > 0) || [];
-  const defaultTab = overstock.length > 0 ? 'overstock' : toOrder.length > 0 ? 'purchasing' : 'dead_stock';
+  const defaultTab = overstock.length > 0 ? 'overstock' : toOrder.length > 0 ? 'order' : 'dead';
   const [tab, setTab] = useState(defaultTab);
   if (!hasCost) {
     return (
