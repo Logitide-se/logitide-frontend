@@ -1,8 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import './App.css';
-
 const API_URL = 'https://web-production-2ab93.up.railway.app';
-
 // ─── ICONS ────────────────────────────────────────────────────────────────
 const Icon = ({ name, size = 20 }) => {
   const icons = {
@@ -17,26 +15,80 @@ const Icon = ({ name, size = 20 }) => {
     home: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
     refresh: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>,
     download: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>,
+    info: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>,
   };
   return icons[name] || null;
 };
-
 // ─── HELPERS ──────────────────────────────────────────────────────────────
 const fmt = (n) => n?.toLocaleString('sv-SE') ?? '—';
-const fmtKr = (n) => n ? `${Math.round(n / 1000).toLocaleString('sv-SE')} tkr` : '—';
+const fmtKr = (n, hasCostData = true) => {
+  if (!hasCostData) return null; // caller handles missing-data display
+  if (n == null || n === undefined) return '—';
+  if (n === 0) return '0 kr';
+  return `${Math.round(n / 1000).toLocaleString('sv-SE')} tkr`;
+};
 const fmtDays = (n) => n === 999 ? '∞' : `${parseFloat(n).toFixed(1)} d`;
-
 const statusColor = (s) => ({
   CRITICAL: '#ef4444', WATCH: '#f97316', OK: '#22c55e',
   OVERSTOCK: '#a855f7', DEAD_STOCK: '#6b7280'
 }[s] || '#6b7280');
-
 const statusLabel = (s) => ({
   CRITICAL: 'KRITISK', WATCH: 'BEVAKA', OK: 'OK',
   OVERSTOCK: 'ÖVERLAGER', DEAD_STOCK: 'DÖTT LAGER'
 }[s] || s);
-
 const abcColor = (abc) => ({ A: '#22c55e', B: '#f59e0b', C: '#6b7280' }[abc] || '#6b7280');
+
+// ─── DATA QUALITY BANNER ──────────────────────────────────────────────────
+function DataQualityBanner({ summary, dataQuality }) {
+  const [expanded, setExpanded] = useState(false);
+  const missing = [];
+  if (!summary.has_cost_data) missing.push({ field: 'Inköpspris (cost)', impact: 'Kapitalanalys och ordervärde kan inte beräknas' });
+  if (!summary.has_location_data) missing.push({ field: 'Lagerposition (loc)', impact: 'Slottingförslag kan inte genereras' });
+  if (!summary.has_lead_time_data) missing.push({ field: 'Ledtid (lead_time_days)', impact: 'Standardvärde 14 dagar används — justera för er verklighet' });
+  if (missing.length === 0) return null;
+  return (
+    <div className="data-quality-banner">
+      <div className="dq-header" onClick={() => setExpanded(!expanded)}>
+        <span className="dq-icon"><Icon name="info" size={16} /></span>
+        <span className="dq-title">
+          {missing.length} kolumn{missing.length > 1 ? 'er' : ''} saknas i filen — analysen är delvis begränsad
+        </span>
+        <span className="dq-toggle">{expanded ? '▲' : '▼'}</span>
+      </div>
+      {expanded && (
+        <div className="dq-body">
+          {missing.map((m, i) => (
+            <div key={i} className="dq-row">
+              <span className="dq-field">{m.field}</span>
+              <span className="dq-impact">{m.impact}</span>
+            </div>
+          ))}
+          <p className="dq-tip">Lägg till dessa kolumner i er exportfil från WMS/ERP för en komplett analys.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── KPI CARD ─────────────────────────────────────────────────────────────
+function KpiCard({ label, value, sub, color, missingReason }) {
+  if (missingReason) {
+    return (
+      <div className="kpi-card kpi-missing">
+        <div className="kpi-label">{label}</div>
+        <div className="kpi-value kpi-dash">—</div>
+        <div className="kpi-missing-reason">{missingReason}</div>
+      </div>
+    );
+  }
+  return (
+    <div className="kpi-card">
+      <div className="kpi-label">{label}</div>
+      <div className="kpi-value" style={{ color }}>{value}</div>
+      {sub && <div className="kpi-sub">{sub}</div>}
+    </div>
+  );
+}
 
 // ─── UPLOAD PAGE ──────────────────────────────────────────────────────────
 function UploadPage({ onAnalysis }) {
@@ -44,9 +96,7 @@ function UploadPage({ onAnalysis }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [loadingMsg, setLoadingMsg] = useState('');
-
   const loadingMessages = ['Läser er fil…', 'Matchar kolumner…', 'Beräknar täcktid…', 'Analyserar ABC/XYZ…', 'Skapar rekommendationer…'];
-
   const handleFile = async (file) => {
     if (!file) return;
     setLoading(true);
@@ -57,14 +107,14 @@ function UploadPage({ onAnalysis }) {
       msgIndex = (msgIndex + 1) % loadingMessages.length;
       setLoadingMsg(loadingMessages[msgIndex]);
     }, 1200);
-
     try {
       const formData = new FormData();
       formData.append('file', file);
       const res = await fetch(`${API_URL}/analyze`, { method: 'POST', body: formData });
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || 'Något gick fel');
+        let errMsg = 'Något gick fel';
+        try { const err = await res.json(); errMsg = err.detail || errMsg; } catch(e) {}
+        throw new Error(errMsg);
       }
       const data = await res.json();
       onAnalysis(data);
@@ -75,14 +125,12 @@ function UploadPage({ onAnalysis }) {
       setLoading(false);
     }
   };
-
   const onDrop = useCallback((e) => {
     e.preventDefault();
     setDragging(false);
     const file = e.dataTransfer.files[0];
     if (file) handleFile(file);
   }, []);
-
   return (
     <div className="upload-page">
       <div className="upload-content">
@@ -93,10 +141,8 @@ function UploadPage({ onAnalysis }) {
             <p className="logo-sub">OPTIMIZER</p>
           </div>
         </div>
-
         <h2 className="upload-headline">Från rådata<br /><span className="highlight">till beslut.</span></h2>
         <p className="upload-desc">Ladda upp er lagerdata — analysen är klar på 60 sekunder.</p>
-
         {!loading ? (
           <>
             <div
@@ -108,7 +154,7 @@ function UploadPage({ onAnalysis }) {
             >
               <Icon name="upload" size={40} />
               <p className="drop-text">Släpp filen här</p>
-              <p className="drop-sub">Excel (.xlsx, .xls) eller CSV</p>
+              <p className="drop-sub">Excel (.xlsx, .xls) eller CSV · Max 20 MB</p>
               <input
                 id="file-input"
                 type="file"
@@ -117,7 +163,12 @@ function UploadPage({ onAnalysis }) {
                 onChange={(e) => handleFile(e.target.files[0])}
               />
             </div>
-            {error && <div className="error-box">⚠️ {error}</div>}
+            {error && (
+              <div className="error-box">
+                <b>⚠️ Kunde inte analysera filen</b>
+                <p>{error}</p>
+              </div>
+            )}
           </>
         ) : (
           <div className="loading-box">
@@ -125,7 +176,6 @@ function UploadPage({ onAnalysis }) {
             <p className="loading-msg">{loadingMsg}</p>
           </div>
         )}
-
         <div className="supported">
           <span>Fungerar med:</span>
           {['Jeeves', 'Monitor', 'SAP', 'Visma', 'Excel'].map(erp => (
@@ -137,38 +187,43 @@ function UploadPage({ onAnalysis }) {
   );
 }
 
-// ─── KPI CARD ─────────────────────────────────────────────────────────────
-function KpiCard({ label, value, sub, color, icon }) {
-  return (
-    <div className="kpi-card">
-      <div className="kpi-label">{label}</div>
-      <div className="kpi-value" style={{ color }}>{value}</div>
-      {sub && <div className="kpi-sub">{sub}</div>}
-    </div>
-  );
-}
-
 // ─── OVERVIEW TAB ─────────────────────────────────────────────────────────
 function OverviewTab({ data }) {
-  const { summary, top_actions, abc_distribution, articles } = data;
-
+  const { summary, top_actions, abc_distribution, articles, data_quality } = data;
+  const hasCost = summary.has_cost_data;
+  const hasLoc = summary.has_location_data;
   return (
     <div className="tab-content">
+      <DataQualityBanner summary={summary} dataQuality={data_quality} />
       {summary.critical > 0 && (
         <div className="alert-banner">
           <Icon name="alert" size={18} />
           {summary.critical} artiklar kräver omedelbar handling — lagret kan stanna.
         </div>
       )}
-
       <div className="kpi-grid">
-        <KpiCard label="KRITISKA BRISTER" value={fmt(summary.critical)} sub={`${fmtKr(summary.total_order_value_sek)} ordervärde`} color="#ef4444" />
-        <KpiCard label="ATT BESTÄLLA" value={fmt(summary.articles_to_order)} sub={fmtKr(summary.total_order_value_sek)} color="#f97316" />
-        <KpiCard label="BUNDET KAPITAL" value={fmtKr(summary.overstock_value_sek)} sub="i överlager" color="#a855f7" />
-        <KpiCard label="ATT FLYTTA" value={fmt(summary.articles_to_move)} sub="snabbare plock" color="#3b82f6" />
-        <KpiCard label="DÖTT LAGER" value={fmt(summary.dead_stock)} sub={fmtKr(summary.dead_stock_value_sek)} color="#6b7280" />
+        <KpiCard label="KRITISKA BRISTER" value={fmt(summary.critical)} sub={`${summary.watch} bevakas`} color="#ef4444" />
+        <KpiCard label="ATT BESTÄLLA" value={fmt(summary.articles_to_order)}
+          sub={hasCost ? fmtKr(summary.total_order_value_sek) : 'Lägg till inköpspris för ordervärde'}
+          color="#f97316" />
+        <KpiCard
+          label="BUNDET KAPITAL"
+          value={hasCost ? fmtKr(summary.overstock_value_sek) : null}
+          sub={hasCost ? 'i överlager' : null}
+          color="#a855f7"
+          missingReason={!hasCost ? 'Kräver inköpspris (cost) i filen' : null}
+        />
+        <KpiCard
+          label="ATT FLYTTA"
+          value={hasLoc ? fmt(summary.articles_to_move) : null}
+          sub={hasLoc ? 'snabbare plock' : null}
+          color="#3b82f6"
+          missingReason={!hasLoc ? 'Kräver lagerposition (loc) i filen' : null}
+        />
+        <KpiCard label="DÖTT LAGER" value={fmt(summary.dead_stock)}
+          sub={hasCost ? fmtKr(summary.dead_stock_value_sek) : `${summary.dead_stock} artiklar utan förbrukning`}
+          color="#6b7280" />
       </div>
-
       {top_actions?.length > 0 && (
         <div className="section">
           <div className="section-header">
@@ -180,20 +235,19 @@ function OverviewTab({ data }) {
               <div key={i} className="action-row">
                 <span className="action-icon">{a.icon}</span>
                 <div className="action-body">
-                  <span className="action-name">{a.name}</span>
+                  <span className="action-name">{a.name || a.article}</span>
                   <span className="action-text">{a.action}</span>
                   <span className="action-reason">{a.reason}</span>
                 </div>
-                {a.value_sek > 0 && <span className="action-value">{fmtKr(a.value_sek)}</span>}
+                {hasCost && a.value_sek > 0 && <span className="action-value">{fmtKr(a.value_sek)}</span>}
               </div>
             ))}
           </div>
         </div>
       )}
-
       <div className="two-col">
         <div className="section">
-          <h3>ABC-fördelning av lagervärde</h3>
+          <h3>ABC-fördelning {!hasCost && <span className="section-note">(baserad på förbrukning)</span>}</h3>
           {['A', 'B', 'C'].map(cls => (
             <div key={cls} className="abc-row">
               <span className="abc-badge" style={{ background: abcColor(cls) }}>{cls}</span>
@@ -201,43 +255,41 @@ function OverviewTab({ data }) {
               <div className="abc-bar-wrap">
                 <div className="abc-bar" style={{ width: `${abc_distribution?.[cls]?.pct || 0}%`, background: abcColor(cls) }} />
               </div>
-              <span className="abc-val">{fmtKr(abc_distribution?.[cls]?.value_sek)}</span>
-              <span className="abc-pct">{abc_distribution?.[cls]?.pct}%</span>
+              {hasCost
+                ? <span className="abc-val">{fmtKr(abc_distribution?.[cls]?.value_sek)}</span>
+                : <span className="abc-val abc-dim">{abc_distribution?.[cls]?.pct}% av artiklar</span>
+              }
             </div>
           ))}
         </div>
-
         <div className="section">
           <h3>Snabbåtgärder</h3>
           <div className="quick-actions">
             <div className="qa-row"><Icon name="alert" size={16} /><div><b>Kritiska brister</b><p>{summary.critical} artiklar</p></div></div>
-            <div className="qa-row"><Icon name="trending" size={16} /><div><b>Inköpsförslag</b><p>{summary.articles_to_order} att beställa · {fmtKr(summary.total_order_value_sek)}</p></div></div>
-            <div className="qa-row"><Icon name="move" size={16} /><div><b>Slotting</b><p>{summary.articles_to_move} att flytta</p></div></div>
+            <div className="qa-row"><Icon name="trending" size={16} /><div><b>Inköpsförslag</b><p>{summary.articles_to_order} att beställa{hasCost ? ` · ${fmtKr(summary.total_order_value_sek)}` : ''}</p></div></div>
+            <div className="qa-row"><Icon name="move" size={16} /><div><b>Slotting</b><p>{hasLoc ? `${summary.articles_to_move} att flytta` : 'Lagerposition saknas i filen'}</p></div></div>
             <div className="qa-row"><Icon name="grid" size={16} /><div><b>ABC/XYZ-analys</b><p>{summary.total_articles} artiklar</p></div></div>
           </div>
         </div>
       </div>
-
       <div className="section">
         <div className="section-header">
           <h3>Alla artiklar</h3>
           <span className="badge">{fmt(summary.total_articles)} st</span>
         </div>
-        <ArticleTable articles={articles} />
+        <ArticleTable articles={articles} hasCost={hasCost} hasLoc={hasLoc} />
       </div>
     </div>
   );
 }
 
 // ─── ARTICLE TABLE ────────────────────────────────────────────────────────
-function ArticleTable({ articles, showExplanation = true }) {
+function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc = true }) {
   const [filter, setFilter] = useState('Alla');
   const [abcFilter, setAbcFilter] = useState('Alla');
   const [search, setSearch] = useState('');
-
   const statusFilters = ['Alla', 'KRITISK', 'BEVAKA', 'OK', 'ÖVERLAGER'];
   const abcFilters = ['Alla', 'A', 'B', 'C'];
-
   const filtered = articles?.filter(a => {
     const matchStatus = filter === 'Alla' ||
       (filter === 'KRITISK' && a.status === 'CRITICAL') ||
@@ -248,7 +300,6 @@ function ArticleTable({ articles, showExplanation = true }) {
     const matchSearch = !search || a.name?.toLowerCase().includes(search.toLowerCase()) || a.article?.toLowerCase().includes(search.toLowerCase());
     return matchStatus && matchAbc && matchSearch;
   }) || [];
-
   return (
     <div>
       <div className="table-filters">
@@ -264,10 +315,11 @@ function ArticleTable({ articles, showExplanation = true }) {
           ))}
         </div>
       </div>
-
       <table className="article-table">
         <thead>
-          <tr><th>ARTIKEL</th><th>KLASS</th><th>SALDO</th><th>TÄCKTID</th><th>STATUS</th><th>ÅTGÄRD</th></tr>
+          <tr>
+            <th>ARTIKEL</th><th>KLASS</th><th>SALDO</th><th>TÄCKTID</th><th>STATUS</th><th>ÅTGÄRD</th>
+          </tr>
         </thead>
         <tbody>
           {filtered.slice(0, 100).map((a, i) => (
@@ -280,7 +332,7 @@ function ArticleTable({ articles, showExplanation = true }) {
                 <td><span className="status-chip" style={{ background: statusColor(a.status) + '22', color: statusColor(a.status), border: `1px solid ${statusColor(a.status)}44` }}>{statusLabel(a.status)}</span></td>
                 <td className="action-cell">
                   {a.order_qty > 0 && <span className="action-pill order">Beställ {fmt(a.order_qty)} st</span>}
-                  {a.suggest_move && <span className="action-pill move">Flytta → Zon {a.recommended_zone}</span>}
+                  {hasLoc && a.suggest_move && <span className="action-pill move">Flytta → Zon {a.recommended_zone}</span>}
                   {a.status === 'OK' && !a.order_qty && !a.suggest_move && <span className="action-pill ok">OK</span>}
                 </td>
               </tr>
@@ -299,20 +351,41 @@ function ArticleTable({ articles, showExplanation = true }) {
 // ─── PURCHASING TAB ────────────────────────────────────────────────────────
 function PurchasingTab({ data }) {
   const { summary, articles } = data;
+  const hasCost = summary.has_cost_data;
   const toOrder = articles?.filter(a => a.order_qty > 0).sort((a, b) => b.order_value - a.order_value) || [];
-
   return (
     <div className="tab-content">
+      {!hasCost && (
+        <div className="info-banner">
+          <Icon name="info" size={16} />
+          Inköpspris saknas i filen — ordervärden kan inte beräknas. ABC-klassning baseras på förbrukning.
+          Lägg till kolumnen <code>cost</code> (eller "inköpspris", "pris") för fullständig analys.
+        </div>
+      )}
       <div className="kpi-grid-3">
         <KpiCard label="ARTIKLAR ATT BESTÄLLA" value={fmt(summary.articles_to_order)} sub={`${summary.critical} kritiska · ${summary.watch} bevakas`} color="#f97316" />
-        <KpiCard label="TOTALT ORDERVÄRDE" value={fmtKr(summary.total_order_value_sek)} sub="" color="#3b82f6" />
-        <KpiCard label="SNITT PER ARTIKEL" value={fmtKr(Math.round(summary.total_order_value_sek / Math.max(summary.articles_to_order, 1)))} sub="kr/st" color="#8b5cf6" />
+        <KpiCard
+          label="TOTALT ORDERVÄRDE"
+          value={hasCost ? fmtKr(summary.total_order_value_sek) : null}
+          missingReason={!hasCost ? 'Kräver inköpspris i filen' : null}
+          color="#3b82f6"
+        />
+        <KpiCard
+          label="SNITT PER ARTIKEL"
+          value={hasCost ? fmtKr(Math.round(summary.total_order_value_sek / Math.max(summary.articles_to_order, 1))) : null}
+          missingReason={!hasCost ? 'Kräver inköpspris i filen' : null}
+          color="#8b5cf6"
+        />
       </div>
-
       <div className="section">
         <table className="article-table">
           <thead>
-            <tr><th>ARTIKEL-ID</th><th>ARTIKELNAMN</th><th>ABC</th><th>SALDO</th><th>TÄCKTID</th><th>ORDERKVANTITET</th><th>ORDERVÄRDE</th><th>STATUS</th></tr>
+            <tr>
+              <th>ARTIKEL-ID</th><th>ARTIKELNAMN</th><th>ABC</th><th>SALDO</th>
+              <th>TÄCKTID</th><th>ORDERKVANTITET</th>
+              {hasCost && <th>ORDERVÄRDE</th>}
+              <th>STATUS</th>
+            </tr>
           </thead>
           <tbody>
             {toOrder.slice(0, 100).map((a, i) => (
@@ -324,11 +397,11 @@ function PurchasingTab({ data }) {
                   <td>{fmt(a.stock)}</td>
                   <td style={{ color: a.status === 'CRITICAL' ? '#ef4444' : '#f97316' }}>{fmtDays(a.coverage_days)}</td>
                   <td><b>{fmt(a.order_qty)} st</b></td>
-                  <td>{fmtKr(a.order_value)}</td>
+                  {hasCost && <td>{fmtKr(a.order_value)}</td>}
                   <td><span className="status-chip" style={{ background: statusColor(a.status) + '22', color: statusColor(a.status), border: `1px solid ${statusColor(a.status)}44` }}>{statusLabel(a.status)}</span></td>
                 </tr>
                 {a.explanation && (
-                  <tr className="explanation-row"><td colSpan={8}><span className="explanation">{a.explanation}</span></td></tr>
+                  <tr className="explanation-row"><td colSpan={hasCost ? 8 : 7}><span className="explanation">{a.explanation}</span></td></tr>
                 )}
               </React.Fragment>
             ))}
@@ -342,14 +415,25 @@ function PurchasingTab({ data }) {
 // ─── SLOTTING TAB ────────────────────────────────────────────────────────
 function SlottingTab({ data }) {
   const { summary, articles } = data;
+  const hasLoc = summary.has_location_data;
   const moves = articles?.filter(a => a.suggest_move).sort((a, b) => {
     const p = { CRITICAL: 0, MEDIUM: 1, LOW: 2 };
     return (p[a.move_priority] || 2) - (p[b.move_priority] || 2);
   }) || [];
-
   const priorityColor = { CRITICAL: '#ef4444', MEDIUM: '#f59e0b', LOW: '#6b7280' };
   const priorityLabel = { CRITICAL: 'KRITISK', MEDIUM: 'MEDEL', LOW: 'LÅG' };
-
+  if (!hasLoc) {
+    return (
+      <div className="tab-content">
+        <div className="empty-state">
+          <div className="empty-icon">📍</div>
+          <h3>Lagerposition saknas</h3>
+          <p>Slottinganalys kräver en kolumn med nuvarande lagerposition (t.ex. "Zon", "Hyllplats", "Location").</p>
+          <p className="empty-tip">Lägg till kolumnen i er exportfil och ladda upp på nytt — Logitide känner automatiskt igen: <code>loc, location, lagerposition, zon, hyllplats, plats</code></p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="tab-content">
       <div className="kpi-grid-4">
@@ -358,7 +442,6 @@ function SlottingTab({ data }) {
         <KpiCard label="MEDELPRIORITET" value={fmt(moves.filter(a => a.move_priority === 'MEDIUM').length)} color="#f59e0b" />
         <KpiCard label="LÅGPRIORITERADE" value={fmt(moves.filter(a => a.move_priority === 'LOW').length)} color="#6b7280" />
       </div>
-
       <div className="section">
         <div className="section-header">
           <h3>Flyttlista — prioriterad</h3>
@@ -390,12 +473,31 @@ function SlottingTab({ data }) {
 // ─── CAPITAL TAB ────────────────────────────────────────────────────────
 function CapitalTab({ data }) {
   const { summary, articles } = data;
+  const hasCost = summary.has_cost_data;
   const [tab, setTab] = useState('overstock');
-
   const overstock = articles?.filter(a => a.status === 'OVERSTOCK').sort((a, b) => b.overstock_value - a.overstock_value) || [];
   const deadStock = articles?.filter(a => a.status === 'DEAD_STOCK').sort((a, b) => b.dead_stock_value - a.dead_stock_value) || [];
   const toOrder = articles?.filter(a => a.order_qty > 0) || [];
-
+  if (!hasCost) {
+    return (
+      <div className="tab-content">
+        <div className="empty-state">
+          <div className="empty-icon">💰</div>
+          <h3>Kapitalanalys kräver inköpspriser</h3>
+          <p>För att beräkna bundet kapital, överlager och inköpsvärden behövs en kolumn med inköpspris per artikel.</p>
+          <p className="empty-tip">Lägg till kolumnen i er exportfil — Logitide känner automatiskt igen: <code>cost, kostnad, inköpspris, pris, styckpris, a_pris</code></p>
+          <div className="empty-available">
+            <h4>Vad som finns utan priser:</h4>
+            <div className="kpi-grid-3" style={{marginTop: '16px'}}>
+              <KpiCard label="ÖVERLAGER (antal)" value={fmt(summary.overstock)} sub="artiklar" color="#a855f7" />
+              <KpiCard label="DÖTT LAGER (antal)" value={fmt(summary.dead_stock)} sub="artiklar utan förbrukning" color="#6b7280" />
+              <KpiCard label="ATT BESTÄLLA" value={fmt(summary.articles_to_order)} sub="artiklar" color="#3b82f6" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="tab-content">
       <div className="kpi-grid-3">
@@ -403,16 +505,13 @@ function CapitalTab({ data }) {
         <KpiCard label="INKÖPSBEHOV" value={fmtKr(summary.total_order_value_sek)} sub="" color="#3b82f6" />
         <KpiCard label="DÖTT LAGER" value={`${summary.dead_stock} art.`} sub={fmtKr(summary.dead_stock_value_sek)} color="#6b7280" />
       </div>
-
       <div className="capital-tabs">
         <button className={`cap-tab ${tab === 'overstock' ? 'active' : ''}`} onClick={() => setTab('overstock')}>Överlager ({overstock.length})</button>
         <button className={`cap-tab ${tab === 'order' ? 'active' : ''}`} onClick={() => setTab('order')}>Inköpsbehov ({toOrder.length})</button>
         <button className={`cap-tab ${tab === 'dead' ? 'active' : ''}`} onClick={() => setTab('dead')}>Dött lager ({deadStock.length})</button>
       </div>
-
       {tab === 'overstock' && overstock.length === 0 && <p className="empty-msg">✓ Inga överlagerartiklar</p>}
-      {tab === 'dead' && deadStock.length === 0 && <p className="empty-msg">✓ Inga dödlagertartiklar</p>}
-
+      {tab === 'dead' && deadStock.length === 0 && <p className="empty-msg">✓ Inga dödlagerartiklar</p>}
       <div className="capital-cards">
         {tab === 'overstock' && overstock.map((a, i) => (
           <div key={i} className="capital-card">
@@ -466,21 +565,23 @@ function CapitalTab({ data }) {
 
 // ─── ABC/XYZ TAB ────────────────────────────────────────────────────────
 function AbcXyzTab({ data }) {
-  const { abc_distribution, articles } = data;
+  const { abc_distribution, articles, summary } = data;
+  const hasCost = summary.has_cost_data;
   const [selected, setSelected] = useState('AX');
-
   const classes = ['AX', 'AY', 'AZ', 'BX', 'BY', 'BZ', 'CX', 'CY', 'CZ'];
   const matrix = {};
   classes.forEach(c => {
     const abc = c[0], xyz = c[1];
     matrix[c] = articles?.filter(a => a.abc === abc && a.xyz === xyz) || [];
   });
-
-  const abcLabel = { A: 'A — Högt värde', B: 'B — Medel värde', C: 'C — Lågt värde' };
-  const xyzLabel = { X: 'X — Stabil', Y: 'Y — Varierande', Z: 'Z — Oregelbunden' };
-
   return (
     <div className="tab-content">
+      {!hasCost && (
+        <div className="info-banner">
+          <Icon name="info" size={16} />
+          ABC-klassning baseras på förbrukning (demand_per_day) — inköpspris saknas. XYZ är X för alla artiklar (kräver historisk data).
+        </div>
+      )}
       <div className="section">
         <h3>ABC/XYZ-matris</h3>
         <table className="matrix-table">
@@ -508,7 +609,7 @@ function AbcXyzTab({ data }) {
                     >
                       <div className="matrix-key">{key}</div>
                       <div className="matrix-count">{count}</div>
-                      <div className="matrix-val">{fmtKr(value)}</div>
+                      {hasCost && <div className="matrix-val">{fmtKr(value)}</div>}
                     </td>
                   );
                 })}
@@ -517,9 +618,8 @@ function AbcXyzTab({ data }) {
           </tbody>
         </table>
       </div>
-
       <div className="section">
-        <h3>{selected} — Zon {selected[0]}</h3>
+        <h3>{selected} — {matrix[selected]?.length || 0} artiklar</h3>
         <div className="article-chips">
           {matrix[selected]?.map((a, i) => (
             <span key={i} className="article-chip">{a.article} {a.name}</span>
@@ -544,15 +644,14 @@ function exportCSV(rows) {
 // ─── DASHBOARD ────────────────────────────────────────────────────────────
 function Dashboard({ data, onReset }) {
   const [activeTab, setActiveTab] = useState('overview');
-
+  const { summary } = data;
   const tabs = [
     { id: 'overview', label: 'Översikt', icon: 'home' },
     { id: 'abcxyz', label: 'ABC/XYZ', icon: 'grid' },
-    { id: 'purchasing', label: 'Inköp', icon: 'trending', badge: data.summary?.articles_to_order },
-    { id: 'slotting', label: 'Slotting', icon: 'move', badge: data.summary?.articles_to_move },
-    { id: 'capital', label: 'Kapital', icon: 'money', badge: data.summary?.dead_stock + (data.summary?.overstock || 0) },
+    { id: 'purchasing', label: 'Inköp', icon: 'trending', badge: summary?.articles_to_order },
+    { id: 'slotting', label: 'Slotting', icon: 'move', badge: summary?.has_location_data ? summary?.articles_to_move : null },
+    { id: 'capital', label: 'Kapital', icon: 'money', badge: summary?.has_cost_data ? (summary?.dead_stock + (summary?.overstock || 0)) : null },
   ];
-
   return (
     <div className="dashboard">
       <div className="sidebar">
@@ -563,9 +662,7 @@ function Dashboard({ data, onReset }) {
             <div className="sidebar-sub">OPTIMIZER</div>
           </div>
         </div>
-
         <button className="back-btn" onClick={onReset}><Icon name="refresh" size={14} /> Byt data</button>
-
         <nav className="sidebar-nav">
           {tabs.map(t => (
             <button
@@ -579,34 +676,30 @@ function Dashboard({ data, onReset }) {
             </button>
           ))}
         </nav>
-
         <div className="sidebar-footer">
           <div className="service-level">
             <span>SERVICENIVÅ</span>
             <div className="sl-bars">
               <span className="sl-low">95%</span>
-              <span className="sl-cur">{data.summary?.service_level_pct}%</span>
+              <span className="sl-cur">{summary?.service_level_pct}%</span>
               <span className="sl-high">99%</span>
             </div>
           </div>
           <div className="data-info">
             <span className="data-dot">●</span> Data aktiv<br />
-            <span className="data-count">{fmt(data.summary?.total_articles)} artiklar</span>
+            <span className="data-count">{fmt(summary?.total_articles)} artiklar</span>
           </div>
-          <div className="version">v2.1 · {data.summary?.analysis_timestamp}</div>
+          <div className="version">v2.2 · {summary?.analysis_timestamp}</div>
         </div>
       </div>
-
       <div className="main-content">
         <div className="top-bar">
           <div>
-            <h2 className="page-title">
-              {tabs.find(t => t.id === activeTab)?.label}
-            </h2>
+            <h2 className="page-title">{tabs.find(t => t.id === activeTab)?.label}</h2>
             <div className="top-stats">
-              <span className="stat-crit">● {data.summary?.critical} kritiska</span>
-              <span className="stat-order">{data.summary?.articles_to_order} att beställa</span>
-              {data.summary?.overstock > 0 && <span className="stat-over">{data.summary?.overstock} överlager</span>}
+              <span className="stat-crit">● {summary?.critical} kritiska</span>
+              <span className="stat-order">{summary?.articles_to_order} att beställa</span>
+              {summary?.overstock > 0 && <span className="stat-over">{summary?.overstock} överlager</span>}
             </div>
           </div>
           <div className="top-tabs">
@@ -615,7 +708,6 @@ function Dashboard({ data, onReset }) {
             ))}
           </div>
         </div>
-
         {activeTab === 'overview' && <OverviewTab data={data} />}
         {activeTab === 'abcxyz' && <AbcXyzTab data={data} />}
         {activeTab === 'purchasing' && <PurchasingTab data={data} />}
