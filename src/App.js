@@ -845,10 +845,12 @@ function Dashboard({ data, onReset }) {
             <span className="data-dot">●</span> Data aktiv<br />
             <span className="data-count">{fmt(summary?.total_articles)} artiklar</span>
           </div>
-          <div className="version">v2.2 · {summary?.analysis_timestamp}</div>
-          <button className="pdf-btn" onClick={() => openPDFReport()} title="Generera månadsrapport som PDF">
-            <Icon name="download" size={13} /> Månadsrapport PDF
-          </button>
+          <div className="version">v2.5 · {summary?.analysis_timestamp}</div>
+          {summary && (
+            <button className="pdf-btn" onClick={() => openPDFReport()} title="Generera månadsrapport som PDF" style={{ marginTop: 8, width: '100%', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 0', cursor: 'pointer', fontWeight: 600, fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <Icon name="download" size={13} /> Månadsrapport PDF
+            </button>
+          )}
         </div>
       </div>
       <div className="main-content">
