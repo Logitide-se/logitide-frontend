@@ -844,7 +844,10 @@ function Dashboard({ data, onReset }) {
               <span className="sl-high">99%</span>
             </div>
             <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>
-              Lagerhälsa: {summary?.service_level_pct}%
+              Andel A-artiklar med tillräckligt lager för att undvika produktionsstopp.
+            </div>
+            <div style={{ fontSize: 10, color: '#475569', marginTop: 3 }}>
+              Lagerhälsa (alla): {summary?.service_level_pct}%
             </div>
           </div>
           <div className="data-info">
