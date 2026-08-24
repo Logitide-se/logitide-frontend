@@ -768,9 +768,23 @@ function AbcXyzTab({ data }) {
 }
 
 // ─── PDF RAPPORT ───────────────────────────────────────────────────────
-function openPDFReport(analysis) {
-  const payload = btoa(unescape(encodeURIComponent(JSON.stringify(analysis))));
-  window.open('/rapport.html#' + payload, '_blank');
+async function openPDFReport() {
+  if (!window._lastUploadedFile) {
+    alert('Ladda upp filen igen för att generera rapporten.');
+    return;
+  }
+  try {
+    const formData = new FormData();
+    formData.append('file', window._lastUploadedFile);
+    const res = await fetch(`${API_URL}/monthly-report`, { method: 'POST', body: formData });
+    if (!res.ok) throw new Error('Serverfel vid rapport');
+    const html = await res.text();
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+  } catch (e) {
+    alert('Kunde inte generera rapport: ' + e.message);
+  }
 }
 
 // ─── CSV EXPORT ────────────────────────────────────────────────────────
@@ -832,7 +846,7 @@ function Dashboard({ data, onReset }) {
             <span className="data-count">{fmt(summary?.total_articles)} artiklar</span>
           </div>
           <div className="version">v2.2 · {summary?.analysis_timestamp}</div>
-          <button className="pdf-btn" onClick={() => openPDFReport(data)} title="Generera månadsrapport som PDF">
+          <button className="pdf-btn" onClick={() => openPDFReport()} title="Generera månadsrapport som PDF">
             <Icon name="download" size={13} /> Månadsrapport PDF
           </button>
         </div>
