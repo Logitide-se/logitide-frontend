@@ -834,11 +834,17 @@ function Dashboard({ data, onReset }) {
         </nav>
         <div className="sidebar-footer">
           <div className="service-level">
-            <span>SERVICENIVÅ</span>
+            <span>SERVICENIVÅ (A-ART.)</span>
             <div className="sl-bars">
               <span className="sl-low">95%</span>
-              <span className="sl-cur">{summary?.service_level_pct}%</span>
+              <span className="sl-cur" style={{
+                color: summary?.a_service_level_pct >= 95 ? '#22c55e'
+                  : summary?.a_service_level_pct >= 85 ? '#f97316' : '#ef4444'
+              }}>{summary?.a_service_level_pct ?? '—'}%</span>
               <span className="sl-high">99%</span>
+            </div>
+            <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>
+              Lagerhälsa: {summary?.service_level_pct}%
             </div>
           </div>
           <div className="data-info">
