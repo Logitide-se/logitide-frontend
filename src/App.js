@@ -99,6 +99,7 @@ function UploadPage({ onAnalysis }) {
   const loadingMessages = ['Läser er fil…', 'Matchar kolumner…', 'Beräknar täcktid…', 'Analyserar ABC/XYZ…', 'Skapar rekommendationer…'];
   const handleFile = async (file) => {
     if (!file) return;
+    window._lastUploadedFile = file; // Spara för export
     setLoading(true);
     setError(null);
     let msgIndex = 0;
@@ -353,6 +354,39 @@ function PurchasingTab({ data }) {
   const { summary, articles } = data;
   const hasCost = summary.has_cost_data;
   const toOrder = articles?.filter(a => a.order_qty > 0).sort((a, b) => b.order_value - a.order_value) || [];
+  const [exporting, setExporting] = React.useState(false);
+
+  const handleExport = async () => {
+    if (!window._lastUploadedFile) {
+      alert('Ladda upp filen igen för att exportera inköpslista.');
+      return;
+    }
+    setExporting(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', window._lastUploadedFile);
+      const res = await fetch(`${API_URL}/export-purchase-order`, { method: 'POST', body: formData });
+      if (!res.ok) {
+        let errMsg = 'Export misslyckades';
+        try { const err = await res.json(); errMsg = err.detail || errMsg; } catch(e) {}
+        alert(errMsg);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const today = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `logitide_inkopslista_${today}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="tab-content">
       {!hasCost && (
@@ -378,6 +412,18 @@ function PurchasingTab({ data }) {
         />
       </div>
       <div className="section">
+        <div className="section-header">
+          <h3>Inköpslista — {toOrder.length} artiklar att beställa</h3>
+          <button
+            className="export-btn"
+            onClick={handleExport}
+            disabled={exporting}
+            style={{ background: '#3b82f6', color: '#fff', borderColor: '#3b82f6', fontWeight: 600 }}
+          >
+            <Icon name="download" size={14} />
+            {exporting ? 'Exporterar...' : 'Exportera inköpslista (.xlsx)'}
+          </button>
+        </div>
         <table className="article-table">
           <thead>
             <tr>
@@ -775,7 +821,7 @@ function Dashboard({ data, onReset }) {
             <span className="data-dot">●</span> Data aktiv<br />
             <span className="data-count">{fmt(summary?.total_articles)} artiklar</span>
           </div>
-          <div className="version">v2.3.2 · {summary?.analysis_timestamp}</div>
+          <div className="version">v2.2 · {summary?.analysis_timestamp}</div>
           <button className="pdf-btn" onClick={() => openPDFReport(data)} title="Generera månadsrapport som PDF">
             <Icon name="download" size={13} /> Månadsrapport PDF
           </button>
