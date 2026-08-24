@@ -428,23 +428,18 @@ function PurchasingTab({ data }) {
           <thead>
             <tr>
               <th>ARTIKEL-ID</th><th>ARTIKELNAMN</th><th>ABC</th><th>SALDO</th>
-              <th>TÄCKTID</th><th>BESTÄLL SENAST</th><th>ORDERKVANTITET</th>
+              <th>TÄCKTID</th><th>DAGAR KVAR</th><th>BESTÄLL SENAST</th><th>ORDERKVANTITET</th>
               {hasCost && <th>ORDERVÄRDE</th>}
               <th>STATUS</th>
             </tr>
           </thead>
           <tbody>
             {toOrder.slice(0, 100).map((a, i) => {
-              const daysUntilReorder = a.reorder_date
-                ? Math.round((new Date(a.reorder_date) - new Date()) / 86400000)
-                : null;
-              const reorderLabel = daysUntilReorder === null ? '—'
-                : daysUntilReorder <= 0 ? 'Idag'
-                : daysUntilReorder === 1 ? 'Imorgon'
-                : `${a.reorder_date}`;
-              const reorderColor = daysUntilReorder === null ? 'inherit'
-                : daysUntilReorder <= 0 ? '#ef4444'
-                : daysUntilReorder <= 3 ? '#f97316'
+              const daysLeft = a.days_until_reorder ?? 0;
+              const dagarKvarLabel = daysLeft <= 0 ? '0 d' : `${daysLeft} d`;
+              const reorderLabel = a.reorder_date || 'Idag';
+              const urgencyColor = daysLeft <= 0 ? '#ef4444'
+                : daysLeft <= 3 ? '#f97316'
                 : '#22c55e';
               return (
               <React.Fragment key={i}>
@@ -454,13 +449,14 @@ function PurchasingTab({ data }) {
                   <td><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}</span></td>
                   <td>{fmt(a.stock)}</td>
                   <td style={{ color: a.status === 'CRITICAL' ? '#ef4444' : '#f97316' }}>{fmtDays(a.coverage_days)}</td>
-                  <td style={{ color: reorderColor, fontWeight: daysUntilReorder <= 3 ? 700 : 400 }}>{reorderLabel}</td>
+                  <td style={{ color: urgencyColor, fontWeight: daysLeft <= 3 ? 700 : 400 }}>{dagarKvarLabel}</td>
+                  <td style={{ color: urgencyColor, fontWeight: daysLeft <= 3 ? 700 : 400 }}>{reorderLabel}</td>
                   <td><b>{fmt(a.order_qty)} st</b></td>
                   {hasCost && <td>{fmtKr(a.order_value)}</td>}
                   <td><span className="status-chip" style={{ background: statusColor(a.status) + '22', color: statusColor(a.status), border: `1px solid ${statusColor(a.status)}44` }}>{statusLabel(a.status)}</span></td>
                 </tr>
                 {a.explanation && (
-                  <tr className="explanation-row"><td colSpan={hasCost ? 9 : 8}><span className="explanation">{a.explanation}</span></td></tr>
+                  <tr className="explanation-row"><td colSpan={hasCost ? 10 : 9}><span className="explanation">{a.explanation}</span></td></tr>
                 )}
               </React.Fragment>
               );
