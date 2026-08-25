@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import './App.css';
 const API_URL = 'https://web-production-2ab93.up.railway.app';
 // ─── ICONS ────────────────────────────────────────────────────────────────
@@ -96,6 +96,10 @@ function UploadPage({ onAnalysis }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [loadingMsg, setLoadingMsg] = useState('');
+  // Väck Railway så servern är redo när användaren laddar upp filen
+  useEffect(() => {
+    fetch(`${API_URL}/health`).catch(() => {});
+  }, []);
   const loadingMessages = ['Läser er fil…', 'Matchar kolumner…', 'Beräknar täcktid…', 'Analyserar ABC/XYZ…', 'Skapar rekommendationer…'];
   const handleFile = async (file) => {
     if (!file) return;
@@ -111,10 +115,18 @@ function UploadPage({ onAnalysis }) {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await fetch(`${API_URL}/analyze`, { method: 'POST', body: formData });
+      let res;
+      try {
+        res = await fetch(`${API_URL}/analyze`, { method: 'POST', body: formData });
+      } catch (networkErr) {
+        throw new Error('Kunde inte nå servern. Kontrollera din internetanslutning och försök igen.');
+      }
       if (!res.ok) {
-        let errMsg = 'Något gick fel';
-        try { const err = await res.json(); errMsg = err.detail || errMsg; } catch(e) {}
+        let errMsg = 'Något gick fel vid analysen. Kontrollera att filen är ett giltigt Excel- eller CSV-dokument.';
+        try {
+          const err = await res.json();
+          if (err.detail && !err.detail.includes('Traceback') && err.detail.length < 200) errMsg = err.detail;
+        } catch(e) {}
         throw new Error(errMsg);
       }
       const data = await res.json();
@@ -365,11 +377,15 @@ function PurchasingTab({ data }) {
     try {
       const formData = new FormData();
       formData.append('file', window._lastUploadedFile);
-      const res = await fetch(`${API_URL}/export-purchase-order`, { method: 'POST', body: formData });
+      let res;
+      try {
+        res = await fetch(`${API_URL}/export-purchase-order`, { method: 'POST', body: formData });
+      } catch (networkErr) {
+        alert('Kunde inte nå servern. Kontrollera din internetanslutning och försök igen.');
+        return;
+      }
       if (!res.ok) {
-        let errMsg = 'Export misslyckades';
-        try { const err = await res.json(); errMsg = err.detail || errMsg; } catch(e) {}
-        alert(errMsg);
+        alert('Export misslyckades. Försök igen om en stund.');
         return;
       }
       const blob = await res.blob();
@@ -776,14 +792,23 @@ async function openPDFReport() {
   try {
     const formData = new FormData();
     formData.append('file', window._lastUploadedFile);
-    const res = await fetch(`${API_URL}/monthly-report`, { method: 'POST', body: formData });
-    if (!res.ok) throw new Error('Serverfel vid rapport');
+    let res;
+    try {
+      res = await fetch(`${API_URL}/monthly-report`, { method: 'POST', body: formData });
+    } catch (networkErr) {
+      alert('Kunde inte nå servern. Kontrollera din internetanslutning och försök igen.');
+      return;
+    }
+    if (!res.ok) {
+      alert('Rapporten kunde inte genereras. Försök igen om en stund.');
+      return;
+    }
     const html = await res.text();
     const blob = new Blob([html], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank');
   } catch (e) {
-    alert('Kunde inte generera rapport: ' + e.message);
+    alert('Kunde inte generera rapport. Försök ladda upp filen igen.');
   }
 }
 
