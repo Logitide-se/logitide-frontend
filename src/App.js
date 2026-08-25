@@ -91,11 +91,12 @@ function KpiCard({ label, value, sub, color, missingReason }) {
 }
 
 // ─── UPLOAD PAGE ──────────────────────────────────────────────────────────
-function UploadPage({ onAnalysis }) {
+function UploadPage({ onAnalysis, auth, onLogout }) {
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [loadingMsg, setLoadingMsg] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
   // Väck Railway så servern är redo när användaren laddar upp filen
   useEffect(() => {
     fetch(`${API_URL}/health`).catch(() => {});
@@ -117,7 +118,9 @@ function UploadPage({ onAnalysis }) {
       formData.append('file', file);
       let res;
       try {
-        res = await fetch(`${API_URL}/analyze`, { method: 'POST', body: formData });
+        const headers = {};
+        if (auth?.token) headers['Authorization'] = `Bearer ${auth.token}`;
+        res = await fetch(`${API_URL}/analyze`, { method: 'POST', body: formData, headers });
       } catch (networkErr) {
         throw new Error('Kunde inte nå servern. Kontrollera din internetanslutning och försök igen.');
       }
@@ -195,6 +198,18 @@ function UploadPage({ onAnalysis }) {
             <span key={erp} className="erp-tag">{erp}</span>
           ))}
         </div>
+        {auth && (
+          <div style={{ marginTop: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#475569' }}>
+            <span>Inloggad som {auth.email}{auth.company ? ` · ${auth.company}` : ''}</span>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button onClick={() => setShowHistory(!showHistory)} style={{ background: 'none', border: 'none', color: '#6366f1', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                {showHistory ? 'Dölj historik' : 'Visa historik'}
+              </button>
+              <button onClick={onLogout} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 12 }}>Logga ut</button>
+            </div>
+          </div>
+        )}
+        {showHistory && auth && <div style={{ marginTop: 16 }}><HistoryTab token={auth.token} /></div>}
       </div>
     </div>
   );
@@ -823,7 +838,7 @@ function exportCSV(rows) {
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────
-function Dashboard({ data, onReset }) {
+function Dashboard({ data, onReset, auth, onLogout }) {
   const [activeTab, setActiveTab] = useState('overview');
   const { summary } = data;
   const tabs = [
@@ -832,6 +847,7 @@ function Dashboard({ data, onReset }) {
     { id: 'purchasing', label: 'Inköp', icon: 'trending', badge: summary?.articles_to_order },
     { id: 'slotting', label: 'Slotting', icon: 'move', badge: summary?.has_location_data ? summary?.articles_to_move : null },
     { id: 'capital', label: 'Kapital', icon: 'money', badge: summary?.has_cost_data ? (summary?.dead_stock + (summary?.overstock || 0)) : null },
+    ...(auth ? [{ id: 'history', label: 'Historik', icon: 'trending' }] : []),
   ];
   return (
     <div className="dashboard">
@@ -880,6 +896,12 @@ function Dashboard({ data, onReset }) {
             <span className="data-count">{fmt(summary?.total_articles)} artiklar</span>
           </div>
           <div className="version">v2.5 · {summary?.analysis_timestamp}</div>
+          {auth && (
+            <div style={{ fontSize: 10, color: '#475569', marginTop: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>{auth.email}</span>
+              <button onClick={onLogout} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 10, padding: 0 }}>Logga ut</button>
+            </div>
+          )}
           {summary && (
             <button className="pdf-btn" onClick={() => openPDFReport()} title="Generera månadsrapport som PDF" style={{ marginTop: 8, width: '100%', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 0', cursor: 'pointer', fontWeight: 600, fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <Icon name="download" size={13} /> Månadsrapport PDF
@@ -908,7 +930,181 @@ function Dashboard({ data, onReset }) {
         {activeTab === 'purchasing' && <PurchasingTab data={data} />}
         {activeTab === 'slotting' && <SlottingTab data={data} />}
         {activeTab === 'capital' && <CapitalTab data={data} />}
+        {activeTab === 'history' && auth && <HistoryTab token={auth.token} />}
       </div>
+    </div>
+  );
+}
+
+// ─── APP ──────────────────────────────────────────────────────────────────
+// ─── LOGIN PAGE ───────────────────────────────────────────────────────────
+function LoginPage({ onLogin }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || 'Felaktig e-post eller lösenord');
+      }
+      const data = await res.json();
+      localStorage.setItem('logitide_token', data.token);
+      localStorage.setItem('logitide_email', data.email);
+      localStorage.setItem('logitide_company', data.company || '');
+      onLogin({ token: data.token, email: data.email, company: data.company });
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="upload-page">
+      <div className="upload-content" style={{ maxWidth: 400 }}>
+        <div className="logo-area">
+          <div className="logo-icon">📦</div>
+          <div>
+            <h1 className="logo-text">Logitide</h1>
+            <p className="logo-sub">OPTIMIZER</p>
+          </div>
+        </div>
+        <h2 className="upload-headline" style={{ fontSize: 24, marginBottom: 24 }}>Logga in</h2>
+        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <input
+            type="email"
+            placeholder="E-post"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            required
+            style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #334155', background: '#1e293b', color: '#f1f5f9', fontSize: 14 }}
+          />
+          <input
+            type="password"
+            placeholder="Lösenord"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            required
+            style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #334155', background: '#1e293b', color: '#f1f5f9', fontSize: 14 }}
+          />
+          {error && <div style={{ color: '#ef4444', fontSize: 13 }}>⚠️ {error}</div>}
+          <button
+            type="submit"
+            disabled={loading}
+            style={{ padding: '11px 0', borderRadius: 8, background: '#6366f1', color: '#fff', border: 'none', fontWeight: 700, fontSize: 15, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}
+          >
+            {loading ? 'Loggar in…' : 'Logga in'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── HISTORY TAB ──────────────────────────────────────────────────────────
+function HistoryTab({ token }) {
+  const [history, setHistory] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`${API_URL}/history`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(r => r.json())
+      .then(d => setHistory(d.analyses || []))
+      .catch(() => setHistory([]))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  if (loading) return <div className="tab-content"><p style={{ color: '#94a3b8' }}>Hämtar historik…</p></div>;
+  if (!history.length) return (
+    <div className="tab-content">
+      <p style={{ color: '#94a3b8' }}>Ingen historik ännu — kör din första analys så sparas den här automatiskt.</p>
+    </div>
+  );
+
+  // Beräkna trend mot föregående körning
+  const latest = history[0];
+  const prev = history[1];
+
+  return (
+    <div className="tab-content">
+      <h3 style={{ color: '#f1f5f9', marginBottom: 16 }}>Analyskörningar — senaste 24</h3>
+      {prev && (
+        <div style={{ background: '#1e293b', borderRadius: 10, padding: 16, marginBottom: 20, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>SERVICENIVÅ (A-ART.) — TREND</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: latest.summary?.a_service_level_pct >= prev.summary?.a_service_level_pct ? '#22c55e' : '#ef4444' }}>
+              {latest.summary?.a_service_level_pct ?? '—'}%
+            </div>
+            <div style={{ fontSize: 12, color: '#94a3b8' }}>
+              {prev.summary?.a_service_level_pct != null
+                ? `${latest.summary?.a_service_level_pct >= prev.summary?.a_service_level_pct ? '▲' : '▼'} ${Math.abs((latest.summary?.a_service_level_pct ?? 0) - (prev.summary?.a_service_level_pct ?? 0)).toFixed(1)}% sedan föregående`
+                : 'Första körningen'}
+            </div>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>KRITISKA ARTIKLAR — TREND</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: latest.summary?.critical <= prev.summary?.critical ? '#22c55e' : '#ef4444' }}>
+              {latest.summary?.critical ?? '—'}
+            </div>
+            <div style={{ fontSize: 12, color: '#94a3b8' }}>
+              {prev.summary?.critical != null
+                ? `${latest.summary?.critical <= prev.summary?.critical ? '▼' : '▲'} ${Math.abs((latest.summary?.critical ?? 0) - (prev.summary?.critical ?? 0))} sedan föregående`
+                : ''}
+            </div>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>BUNDET KAPITAL — TREND</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: '#a78bfa' }}>
+              {fmt(Math.round((latest.summary?.total_stock_value_sek ?? 0) / 1000))} tkr
+            </div>
+            <div style={{ fontSize: 12, color: '#94a3b8' }}>
+              {prev.summary?.total_stock_value_sek != null
+                ? (() => {
+                    const diff = Math.round(((latest.summary?.total_stock_value_sek ?? 0) - (prev.summary?.total_stock_value_sek ?? 0)) / 1000);
+                    return `${diff >= 0 ? '▲' : '▼'} ${fmt(Math.abs(diff))} tkr sedan föregående`;
+                  })()
+                : ''}
+            </div>
+          </div>
+        </div>
+      )}
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <thead>
+          <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #1e293b' }}>
+            <th style={{ padding: '8px 12px' }}>DATUM</th>
+            <th style={{ padding: '8px 12px' }}>FIL</th>
+            <th style={{ padding: '8px 12px' }}>ARTIKLAR</th>
+            <th style={{ padding: '8px 12px' }}>KRITISKA</th>
+            <th style={{ padding: '8px 12px' }}>SERVICENIVÅ A</th>
+            <th style={{ padding: '8px 12px' }}>KAPITAL</th>
+          </tr>
+        </thead>
+        <tbody>
+          {history.map((h, i) => (
+            <tr key={h.id} style={{ borderBottom: '1px solid #0f172a', background: i === 0 ? '#1e293b' : 'transparent' }}>
+              <td style={{ padding: '10px 12px', color: '#94a3b8' }}>{new Date(h.created_at).toLocaleDateString('sv-SE')}</td>
+              <td style={{ padding: '10px 12px', color: '#f1f5f9' }}>{h.filename || '—'}</td>
+              <td style={{ padding: '10px 12px', color: '#f1f5f9' }}>{fmt(h.summary?.total_articles)}</td>
+              <td style={{ padding: '10px 12px', color: h.summary?.critical > 0 ? '#ef4444' : '#22c55e', fontWeight: 600 }}>{h.summary?.critical ?? '—'}</td>
+              <td style={{ padding: '10px 12px', color: (h.summary?.a_service_level_pct ?? 0) >= 95 ? '#22c55e' : (h.summary?.a_service_level_pct ?? 0) >= 85 ? '#f97316' : '#ef4444', fontWeight: 600 }}>{h.summary?.a_service_level_pct ?? '—'}%</td>
+              <td style={{ padding: '10px 12px', color: '#a78bfa' }}>{fmt(Math.round((h.summary?.total_stock_value_sek ?? 0) / 1000))} tkr</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -916,7 +1112,22 @@ function Dashboard({ data, onReset }) {
 // ─── APP ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [analysisData, setAnalysisData] = useState(null);
-  return analysisData
-    ? <Dashboard data={analysisData} onReset={() => setAnalysisData(null)} />
-    : <UploadPage onAnalysis={setAnalysisData} />;
+  const [auth, setAuth] = useState(() => {
+    const token = localStorage.getItem('logitide_token');
+    const email = localStorage.getItem('logitide_email');
+    const company = localStorage.getItem('logitide_company');
+    return token ? { token, email, company } : null;
+  });
+
+  const handleLogout = () => {
+    localStorage.removeItem('logitide_token');
+    localStorage.removeItem('logitide_email');
+    localStorage.removeItem('logitide_company');
+    setAuth(null);
+    setAnalysisData(null);
+  };
+
+  if (!auth) return <LoginPage onLogin={setAuth} />;
+  if (analysisData) return <Dashboard data={analysisData} auth={auth} onReset={() => setAnalysisData(null)} onLogout={handleLogout} />;
+  return <UploadPage onAnalysis={setAnalysisData} auth={auth} onLogout={handleLogout} />;
 }
