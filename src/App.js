@@ -752,55 +752,119 @@ function PurchasingTab({ data }) {
 function SlottingTab({ data }) {
   const { summary, articles } = data;
   const hasLoc = summary.has_location_data;
+  // ── Med loc-data: befintlig flyttlista ──
   const moves = articles?.filter(a => a.suggest_move).sort((a, b) => {
     const p = { CRITICAL: 0, MEDIUM: 1, LOW: 2 };
     return (p[a.move_priority] || 2) - (p[b.move_priority] || 2);
   }) || [];
   const priorityColor = { CRITICAL: '#ef4444', MEDIUM: '#f59e0b', LOW: '#6b7280' };
   const priorityLabel = { CRITICAL: 'KRITISK', MEDIUM: 'MEDEL', LOW: 'LÅG' };
-  if (!hasLoc) {
+
+  // ── Med loc: visa befintlig logik ──
+  if (hasLoc) {
     return (
       <div className="tab-content">
-        <div className="empty-state">
-          <div className="empty-icon">📍</div>
-          <h3>Lagerposition saknas</h3>
-          <p>Slottinganalys kräver en kolumn med nuvarande lagerposition (t.ex. "Zon", "Hyllplats", "Location").</p>
-          <p className="empty-tip">Lägg till kolumnen i er exportfil och ladda upp på nytt — Logitide känner automatiskt igen: <code>loc, location, lagerposition, zon, hyllplats, plats</code></p>
+        <div className="kpi-grid-4">
+          <KpiCard label="KORREKT PLACERADE" value={fmt(summary.total_articles - summary.articles_to_move)} color="#22c55e" />
+          <KpiCard label="KRITISKA FLYTT" value={fmt(moves.filter(a => a.move_priority === 'CRITICAL').length)} color="#ef4444" />
+          <KpiCard label="MEDELPRIORITET" value={fmt(moves.filter(a => a.move_priority === 'MEDIUM').length)} color="#f59e0b" />
+          <KpiCard label="LÅGPRIORITERADE" value={fmt(moves.filter(a => a.move_priority === 'LOW').length)} color="#6b7280" />
+        </div>
+        <div className="section">
+          <div className="section-header">
+            <h3>Flyttlista — prioriterad</h3>
+            <button className="export-btn" onClick={() => exportCSV(moves)}><Icon name="download" size={14} /> Exportera CSV</button>
+          </div>
+          <p className="section-desc">Slottinglistan baseras på ABC/XYZ-klassificering och förbrukningsmönster. Exakt placering bestäms av lageransvarig.</p>
+          <table className="article-table">
+            <thead>
+              <tr><th>ARTIKEL</th><th>ABC</th><th>NUVARANDE</th><th>REKOMMENDERAD</th><th>PRIORITET</th><th>✓</th></tr>
+            </thead>
+            <tbody>
+              {moves.map((a, i) => (
+                <tr key={i}>
+                  <td><div className="art-name">{a.name}</div><div className="art-id">{a.article}</div></td>
+                  <td><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}{a.xyz ? `/${a.xyz}` : ''}</span></td>
+                  <td>Zon {a.loc}</td>
+                  <td style={{ color: '#3b82f6', fontWeight: 600 }}>Zon {a.recommended_zone}</td>
+                  <td><span className="status-chip" style={{ background: (priorityColor[a.move_priority] || '#6b7280') + '22', color: priorityColor[a.move_priority] || '#6b7280', border: `1px solid ${(priorityColor[a.move_priority] || '#6b7280')}44` }}>{priorityLabel[a.move_priority] || a.move_priority}</span></td>
+                  <td><button className="check-btn">✓</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     );
   }
+
+  // ── Utan loc: visa tydlig förklaring om vad som krävs ──
   return (
     <div className="tab-content">
-      <div className="kpi-grid-4">
-        <KpiCard label="KORREKT PLACERADE" value={fmt(summary.total_articles - summary.articles_to_move)} color="#22c55e" />
-        <KpiCard label="KRITISKA FLYTT" value={fmt(moves.filter(a => a.move_priority === 'CRITICAL').length)} color="#ef4444" />
-        <KpiCard label="MEDELPRIORITET" value={fmt(moves.filter(a => a.move_priority === 'MEDIUM').length)} color="#f59e0b" />
-        <KpiCard label="LÅGPRIORITERADE" value={fmt(moves.filter(a => a.move_priority === 'LOW').length)} color="#6b7280" />
-      </div>
-      <div className="section">
-        <div className="section-header">
-          <h3>Flyttlista — prioriterad</h3>
-          <button className="export-btn" onClick={() => exportCSV(moves)}><Icon name="download" size={14} /> Exportera CSV</button>
+      <div style={{
+        maxWidth: 600, margin: '40px auto', textAlign: 'center',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20
+      }}>
+        <div style={{ fontSize: 40 }}>📍</div>
+        <div>
+          <h3 style={{ color: '#f1f5f9', marginBottom: 8 }}>Slottinganalys kräver lagerpositioner</h3>
+          <p style={{ color: '#94a3b8', fontSize: 14, lineHeight: 1.7, maxWidth: 480 }}>
+            För att rekommendera var en artikel ska stå måste systemet veta var den <em>faktiskt</em> står idag.
+            Utan det underlagest kan vi inte beräkna om en flytt är motiverad, hur många rörelser det sparar,
+            eller vilka artiklar som är felprioriterade.
+          </p>
         </div>
-        <p className="section-desc">Slottinglistan baseras på ABC/XYZ-klassificering och förbrukningsmönster. Exakt placering bestäms av lageransvarig.</p>
-        <table className="article-table">
-          <thead>
-            <tr><th>ARTIKEL</th><th>ABC</th><th>NUVARANDE</th><th>REKOMMENDERAD</th><th>PRIORITET</th><th>✓</th></tr>
-          </thead>
-          <tbody>
-            {moves.map((a, i) => (
-              <tr key={i}>
-                <td><div className="art-name">{a.name}</div><div className="art-id">{a.article}</div></td>
-                <td><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}{a.xyz ? `/${a.xyz}` : ''}</span></td>
-                <td>Zon {a.loc}</td>
-                <td style={{ color: '#3b82f6', fontWeight: 600 }}>Zon {a.recommended_zone}</td>
-                <td><span className="status-chip" style={{ background: (priorityColor[a.move_priority] || '#6b7280') + '22', color: priorityColor[a.move_priority] || '#6b7280', border: `1px solid ${(priorityColor[a.move_priority] || '#6b7280')}44` }}>{priorityLabel[a.move_priority] || a.move_priority}</span></td>
-                <td><button className="check-btn">✓</button></td>
-              </tr>
+
+        <div style={{
+          background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12,
+          padding: '20px 24px', width: '100%', textAlign: 'left'
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', letterSpacing: '0.1em', marginBottom: 14 }}>
+            VAD SOM KRÄVS
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[
+              { field: 'Nuvarande hyllplats / zon', example: 'A12, Zon 3, Hylla 5B', why: 'Systemet jämför mot ABC-klass och beräknar om flytt är lönsam' },
+              { field: 'Kolumnnamn som känns igen', example: 'loc, location, lagerposition, zon, hyllplats', why: 'Exportera direkt ur ert WMS/ERP' },
+            ].map((r, i) => (
+              <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                <span style={{ color: '#22c55e', fontSize: 16, marginTop: 1, flexShrink: 0 }}>✓</span>
+                <div>
+                  <div style={{ fontSize: 13, color: '#f1f5f9', fontWeight: 600 }}>{r.field}</div>
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                    T.ex.: <code style={{ background: '#1e293b', padding: '1px 5px', borderRadius: 3 }}>{r.example}</code>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>{r.why}</div>
+                </div>
+              </div>
             ))}
-          </tbody>
-        </table>
+          </div>
+        </div>
+
+        <div style={{
+          background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12,
+          padding: '20px 24px', width: '100%', textAlign: 'left'
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', letterSpacing: '0.1em', marginBottom: 14 }}>
+            VAD DU FÅR NÄR DATA FINNS
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {[
+              'Prioriterad flyttlista — vilka artiklar ska till guldzon (A) vs bakre lager (C)',
+              'Antal onödiga plocksträckor per dag som kan elimineras',
+              'CSV-export direkt till lageransvarig',
+            ].map((item, i) => (
+              <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                <span style={{ color: '#3b82f6', flexShrink: 0, marginTop: 1 }}>→</span>
+                <span style={{ fontSize: 13, color: '#94a3b8' }}>{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <p style={{ fontSize: 12, color: '#475569' }}>
+          Lägg till positionskolumnen i er exportfil och ladda upp på nytt.
+        </p>
       </div>
     </div>
   );
@@ -1096,6 +1160,8 @@ function exportCSV(rows) {
   const a = document.createElement('a');
   a.href = url; a.download = 'logitide-slotting.csv'; a.click();
 }
+
+
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────
 function Dashboard({ data, onReset, auth, onLogout }) {
