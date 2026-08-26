@@ -134,7 +134,7 @@ function KpiCard({ label, value, sub, color, missingReason, tooltip }) {
         {tooltip && <InfoTooltip text={tooltip} />}
       </div>
       <div className="kpi-value" style={{ color }}>{value}</div>
-      {sub && <div className="kpi-sub">{sub}</div>}
+      {sub && <div className="kpi-sub" style={{ whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'break-word' }}>{sub}</div>}
     </div>
   );
 }
