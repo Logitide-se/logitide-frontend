@@ -1348,6 +1348,7 @@ function HistoryTab({ token }) {
   const [selectedId, setSelectedId] = useState(null);
   const [compareIds, setCompareIds] = useState(null); // {idA, idB, labelA, labelB}
   const [compareSelected, setCompareSelected] = useState(null); // id of row selected for compare
+  const [clearing, setClearing] = useState(false);
 
   useEffect(() => {
     fetch(`${API_URL}/history`, {
@@ -1358,6 +1359,25 @@ function HistoryTab({ token }) {
       .catch(() => setHistory([]))
       .finally(() => setLoading(false));
   }, [token]);
+
+  const handleClearHistory = async () => {
+    if (!window.confirm('Nollställ all historik? Detta kan inte ångras.')) return;
+    setClearing(true);
+    try {
+      await fetch(`${API_URL}/history`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setHistory([]);
+      setSelectedId(null);
+      setCompareIds(null);
+      setCompareSelected(null);
+    } catch (e) {
+      alert('Kunde inte rensa historik. Försök igen.');
+    } finally {
+      setClearing(false);
+    }
+  };
 
   if (loading) return <div className="tab-content"><p style={{ color: '#94a3b8' }}>Hämtar historik…</p></div>;
   if (!history || !history.length) return (
@@ -1476,6 +1496,25 @@ function HistoryTab({ token }) {
             Klicka på rad för detaljer · Klicka "Jämför" för att välja
           </div>
         )}
+        <button
+          onClick={handleClearHistory}
+          disabled={clearing}
+          style={{
+            background: 'transparent',
+            border: '1px solid #ef444466',
+            color: clearing ? '#64748b' : '#ef4444',
+            borderRadius: 6,
+            padding: '5px 12px',
+            fontSize: 11,
+            cursor: clearing ? 'not-allowed' : 'pointer',
+            fontWeight: 600,
+            transition: 'all 0.15s',
+          }}
+          onMouseEnter={e => { if (!clearing) { e.currentTarget.style.background = '#ef444418'; e.currentTarget.style.borderColor = '#ef4444'; }}}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = '#ef444466'; }}
+        >
+          {clearing ? 'Rensar…' : '🗑 Rensa historik'}
+        </button>
       </div>
 
       <div style={{ overflowX: 'auto' }}>
