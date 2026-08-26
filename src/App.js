@@ -355,6 +355,7 @@ function OverviewTab({ data }) {
           sub={hasCost ? `varav ${fmtKr(summary.overstock_value_sek)} överlager` : null}
           color="#a855f7"
           missingReason={!hasCost ? 'Kräver inköpspris (cost) i filen' : null}
+          tooltip={"Totalt lagervärde = saldo × inköpspris för alla artiklar.\n\nÖverlager = artiklar med täcktid > 365 dagar (mer än ett års förbrukning i lager).\n\nHögt bundet kapital i överlager är en signal om att köpa stopp bör läggas tills lagret normaliserats."}
         />
         <KpiCard
           label="ATT FLYTTA"
@@ -362,10 +363,12 @@ function OverviewTab({ data }) {
           sub={hasLoc ? 'snabbare plock' : null}
           color="#3b82f6"
           missingReason={!hasLoc ? 'Kräver lagerposition (loc) i filen' : null}
+          tooltip={"Antal artiklar vars lagerposition inte stämmer med ABC-klassen.\n\nA-artiklar bör stå närmast plockzonen (guldzon).\nC-artiklar kan placeras längre bort.\n\nKorrekt slotting minskar plocket-id och höjer produktiviteten."}
         />
         <KpiCard label="DÖTT LAGER" value={fmt(summary.dead_stock)}
           sub={hasCost ? fmtKr(summary.dead_stock_value_sek) : `${summary.dead_stock} artiklar utan förbrukning`}
-          color="#6b7280" />
+          color="#6b7280"
+          tooltip={"Artiklar med saldo > 0 men registrerad förbrukning = 0.\n\nKan bero på felregistrering, utgångna produkter eller kassationer som ej bokförts.\n\nDött lager binder kapital utan att bidra till servicenivån — överväg utförsäljning eller skrotning."} />
       </div>
       {top_actions?.length > 0 && (
         <div className="section">
@@ -695,8 +698,10 @@ function CapitalTab({ data }) {
           <div className="empty-available">
             <h4>Vad som finns utan priser:</h4>
             <div className="kpi-grid-3" style={{marginTop: '16px'}}>
-              <KpiCard label="ÖVERLAGER (antal)" value={fmt(summary.overstock)} sub="artiklar" color="#a855f7" />
-              <KpiCard label="DÖTT LAGER (antal)" value={fmt(summary.dead_stock)} sub="artiklar utan förbrukning" color="#6b7280" />
+              <KpiCard label="ÖVERLAGER (antal)" value={fmt(summary.overstock)} sub="artiklar" color="#a855f7"
+                tooltip={"Artiklar med täcktid > 365 dagar — mer än ett års förbrukning i lager.\n\nÖverlager binder onödigt kapital och ökar risk för inkurans.\n\nRekommendation: pausa inköp och prioritera förbrukning av befintligt lager."} />
+              <KpiCard label="DÖTT LAGER (antal)" value={fmt(summary.dead_stock)} sub="artiklar utan förbrukning" color="#6b7280"
+                tooltip={"Artiklar med saldo > 0 men ingen registrerad förbrukning.\n\nKan vara felregistrerat, utgånget eller skrotat gods som ej bokförts.\n\nÖverväg utförsäljning, skrotning eller flytt till annan enhet."} />
               <KpiCard label="ATT BESTÄLLA" value={fmt(summary.articles_to_order)} sub="artiklar" color="#3b82f6" />
             </div>
           </div>
