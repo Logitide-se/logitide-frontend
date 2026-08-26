@@ -345,7 +345,7 @@ function OverviewTab({ data }) {
       )}
       <div className="kpi-grid">
         <KpiCard label="KRITISKA BRISTER" value={fmt(summary.critical)} sub={`${summary.watch} bevakas`} color="#ef4444"
-          tooltip="Kritisk = täcktid ≤ ledtid OCH ingen inköpsorder är lagd. Bevaka = brist men order är redan på väg. Artiklar med inkommande order räknas som bevaka, inte kritiska." />
+          tooltip={"Kritisk = täcktid ≤ ledtid OCH ingen inköpsorder är lagd.\nBevaka = brist men order är redan på väg.\n\nBevaka-tröskel per ABC-klass:\nA-artiklar: täcktid < 2× ledtid (hög buffer)\nB-artiklar: täcktid < 1.5× ledtid (standard)\nC-artiklar: täcktid < 1.2× ledtid (lägre marginal)"} />
         <KpiCard label="ATT BESTÄLLA" value={fmt(summary.articles_to_order)}
           sub={hasCost ? fmtKr(summary.total_order_value_sek) : 'Lägg till inköpspris för ordervärde'}
           color="#f97316" />
