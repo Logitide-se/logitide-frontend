@@ -1012,10 +1012,214 @@ function LoginPage({ onLogin }) {
   );
 }
 
+// ─── SPARKLINE ────────────────────────────────────────────────────────────
+function Sparkline({ values, color = '#6366f1', width = 120, height = 36, inverted = false }) {
+  if (!values || values.length < 2) return null;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const pts = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * width;
+    const y = inverted
+      ? ((v - min) / range) * (height - 6) + 3
+      : height - ((v - min) / range) * (height - 6) - 3;
+    return `${x},${y}`;
+  }).join(' ');
+  return (
+    <svg width={width} height={height} style={{ display: 'block' }}>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={pts.split(' ').pop().split(',')[0]} cy={pts.split(' ').pop().split(',')[1]} r="3" fill={color} />
+    </svg>
+  );
+}
+
+// ─── IMPROVEMENT CARDS ────────────────────────────────────────────────────
+function ImprovementCards({ cards, totalSaved }) {
+  if (!cards || cards.length === 0) return null;
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>VÄRDE SKAPAT SEDAN FÖREGÅENDE ANALYS</div>
+      {totalSaved > 0 && (
+        <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #1e293b 100%)', border: '1px solid #3b82f6', borderRadius: 12, padding: '14px 20px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
+          <span style={{ fontSize: 28 }}>💰</span>
+          <div>
+            <div style={{ fontSize: 11, color: '#93c5fd', fontWeight: 600 }}>TOTALT FRIGJORT KAPITAL</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: '#60a5fa' }}>{fmt(Math.round(totalSaved / 1000))} tkr</div>
+          </div>
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
+        {cards.map((c, i) => (
+          <div key={i} style={{
+            background: '#1e293b', borderRadius: 10, padding: '12px 14px',
+            borderLeft: `3px solid ${c.improved ? '#22c55e' : '#ef4444'}`
+          }}>
+            <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, marginBottom: 4 }}>{c.label}</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: c.improved ? '#22c55e' : '#ef4444' }}>{c.value}</div>
+            {c.description && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{c.description}</div>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── HISTORY DETAIL MODAL ─────────────────────────────────────────────────
+function HistoryDetailModal({ analysisId, token, onClose }) {
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`${API_URL}/history/${analysisId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(r => r.json())
+      .then(d => setDetail(d))
+      .catch(() => setDetail(null))
+      .finally(() => setLoading(false));
+  }, [analysisId, token]);
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24
+    }} onClick={onClose}>
+      <div style={{
+        background: '#0f172a', border: '1px solid #1e293b', borderRadius: 16,
+        width: '100%', maxWidth: 780, maxHeight: '85vh', overflow: 'auto', padding: 28
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <h3 style={{ color: '#f1f5f9', margin: 0 }}>Analysdetaljer</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 20, cursor: 'pointer' }}>✕</button>
+        </div>
+        {loading && <p style={{ color: '#94a3b8' }}>Laddar…</p>}
+        {!loading && !detail && <p style={{ color: '#ef4444' }}>Kunde inte ladda detaljer.</p>}
+        {!loading && detail && (() => {
+          const s = detail.summary || {};
+          const articles = detail.articles || [];
+          const topActions = detail.top_actions || [];
+          return (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10, marginBottom: 20 }}>
+                {[
+                  { label: 'Artiklar', value: fmt(s.total_articles), color: '#f1f5f9' },
+                  { label: 'Kritiska', value: s.critical ?? '—', color: s.critical > 0 ? '#ef4444' : '#22c55e' },
+                  { label: 'Servicenivå A', value: `${s.a_service_level_pct ?? '—'}%`, color: (s.a_service_level_pct ?? 0) >= 95 ? '#22c55e' : '#f97316' },
+                  { label: 'Att beställa', value: s.articles_to_order ?? '—', color: '#f97316' },
+                  { label: 'Dött lager', value: s.dead_stock ?? '—', color: '#6b7280' },
+                  { label: 'Överlager', value: s.overstock ?? '—', color: '#a855f7' },
+                  { label: 'Bundet kapital', value: fmtKr(s.total_stock_value_sek) || '—', color: '#a78bfa' },
+                ].map((kpi, i) => (
+                  <div key={i} style={{ background: '#1e293b', borderRadius: 8, padding: '10px 12px' }}>
+                    <div style={{ fontSize: 10, color: '#64748b', marginBottom: 4 }}>{kpi.label}</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: kpi.color }}>{kpi.value}</div>
+                  </div>
+                ))}
+              </div>
+              {topActions.length > 0 && (
+                <>
+                  <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>PRIORITERADE ÅTGÄRDER</div>
+                  <div style={{ marginBottom: 20 }}>
+                    {topActions.slice(0, 5).map((a, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #1e293b' }}>
+                        <span style={{ fontSize: 16 }}>{a.action === 'ORDER' ? '🛒' : a.action === 'MOVE' ? '📦' : a.action === 'REVIEW_DEAD' ? '🗑️' : '⚠️'}</span>
+                        <div>
+                          <div style={{ color: '#f1f5f9', fontSize: 13 }}>{a.article} — {a.name}</div>
+                          <div style={{ color: '#94a3b8', fontSize: 11 }}>{a.reason}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+              {articles.length > 0 && (
+                <>
+                  <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>ARTIKLAR ({articles.length})</div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #1e293b' }}>
+                          <th style={{ padding: '6px 10px' }}>ART.NR</th>
+                          <th style={{ padding: '6px 10px' }}>NAMN</th>
+                          <th style={{ padding: '6px 10px' }}>ABC</th>
+                          <th style={{ padding: '6px 10px' }}>STATUS</th>
+                          <th style={{ padding: '6px 10px' }}>LAGER</th>
+                          <th style={{ padding: '6px 10px' }}>TÄCKDAGAR</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {articles.slice(0, 30).map((a, i) => (
+                          <tr key={i} style={{ borderBottom: '1px solid #0f172a' }}>
+                            <td style={{ padding: '6px 10px', color: '#94a3b8' }}>{a.article}</td>
+                            <td style={{ padding: '6px 10px', color: '#f1f5f9', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</td>
+                            <td style={{ padding: '6px 10px', fontWeight: 700, color: abcColor(a.abc) }}>{a.abc}</td>
+                            <td style={{ padding: '6px 10px', color: statusColor(a.status), fontWeight: 600 }}>{statusLabel(a.status)}</td>
+                            <td style={{ padding: '6px 10px', color: '#f1f5f9' }}>{fmt(a.stock)}</td>
+                            <td style={{ padding: '6px 10px', color: '#94a3b8' }}>{a.coverage_days != null ? fmtDays(a.coverage_days) : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {articles.length > 30 && <p style={{ color: '#64748b', fontSize: 12, marginTop: 8 }}>… och {articles.length - 30} till</p>}
+                  </div>
+                </>
+              )}
+            </>
+          );
+        })()}
+      </div>
+    </div>
+  );
+}
+
+// ─── COMPARE PANEL ────────────────────────────────────────────────────────
+function ComparePanel({ idA, idB, token, labelA, labelB, onClose }) {
+  const [diff, setDiff] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`${API_URL}/history/compare/${idA}/${idB}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(r => r.json())
+      .then(d => setDiff(d))
+      .catch(() => setDiff(null))
+      .finally(() => setLoading(false));
+  }, [idA, idB, token]);
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24
+    }} onClick={onClose}>
+      <div style={{
+        background: '#0f172a', border: '1px solid #1e293b', borderRadius: 16,
+        width: '100%', maxWidth: 700, maxHeight: '85vh', overflow: 'auto', padding: 28
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <h3 style={{ color: '#f1f5f9', margin: 0 }}>Jämförelse</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 20, cursor: 'pointer' }}>✕</button>
+        </div>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 20 }}>
+          <span style={{ color: '#94a3b8' }}>{labelB}</span> → <span style={{ color: '#60a5fa' }}>{labelA}</span>
+        </div>
+        {loading && <p style={{ color: '#94a3b8' }}>Beräknar…</p>}
+        {!loading && !diff && <p style={{ color: '#ef4444' }}>Kunde inte jämföra analyserna.</p>}
+        {!loading && diff && (
+          <ImprovementCards cards={diff.cards} totalSaved={diff.total_saved_sek} />
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── HISTORY TAB ──────────────────────────────────────────────────────────
 function HistoryTab({ token }) {
   const [history, setHistory] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [selectedId, setSelectedId] = useState(null);
+  const [compareIds, setCompareIds] = useState(null); // {idA, idB, labelA, labelB}
+  const [compareSelected, setCompareSelected] = useState(null); // id of row selected for compare
 
   useEffect(() => {
     fetch(`${API_URL}/history`, {
@@ -1028,83 +1232,178 @@ function HistoryTab({ token }) {
   }, [token]);
 
   if (loading) return <div className="tab-content"><p style={{ color: '#94a3b8' }}>Hämtar historik…</p></div>;
-  if (!history.length) return (
+  if (!history || !history.length) return (
     <div className="tab-content">
       <p style={{ color: '#94a3b8' }}>Ingen historik ännu — kör din första analys så sparas den här automatiskt.</p>
     </div>
   );
 
-  // Beräkna trend mot föregående körning
   const latest = history[0];
   const prev = history[1];
 
+  // Trend sparkline data (oldest first for chart, newest first in array)
+  const slValues = [...history].reverse().map(h => h.summary?.a_service_level_pct ?? 0);
+  const critValues = [...history].reverse().map(h => h.summary?.critical ?? 0);
+  const capValues = [...history].reverse().map(h => Math.round((h.summary?.total_stock_value_sek ?? 0) / 1000));
+
+  const fmtDate = (d) => {
+    const dt = new Date(d);
+    return dt.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
+  };
+
+  const handleCompare = (h) => {
+    if (!compareSelected) {
+      setCompareSelected(h.id);
+    } else if (compareSelected === h.id) {
+      setCompareSelected(null);
+    } else {
+      // Compare compareSelected (older) vs h (could be newer or older) — always compare vs latest
+      const idA = Math.max(compareSelected, h.id); // newer
+      const idB = Math.min(compareSelected, h.id); // older
+      const hA = history.find(x => x.id === idA);
+      const hB = history.find(x => x.id === idB);
+      setCompareIds({
+        idA, idB,
+        labelA: `${fmtDate(hA.created_at)} · ${hA.filename}`,
+        labelB: `${fmtDate(hB.created_at)} · ${hB.filename}`,
+      });
+      setCompareSelected(null);
+    }
+  };
+
   return (
     <div className="tab-content">
-      <h3 style={{ color: '#f1f5f9', marginBottom: 16 }}>Analyskörningar — senaste 24</h3>
-      {prev && (
-        <div style={{ background: '#1e293b', borderRadius: 10, padding: 16, marginBottom: 20, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>SERVICENIVÅ (A-ART.) — TREND</div>
-            <div style={{ fontSize: 28, fontWeight: 700, color: latest.summary?.a_service_level_pct >= prev.summary?.a_service_level_pct ? '#22c55e' : '#ef4444' }}>
-              {latest.summary?.a_service_level_pct ?? '—'}%
-            </div>
-            <div style={{ fontSize: 12, color: '#94a3b8' }}>
-              {prev.summary?.a_service_level_pct != null
-                ? `${latest.summary?.a_service_level_pct >= prev.summary?.a_service_level_pct ? '▲' : '▼'} ${Math.abs((latest.summary?.a_service_level_pct ?? 0) - (prev.summary?.a_service_level_pct ?? 0)).toFixed(1)}% sedan föregående`
-                : 'Första körningen'}
-            </div>
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>KRITISKA ARTIKLAR — TREND</div>
-            <div style={{ fontSize: 28, fontWeight: 700, color: latest.summary?.critical <= prev.summary?.critical ? '#22c55e' : '#ef4444' }}>
-              {latest.summary?.critical ?? '—'}
-            </div>
-            <div style={{ fontSize: 12, color: '#94a3b8' }}>
-              {prev.summary?.critical != null
-                ? `${latest.summary?.critical <= prev.summary?.critical ? '▼' : '▲'} ${Math.abs((latest.summary?.critical ?? 0) - (prev.summary?.critical ?? 0))} sedan föregående`
-                : ''}
-            </div>
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>BUNDET KAPITAL — TREND</div>
-            <div style={{ fontSize: 28, fontWeight: 700, color: '#a78bfa' }}>
-              {fmt(Math.round((latest.summary?.total_stock_value_sek ?? 0) / 1000))} tkr
-            </div>
-            <div style={{ fontSize: 12, color: '#94a3b8' }}>
-              {prev.summary?.total_stock_value_sek != null
-                ? (() => {
-                    const diff = Math.round(((latest.summary?.total_stock_value_sek ?? 0) - (prev.summary?.total_stock_value_sek ?? 0)) / 1000);
-                    return `${diff >= 0 ? '▲' : '▼'} ${fmt(Math.abs(diff))} tkr sedan föregående`;
-                  })()
-                : ''}
-            </div>
-          </div>
-        </div>
+      {selectedId && (
+        <HistoryDetailModal analysisId={selectedId} token={token} onClose={() => setSelectedId(null)} />
       )}
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-        <thead>
-          <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #1e293b' }}>
-            <th style={{ padding: '8px 12px' }}>DATUM</th>
-            <th style={{ padding: '8px 12px' }}>FIL</th>
-            <th style={{ padding: '8px 12px' }}>ARTIKLAR</th>
-            <th style={{ padding: '8px 12px' }}>KRITISKA</th>
-            <th style={{ padding: '8px 12px' }}>SERVICENIVÅ A</th>
-            <th style={{ padding: '8px 12px' }}>KAPITAL</th>
-          </tr>
-        </thead>
-        <tbody>
-          {history.map((h, i) => (
-            <tr key={h.id} style={{ borderBottom: '1px solid #0f172a', background: i === 0 ? '#1e293b' : 'transparent' }}>
-              <td style={{ padding: '10px 12px', color: '#94a3b8' }}>{new Date(h.created_at).toLocaleDateString('sv-SE')}</td>
-              <td style={{ padding: '10px 12px', color: '#f1f5f9' }}>{h.filename || '—'}</td>
-              <td style={{ padding: '10px 12px', color: '#f1f5f9' }}>{fmt(h.summary?.total_articles)}</td>
-              <td style={{ padding: '10px 12px', color: h.summary?.critical > 0 ? '#ef4444' : '#22c55e', fontWeight: 600 }}>{h.summary?.critical ?? '—'}</td>
-              <td style={{ padding: '10px 12px', color: (h.summary?.a_service_level_pct ?? 0) >= 95 ? '#22c55e' : (h.summary?.a_service_level_pct ?? 0) >= 85 ? '#f97316' : '#ef4444', fontWeight: 600 }}>{h.summary?.a_service_level_pct ?? '—'}%</td>
-              <td style={{ padding: '10px 12px', color: '#a78bfa' }}>{fmt(Math.round((h.summary?.total_stock_value_sek ?? 0) / 1000))} tkr</td>
+      {compareIds && (
+        <ComparePanel {...compareIds} token={token} onClose={() => setCompareIds(null)} />
+      )}
+
+      {/* Trend summary */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
+        {[
+          {
+            label: 'SERVICENIVÅ A-ART.',
+            value: `${latest.summary?.a_service_level_pct ?? '—'}%`,
+            color: (latest.summary?.a_service_level_pct ?? 0) >= 95 ? '#22c55e' : '#f97316',
+            sparkValues: slValues,
+            sparkColor: '#22c55e',
+            inverted: false,
+            diff: prev ? `${latest.summary?.a_service_level_pct >= prev.summary?.a_service_level_pct ? '▲' : '▼'} ${Math.abs(((latest.summary?.a_service_level_pct ?? 0) - (prev.summary?.a_service_level_pct ?? 0))).toFixed(1)}%` : null,
+            improved: prev ? latest.summary?.a_service_level_pct >= prev.summary?.a_service_level_pct : null,
+          },
+          {
+            label: 'KRITISKA ARTIKLAR',
+            value: latest.summary?.critical ?? '—',
+            color: latest.summary?.critical > 0 ? '#ef4444' : '#22c55e',
+            sparkValues: critValues,
+            sparkColor: '#ef4444',
+            inverted: true, // lower = better, so invert sparkline direction
+            diff: prev ? `${latest.summary?.critical <= prev.summary?.critical ? '▼' : '▲'} ${Math.abs((latest.summary?.critical ?? 0) - (prev.summary?.critical ?? 0))}` : null,
+            improved: prev ? latest.summary?.critical <= prev.summary?.critical : null,
+          },
+          {
+            label: 'BUNDET KAPITAL',
+            value: fmtKr(latest.summary?.total_stock_value_sek) || '—',
+            color: '#a78bfa',
+            sparkValues: capValues,
+            sparkColor: '#a78bfa',
+            inverted: true, // lower capital = better
+            diff: prev && prev.summary?.total_stock_value_sek != null ? (() => {
+              const d = Math.round(((latest.summary?.total_stock_value_sek ?? 0) - (prev.summary?.total_stock_value_sek ?? 0)) / 1000);
+              return `${d >= 0 ? '▲' : '▼'} ${fmt(Math.abs(d))} tkr`;
+            })() : null,
+            improved: prev ? (latest.summary?.total_stock_value_sek ?? 0) <= (prev.summary?.total_stock_value_sek ?? 0) : null,
+          },
+        ].map((card, i) => (
+          <div key={i} style={{ background: '#1e293b', borderRadius: 12, padding: '14px 16px' }}>
+            <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: 0.5, marginBottom: 4 }}>{card.label}</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: card.color, marginBottom: 2 }}>{card.value}</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              {card.diff && (
+                <span style={{ fontSize: 11, color: card.improved ? '#22c55e' : '#ef4444', fontWeight: 600 }}>
+                  {card.diff} sedan föreg.
+                </span>
+              )}
+              {!card.diff && <span />}
+              {card.sparkValues.length >= 2 && (
+                <Sparkline values={card.sparkValues} color={card.sparkColor} inverted={card.inverted} width={100} height={30} />
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Compare helper */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+        <h3 style={{ color: '#f1f5f9', margin: 0, flex: 1 }}>Analyskörningar</h3>
+        {compareSelected && (
+          <div style={{ fontSize: 12, color: '#60a5fa', background: '#1e3a5f', borderRadius: 6, padding: '4px 10px' }}>
+            Klicka på en annan rad för att jämföra
+          </div>
+        )}
+        {!compareSelected && history.length >= 2 && (
+          <div style={{ fontSize: 11, color: '#64748b' }}>
+            Klicka på rad för detaljer · Klicka "Jämför" för att välja
+          </div>
+        )}
+      </div>
+
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #1e293b' }}>
+              <th style={{ padding: '8px 12px' }}>DATUM</th>
+              <th style={{ padding: '8px 12px' }}>FIL</th>
+              <th style={{ padding: '8px 12px' }}>ARTIKLAR</th>
+              <th style={{ padding: '8px 12px' }}>KRITISKA</th>
+              <th style={{ padding: '8px 12px' }}>SERVICENIVÅ A</th>
+              <th style={{ padding: '8px 12px' }}>KAPITAL</th>
+              <th style={{ padding: '8px 12px' }}></th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {history.map((h, i) => {
+              const isSelected = compareSelected === h.id;
+              return (
+                <tr
+                  key={h.id}
+                  style={{
+                    borderBottom: '1px solid #0f172a',
+                    background: isSelected ? '#1e3a5f' : i === 0 ? '#1e293b' : 'transparent',
+                    cursor: 'pointer',
+                    transition: 'background 0.15s',
+                  }}
+                  onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = '#162032'; }}
+                  onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = i === 0 ? '#1e293b' : 'transparent'; }}
+                  onClick={() => setSelectedId(h.id)}
+                >
+                  <td style={{ padding: '10px 12px', color: '#94a3b8' }}>
+                    {fmtDate(h.created_at)}
+                    {i === 0 && <span style={{ marginLeft: 6, fontSize: 10, background: '#6366f1', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>SENASTE</span>}
+                  </td>
+                  <td style={{ padding: '10px 12px', color: '#f1f5f9', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.filename || '—'}</td>
+                  <td style={{ padding: '10px 12px', color: '#f1f5f9' }}>{fmt(h.summary?.total_articles)}</td>
+                  <td style={{ padding: '10px 12px', color: h.summary?.critical > 0 ? '#ef4444' : '#22c55e', fontWeight: 600 }}>{h.summary?.critical ?? '—'}</td>
+                  <td style={{ padding: '10px 12px', color: (h.summary?.a_service_level_pct ?? 0) >= 95 ? '#22c55e' : (h.summary?.a_service_level_pct ?? 0) >= 85 ? '#f97316' : '#ef4444', fontWeight: 600 }}>{h.summary?.a_service_level_pct ?? '—'}%</td>
+                  <td style={{ padding: '10px 12px', color: '#a78bfa' }}>{fmtKr(h.summary?.total_stock_value_sek) || '—'}</td>
+                  <td style={{ padding: '10px 12px' }} onClick={e => { e.stopPropagation(); handleCompare(h); }}>
+                    <button style={{
+                      background: isSelected ? '#3b82f6' : '#1e293b',
+                      border: `1px solid ${isSelected ? '#3b82f6' : '#334155'}`,
+                      color: isSelected ? '#fff' : '#94a3b8',
+                      borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 600
+                    }}>
+                      {isSelected ? '✓ Vald' : 'Jämför'}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
