@@ -114,6 +114,28 @@ function UploadPage({ onAnalysis, auth, onLogout }) {
       setLoadingMsg(loadingMessages[msgIndex]);
     }, 1200);
     try {
+      // ── Steg 1: Validera filen innan analys ────────────────────────────────
+      setLoadingMsg('Kontrollerar filen…');
+      const valForm = new FormData();
+      valForm.append('file', file);
+      let valRes;
+      try {
+        valRes = await fetch(`${API_URL}/validate`, { method: 'POST', body: valForm });
+      } catch (networkErr) {
+        throw new Error('Kunde inte nå servern. Kontrollera din internetanslutning och försök igen.');
+      }
+      if (valRes.ok) {
+        const val = await valRes.json();
+        if (!val.valid && val.errors?.length) {
+          throw new Error(val.errors.join('\n'));
+        }
+        // Varningar: visa men stoppa inte analysen (sparas för senare)
+        if (val.warnings?.length) {
+          window._lastValidationWarnings = val.warnings;
+        }
+      }
+      // ── Steg 2: Kör analysen ───────────────────────────────────────────────
+      setLoadingMsg(loadingMessages[0]);
       const formData = new FormData();
       formData.append('file', file);
       let res;
@@ -125,10 +147,14 @@ function UploadPage({ onAnalysis, auth, onLogout }) {
         throw new Error('Kunde inte nå servern. Kontrollera din internetanslutning och försök igen.');
       }
       if (!res.ok) {
-        let errMsg = 'Något gick fel vid analysen. Kontrollera att filen är ett giltigt Excel- eller CSV-dokument.';
+        let errMsg = 'Analysen misslyckades.';
         try {
           const err = await res.json();
-          if (err.detail && !err.detail.includes('Traceback') && err.detail.length < 200) errMsg = err.detail;
+          if (err.detail) {
+            // Rensa bort Python-traceback men behåll det faktiska felmeddelandet
+            const detail = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail);
+            errMsg = detail.includes('Traceback') ? 'Serverfel — kontakta support.' : detail;
+          }
         } catch(e) {}
         throw new Error(errMsg);
       }
@@ -182,7 +208,10 @@ function UploadPage({ onAnalysis, auth, onLogout }) {
             {error && (
               <div className="error-box">
                 <b>⚠️ Kunde inte analysera filen</b>
-                <p>{error}</p>
+                {error.includes('\n')
+                  ? error.split('\n').map((line, i) => <p key={i} style={{ margin: '4px 0' }}>{line}</p>)
+                  : <p>{error}</p>
+                }
               </div>
             )}
           </>
