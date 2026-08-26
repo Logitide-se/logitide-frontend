@@ -245,8 +245,28 @@ function UploadPage({ onAnalysis, auth, onLogout }) {
             <p className="logo-sub">OPTIMIZER</p>
           </div>
         </div>
-        <h2 className="upload-headline">Från rådata<br /><span className="highlight">till beslut.</span></h2>
-        <p className="upload-desc">Ladda upp er lagerdata — analysen är klar på 60 sekunder.</p>
+
+        {/* ── Tagline ── */}
+        <h2 className="upload-headline">Förvandla din lagerfil till<br /><span className="highlight">handlingsbara beslut på 30 sekunder.</span></h2>
+
+        {/* ── Value promises ── */}
+        <div style={{ display: 'flex', gap: 16, margin: '24px 0', justifyContent: 'center', flexWrap: 'wrap' }}>
+          {[
+            { icon: '📊', title: 'ABC-analys', desc: 'Se vilka artiklar som driver 80 % av kapitalet' },
+            { icon: '🛒', title: 'Inköpsförslag', desc: 'Rekommendationer baserade på ledtid och förbrukning' },
+            { icon: '⚠️', title: 'Kapital & risk', desc: 'Identifiera kritiska artiklar och överlager direkt' },
+          ].map(({ icon, title, desc }) => (
+            <div key={title} style={{
+              background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12,
+              padding: '16px 20px', flex: '1 1 160px', maxWidth: 200, textAlign: 'center'
+            }}>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>{icon}</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9', marginBottom: 4 }}>{title}</div>
+              <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.4 }}>{desc}</div>
+            </div>
+          ))}
+        </div>
+
         {!loading ? (
           <>
             <div
@@ -283,9 +303,12 @@ function UploadPage({ onAnalysis, auth, onLogout }) {
             <p className="loading-msg">{loadingMsg}</p>
           </div>
         )}
-        <div className="supported">
-          <span>Fungerar med:</span>
-          {['Jeeves', 'Monitor', 'SAP', 'Visma', 'Excel'].map(erp => (
+        <div style={{ textAlign: 'center', marginTop: 10, fontSize: 11, color: '#475569' }}>
+          🔒 Din fil analyseras i systemet — inga data skickas vidare till tredje part.
+        </div>
+        <div className="supported" style={{ marginTop: 20 }}>
+          <span>Stöder:</span>
+          {['Jeeves', 'SAP', 'Visma', 'Pyramid', 'Monitor', 'Excel-exporter'].map(erp => (
             <span key={erp} className="erp-tag">{erp}</span>
           ))}
         </div>
