@@ -416,7 +416,8 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides }) {
           tooltip={"Kritisk = täcktid ≤ ledtid OCH ingen inköpsorder är lagd.\nBevaka = brist men order är redan på väg.\n\nBevaka-tröskel per ABC-klass:\nA-artiklar: täcktid < 2× ledtid (hög buffer)\nB-artiklar: täcktid < 1.5× ledtid (standard)\nC-artiklar: täcktid < 1.2× ledtid (lägre marginal)"} />
         <KpiCard label="ATT BESTÄLLA" value={fmt(summary.articles_to_order)}
           sub={hasCost ? fmtKr(summary.total_order_value_sek) : 'Lägg till inköpspris för ordervärde'}
-          color="#f97316" />
+          color="#f97316"
+          tooltip={"Antal artiklar där systemet rekommenderar inköp — dvs. täcktid understiger bevaka-tröskeln.\n\nInkluderar både kritiska artiklar (brist inom ledtid) och bevaka-artiklar (brist inom bufferttid).\n\nOrderkvantitet beräknas som: (2× ledtid − täcktid) × daglig förbrukning, avrundat till minsta orderenhet."} />
         <KpiCard
           label="BUNDET KAPITAL"
           value={hasCost ? fmtKr(summary.total_stock_value_sek) : null}
