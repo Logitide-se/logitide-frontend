@@ -70,8 +70,32 @@ function DataQualityBanner({ summary, dataQuality }) {
   );
 }
 
+// ─── INFO TOOLTIP ─────────────────────────────────────────────────────────
+function InfoTooltip({ text }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', marginLeft: 4, cursor: 'help', verticalAlign: 'middle' }}
+      onMouseEnter={() => setVisible(true)} onMouseLeave={() => setVisible(false)}>
+      <span style={{ color: '#64748b', display: 'flex' }}><Icon name="info" size={13} /></span>
+      {visible && (
+        <span style={{
+          position: 'absolute', bottom: '130%', left: '50%', transform: 'translateX(-50%)',
+          background: '#0f172a', border: '1px solid #334155', color: '#cbd5e1',
+          borderRadius: 8, padding: '8px 12px', fontSize: 11, lineHeight: 1.5,
+          width: 240, zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+          whiteSpace: 'normal', textAlign: 'left', fontWeight: 400, pointerEvents: 'none'
+        }}>
+          {text}
+          <span style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
+            borderWidth: 5, borderStyle: 'solid', borderColor: '#334155 transparent transparent transparent' }} />
+        </span>
+      )}
+    </span>
+  );
+}
+
 // ─── KPI CARD ─────────────────────────────────────────────────────────────
-function KpiCard({ label, value, sub, color, missingReason }) {
+function KpiCard({ label, value, sub, color, missingReason, tooltip }) {
   if (missingReason) {
     return (
       <div className="kpi-card kpi-missing">
@@ -83,9 +107,47 @@ function KpiCard({ label, value, sub, color, missingReason }) {
   }
   return (
     <div className="kpi-card">
-      <div className="kpi-label">{label}</div>
+      <div className="kpi-label">
+        {label}
+        {tooltip && <InfoTooltip text={tooltip} />}
+      </div>
       <div className="kpi-value" style={{ color }}>{value}</div>
       {sub && <div className="kpi-sub">{sub}</div>}
+    </div>
+  );
+}
+
+// ─── CONFIDENCE WIDGET ────────────────────────────────────────────────────
+function ConfidenceWidget({ summary, dataQuality }) {
+  if (!summary) return null;
+  const checks = [
+    { ok: summary.has_cost_data, label: 'Inköpspris' },
+    { ok: summary.has_location_data, label: 'Lagerposition' },
+    { ok: summary.has_lead_time_data, label: 'Ledtid' },
+    { ok: !(dataQuality?.zero_consumption > 0), label: 'Noll-förbrukning' },
+    { ok: !(dataQuality?.suspected_errors > 0), label: 'Felinmatning' },
+    { ok: !(dataQuality?.duplicate_ids > 0), label: 'Dubbletter' },
+  ];
+  const okCount = checks.filter(c => c.ok).length;
+  const score = Math.round((okCount / checks.length) * 100);
+  const color = score === 100 ? '#22c55e' : score >= 67 ? '#f59e0b' : '#ef4444';
+  const label = score === 100 ? 'Analys helt tillförlitlig' : score >= 67 ? 'Analys med varningar' : 'Kontrollera datakvalitet';
+  return (
+    <div style={{ marginTop: 10, padding: '8px 10px', background: '#0f172a', borderRadius: 8, border: `1px solid ${color}33` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+        <span style={{ color, fontSize: 10 }}>●</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{label}</span>
+      </div>
+      <div style={{ height: 4, borderRadius: 2, background: '#1e293b', marginBottom: 7 }}>
+        <div style={{ height: '100%', width: `${score}%`, background: color, borderRadius: 2, transition: 'width 0.5s' }} />
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 8px' }}>
+        {checks.map((c, i) => (
+          <span key={i} style={{ fontSize: 9, color: c.ok ? '#22c55e' : '#f59e0b', display: 'flex', alignItems: 'center', gap: 2 }}>
+            {c.ok ? '✓' : '⚠'} {c.label}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -259,7 +321,8 @@ function OverviewTab({ data }) {
         </div>
       )}
       <div className="kpi-grid">
-        <KpiCard label="KRITISKA BRISTER" value={fmt(summary.critical)} sub={`${summary.watch} bevakas`} color="#ef4444" />
+        <KpiCard label="KRITISKA BRISTER" value={fmt(summary.critical)} sub={`${summary.watch} bevakas`} color="#ef4444"
+          tooltip="Kritisk = täcktid ≤ ledtid OCH ingen inköpsorder är lagd. Bevaka = brist men order är redan på väg. Artiklar med inkommande order räknas som bevaka, inte kritiska." />
         <KpiCard label="ATT BESTÄLLA" value={fmt(summary.articles_to_order)}
           sub={hasCost ? fmtKr(summary.total_order_value_sek) : 'Lägg till inköpspris för ordervärde'}
           color="#f97316" />
@@ -904,7 +967,7 @@ function Dashboard({ data, onReset, auth, onLogout }) {
         </nav>
         <div className="sidebar-footer">
           <div className="service-level">
-            <span>SERVICENIVÅ (A-ART.)</span>
+            <span>SERVICENIVÅ (A-ART.) <InfoTooltip text="Andel A-artiklar där saldo + inkommande order täcker ledtiden. En A-artikel med order på väg räknas som täckt. Mål: ≥95%. Lagerhälsa (alla) visar samma mått för samtliga artiklar oavsett klass." /></span>
             <div className="sl-bars">
               <span className="sl-low">95%</span>
               <span className="sl-cur" style={{
@@ -920,6 +983,7 @@ function Dashboard({ data, onReset, auth, onLogout }) {
               Lagerhälsa (alla): {summary?.service_level_pct}%
             </div>
           </div>
+          {summary && <ConfidenceWidget summary={summary} dataQuality={data?.data_quality} />}
           <div className="data-info">
             <span className="data-dot">●</span> Data aktiv<br />
             <span className="data-count">{fmt(summary?.total_articles)} artiklar</span>
