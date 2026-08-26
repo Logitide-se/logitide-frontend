@@ -75,8 +75,10 @@ function InfoTooltip({ text }) {
   const [visible, setVisible] = useState(false);
   const ref = React.useRef(null);
   const [align, setAlign] = React.useState('center');
+  const hideTimer = React.useRef(null);
 
   const handleEnter = () => {
+    clearTimeout(hideTimer.current);
     if (ref.current) {
       const rect = ref.current.getBoundingClientRect();
       const spaceRight = window.innerWidth - rect.right;
@@ -88,12 +90,18 @@ function InfoTooltip({ text }) {
     setVisible(true);
   };
 
+  const handleLeave = () => {
+    // liten fördröjning så man hinner flytta musen till popupen
+    hideTimer.current = setTimeout(() => setVisible(false), 120);
+  };
+
   const popupStyle = {
     position: 'absolute', bottom: '130%',
     background: '#0f172a', border: '1px solid #334155', color: '#cbd5e1',
     borderRadius: 8, padding: '10px 14px', fontSize: 11, lineHeight: 1.6,
     width: 260, zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
-    whiteSpace: 'pre-line', textAlign: 'left', fontWeight: 400, pointerEvents: 'none',
+    whiteSpace: 'pre-line', textAlign: 'left', fontWeight: 400,
+    pointerEvents: 'auto', cursor: 'text', userSelect: 'text',
     ...(align === 'center' ? { left: '50%', transform: 'translateX(-50%)' } :
         align === 'right'  ? { right: 0, transform: 'none' } :
                              { left: 0, transform: 'none' }),
@@ -103,13 +111,13 @@ function InfoTooltip({ text }) {
 
   return (
     <span ref={ref} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', marginLeft: 4, cursor: 'help', verticalAlign: 'middle' }}
-      onMouseEnter={handleEnter} onMouseLeave={() => setVisible(false)}>
+      onMouseEnter={handleEnter} onMouseLeave={handleLeave}>
       <span style={{ color: '#64748b', display: 'flex' }}><Icon name="info" size={13} /></span>
       {visible && (
-        <span style={popupStyle}>
+        <span style={popupStyle} onMouseEnter={() => clearTimeout(hideTimer.current)} onMouseLeave={handleLeave}>
           {text}
           <span style={{ position: 'absolute', top: '100%', left: arrowLeft, right: arrowRight, transform: align === 'center' ? 'translateX(-50%)' : 'none',
-            borderWidth: 5, borderStyle: 'solid', borderColor: '#334155 transparent transparent transparent' }} />
+            borderWidth: 5, borderStyle: 'solid', borderColor: '#334155 transparent transparent transparent', pointerEvents: 'none' }} />
         </span>
       )}
     </span>
