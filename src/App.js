@@ -81,9 +81,9 @@ function InfoTooltip({ text }) {
         <span style={{
           position: 'absolute', bottom: '130%', left: '50%', transform: 'translateX(-50%)',
           background: '#0f172a', border: '1px solid #334155', color: '#cbd5e1',
-          borderRadius: 8, padding: '8px 12px', fontSize: 11, lineHeight: 1.5,
-          width: 240, zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-          whiteSpace: 'normal', textAlign: 'left', fontWeight: 400, pointerEvents: 'none'
+          borderRadius: 8, padding: '10px 14px', fontSize: 11, lineHeight: 1.6,
+          width: 260, zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+          whiteSpace: 'pre-line', textAlign: 'left', fontWeight: 400, pointerEvents: 'none'
         }}>
           {text}
           <span style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
@@ -390,7 +390,10 @@ function OverviewTab({ data }) {
       )}
       <div className="two-col">
         <div className="section">
-          <h3>ABC-fördelning {!hasCost && <span className="section-note">(baserad på förbrukning)</span>}</h3>
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            ABC-fördelning {!hasCost && <span className="section-note">(baserad på förbrukning)</span>}
+            <InfoTooltip text="A = topp 80 % av årsvolymsvärdet. B = 80–95 %. C = 95–100 %. Klassificering baseras på förbrukning × inköpspris × 365 dagar." />
+          </h3>
           {['A', 'B', 'C'].map(cls => (
             <div key={cls} className="abc-row">
               <span className="abc-badge" style={{ background: abcColor(cls) }}>{cls}</span>
@@ -857,7 +860,16 @@ function AbcXyzTab({ data }) {
       ) : (
         <>
           <div className="section">
-            <h3>ABC-matris</h3>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              ABC-matris
+              <InfoTooltip text={
+                "ABC klassificerar artiklar efter årlig omsättningsvärde (förbrukning × pris):\n\n" +
+                "A = topp 80 % av årsvolymen — prioritera alltid.\n" +
+                "B = 80–95 % — bevaka noga.\n" +
+                "C = 95–100 % — hantera kostnadseffektivt.\n\n" +
+                "Pareto-regeln: ca 15–20 % av artiklarna driver 80 % av kapitalet."
+              } />
+            </h3>
             <table className="matrix-table">
               <thead>
                 <tr>
