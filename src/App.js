@@ -73,20 +73,42 @@ function DataQualityBanner({ summary, dataQuality }) {
 // ─── INFO TOOLTIP ─────────────────────────────────────────────────────────
 function InfoTooltip({ text }) {
   const [visible, setVisible] = useState(false);
+  const ref = React.useRef(null);
+  const [align, setAlign] = React.useState('center');
+
+  const handleEnter = () => {
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      const spaceRight = window.innerWidth - rect.right;
+      const spaceLeft = rect.left;
+      if (spaceRight < 140) setAlign('right');
+      else if (spaceLeft < 140) setAlign('left');
+      else setAlign('center');
+    }
+    setVisible(true);
+  };
+
+  const popupStyle = {
+    position: 'absolute', bottom: '130%',
+    background: '#0f172a', border: '1px solid #334155', color: '#cbd5e1',
+    borderRadius: 8, padding: '10px 14px', fontSize: 11, lineHeight: 1.6,
+    width: 260, zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+    whiteSpace: 'pre-line', textAlign: 'left', fontWeight: 400, pointerEvents: 'none',
+    ...(align === 'center' ? { left: '50%', transform: 'translateX(-50%)' } :
+        align === 'right'  ? { right: 0, transform: 'none' } :
+                             { left: 0, transform: 'none' }),
+  };
+  const arrowLeft = align === 'center' ? '50%' : align === 'right' ? 'auto' : '10px';
+  const arrowRight = align === 'right' ? '10px' : 'auto';
+
   return (
-    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', marginLeft: 4, cursor: 'help', verticalAlign: 'middle' }}
-      onMouseEnter={() => setVisible(true)} onMouseLeave={() => setVisible(false)}>
+    <span ref={ref} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', marginLeft: 4, cursor: 'help', verticalAlign: 'middle' }}
+      onMouseEnter={handleEnter} onMouseLeave={() => setVisible(false)}>
       <span style={{ color: '#64748b', display: 'flex' }}><Icon name="info" size={13} /></span>
       {visible && (
-        <span style={{
-          position: 'absolute', bottom: '130%', left: '50%', transform: 'translateX(-50%)',
-          background: '#0f172a', border: '1px solid #334155', color: '#cbd5e1',
-          borderRadius: 8, padding: '10px 14px', fontSize: 11, lineHeight: 1.6,
-          width: 260, zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
-          whiteSpace: 'pre-line', textAlign: 'left', fontWeight: 400, pointerEvents: 'none'
-        }}>
+        <span style={popupStyle}>
           {text}
-          <span style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
+          <span style={{ position: 'absolute', top: '100%', left: arrowLeft, right: arrowRight, transform: align === 'center' ? 'translateX(-50%)' : 'none',
             borderWidth: 5, borderStyle: 'solid', borderColor: '#334155 transparent transparent transparent' }} />
         </span>
       )}
@@ -1016,8 +1038,8 @@ function Dashboard({ data, onReset, auth, onLogout }) {
               }}>{summary?.a_service_level_pct ?? '—'}%</span>
               <span className="sl-high">99%</span>
             </div>
-            <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>
-              Andel A-artiklar med tillräckligt lager för att undvika produktionsstopp.
+            <div style={{ fontSize: 10, color: '#64748b', marginTop: 2, lineHeight: 1.4, wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+              A-artiklar med täckning över ledtid.
             </div>
             <div style={{ fontSize: 10, color: '#475569', marginTop: 3 }}>
               Lagerhälsa (alla): {summary?.service_level_pct}%
