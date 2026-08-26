@@ -69,6 +69,41 @@ function recalcArticle(a, newLeadTime) {
 }
 
 // ─── DATA QUALITY BANNER ──────────────────────────────────────────────────
+function ValidationBanner({ validation }) {
+  if (!validation || !validation.summary) return null;
+  const hasWarnings = validation.warnings && validation.warnings.length > 0;
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div style={{
+      background: 'var(--color-surface)',
+      border: '1px solid var(--color-border)',
+      borderLeft: '4px solid #2196F3',
+      borderRadius: '8px',
+      padding: '12px 16px',
+      marginBottom: '12px',
+      fontSize: '14px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <span style={{ fontSize: '16px' }}>✅</span>
+        <span style={{ color: 'var(--color-text)', flex: 1 }}>{validation.summary}</span>
+        {hasWarnings && (
+          <button onClick={() => setExpanded(!expanded)} style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: 'var(--color-muted)', fontSize: '12px', padding: '2px 6px'
+          }}>
+            {validation.warnings.length} varning{validation.warnings.length > 1 ? 'ar' : ''} {expanded ? '▲' : '▼'}
+          </button>
+        )}
+      </div>
+      {expanded && hasWarnings && (
+        <ul style={{ marginTop: '8px', paddingLeft: '24px', color: 'var(--color-muted)', fontSize: '13px' }}>
+          {validation.warnings.map((w, i) => <li key={i} style={{ marginBottom: '4px' }}>⚠️ {w}</li>)}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function DataQualityBanner({ summary, dataQuality }) {
   const [expanded, setExpanded] = useState(false);
   const missing = [];
@@ -399,11 +434,12 @@ function UploadPage({ onAnalysis, auth, onLogout }) {
 
 // ─── OVERVIEW TAB ─────────────────────────────────────────────────────────
 function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider }) {
-  const { summary, top_actions, abc_distribution, articles, data_quality } = data;
+  const { summary, top_actions, abc_distribution, articles, data_quality, validation } = data;
   const hasCost = summary.has_cost_data;
   const hasLoc = summary.has_location_data;
   return (
     <div className="tab-content">
+      <ValidationBanner validation={validation} />
       <DataQualityBanner summary={summary} dataQuality={data_quality} />
       {summary.critical > 0 && (
         <div className="alert-banner">
