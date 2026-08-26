@@ -398,7 +398,7 @@ function UploadPage({ onAnalysis, auth, onLogout }) {
 }
 
 // ─── OVERVIEW TAB ─────────────────────────────────────────────────────────
-function OverviewTab({ data, onLedtidChange, ledtidOverrides }) {
+function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider }) {
   const { summary, top_actions, abc_distribution, articles, data_quality } = data;
   const hasCost = summary.has_cost_data;
   const hasLoc = summary.has_location_data;
@@ -495,14 +495,14 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides }) {
           <h3>Alla artiklar</h3>
           <span className="badge">{fmt(summary.total_articles)} st</span>
         </div>
-        <ArticleTable articles={articles} hasCost={hasCost} hasLoc={hasLoc} onLedtidChange={onLedtidChange} ledtidOverrides={ledtidOverrides} />
+        <ArticleTable articles={articles} hasCost={hasCost} hasLoc={hasLoc} onLedtidChange={onLedtidChange} ledtidOverrides={ledtidOverrides} onResetLedtider={onResetLedtider} />
       </div>
     </div>
   );
 }
 
 // ─── ARTICLE TABLE ────────────────────────────────────────────────────────
-function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc = true, onLedtidChange, ledtidOverrides = {} }) {
+function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc = true, onLedtidChange, ledtidOverrides = {}, onResetLedtider }) {
   const [filter, setFilter] = useState('Alla');
   const [abcFilter, setAbcFilter] = useState('Alla');
   const [search, setSearch] = useState('');
@@ -548,6 +548,18 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
             <button key={f} className={`filter-btn ${abcFilter === f ? 'active' : ''}`} onClick={() => setAbcFilter(f)}>{f}</button>
           ))}
         </div>
+        {onResetLedtider && (
+          <button onClick={onResetLedtider} style={{
+            background: 'transparent', border: '1px solid #6366f144', color: '#6366f1',
+            borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 600,
+            marginLeft: 'auto', whiteSpace: 'nowrap'
+          }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#6366f118'; e.currentTarget.style.borderColor = '#6366f1'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = '#6366f144'; }}
+          >
+            ↺ Återställ ledtider ({Object.keys(ledtidOverrides).length})
+          </button>
+        )}
       </div>
       <table className="article-table">
         <thead>
@@ -1094,6 +1106,12 @@ function Dashboard({ data, onReset, auth, onLogout }) {
     setLedtidOverrides(prev => ({ ...prev, [articleId]: newDays }));
   };
 
+  const handleResetLedtider = () => {
+    if (window.confirm('Återställ alla manuella ledtider till originalvärden?')) {
+      setLedtidOverrides({});
+    }
+  };
+
   // Bygg effectiveData med omräknade artiklar där ledtid overridats
   const effectiveData = React.useMemo(() => {
     if (Object.keys(ledtidOverrides).length === 0) return data;
@@ -1191,7 +1209,7 @@ function Dashboard({ data, onReset, auth, onLogout }) {
             ))}
           </div>
         </div>
-        {activeTab === 'overview' && <OverviewTab data={effectiveData} onLedtidChange={handleLedtidChange} ledtidOverrides={ledtidOverrides} />}
+        {activeTab === 'overview' && <OverviewTab data={effectiveData} onLedtidChange={handleLedtidChange} ledtidOverrides={ledtidOverrides} onResetLedtider={Object.keys(ledtidOverrides).length > 0 ? handleResetLedtider : null} />}
         {activeTab === 'abcxyz' && <AbcXyzTab data={effectiveData} />}
         {activeTab === 'purchasing' && <PurchasingTab data={effectiveData} />}
         {activeTab === 'slotting' && <SlottingTab data={effectiveData} />}
