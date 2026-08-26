@@ -38,6 +38,36 @@ const statusLabel = (s) => ({
 }[s] || s);
 const abcColor = (abc) => ({ A: '#22c55e', B: '#f59e0b', C: '#6b7280' }[abc] || '#6b7280');
 
+// ─── LOKAL OMRÄKNING NÄR LEDTID ÄNDRAS ───────────────────────────────────
+function recalcArticle(a, newLeadTime) {
+  const lt = newLeadTime;
+  const cov = a.coverage_days ?? 0;
+  const demand = a.demand_per_day ?? 0;
+  const hasDemand = demand > 0;
+  const abcFactor = { A: 2.0, B: 1.5, C: 1.2 }[a.abc] ?? 1.5;
+
+  let status = a.status;
+  if (hasDemand) {
+    if (cov < lt) status = 'CRITICAL';
+    else if (cov < lt * abcFactor) status = 'WATCH';
+    else if (cov > 365) status = 'OVERSTOCK';
+    else status = 'OK';
+  } else {
+    status = (a.stock ?? 0) > 0 ? 'DEAD_STOCK' : 'OK';
+  }
+
+  // Omräkna rekommenderad orderkvantitet
+  let order_qty = 0;
+  if (status === 'CRITICAL' || status === 'WATCH') {
+    const targetDays = lt * 2; // fyll upp till 2× ledtid
+    const needed = Math.max(0, (targetDays - cov) * demand);
+    const minOrd = a.min_order ?? 1;
+    order_qty = Math.ceil(needed / minOrd) * minOrd;
+  }
+
+  return { ...a, lead_time_days: lt, status, order_qty };
+}
+
 // ─── DATA QUALITY BANNER ──────────────────────────────────────────────────
 function DataQualityBanner({ summary, dataQuality }) {
   const [expanded, setExpanded] = useState(false);
@@ -368,7 +398,7 @@ function UploadPage({ onAnalysis, auth, onLogout }) {
 }
 
 // ─── OVERVIEW TAB ─────────────────────────────────────────────────────────
-function OverviewTab({ data }) {
+function OverviewTab({ data, onLedtidChange, ledtidOverrides }) {
   const { summary, top_actions, abc_distribution, articles, data_quality } = data;
   const hasCost = summary.has_cost_data;
   const hasLoc = summary.has_location_data;
@@ -464,17 +494,33 @@ function OverviewTab({ data }) {
           <h3>Alla artiklar</h3>
           <span className="badge">{fmt(summary.total_articles)} st</span>
         </div>
-        <ArticleTable articles={articles} hasCost={hasCost} hasLoc={hasLoc} />
+        <ArticleTable articles={articles} hasCost={hasCost} hasLoc={hasLoc} onLedtidChange={onLedtidChange} ledtidOverrides={ledtidOverrides} />
       </div>
     </div>
   );
 }
 
 // ─── ARTICLE TABLE ────────────────────────────────────────────────────────
-function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc = true }) {
+function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc = true, onLedtidChange, ledtidOverrides = {} }) {
   const [filter, setFilter] = useState('Alla');
   const [abcFilter, setAbcFilter] = useState('Alla');
   const [search, setSearch] = useState('');
+  const [editingLedtid, setEditingLedtid] = useState(null); // article id
+  const [editVal, setEditVal] = useState('');
+
+  const handleLedtidClick = (a) => {
+    if (!onLedtidChange) return;
+    setEditingLedtid(a.article);
+    setEditVal(String(Math.round(a.lead_time_days ?? 14)));
+  };
+
+  const commitLedtid = (articleId) => {
+    const days = parseInt(editVal, 10);
+    if (!isNaN(days) && days > 0 && days <= 730) {
+      onLedtidChange(articleId, days);
+    }
+    setEditingLedtid(null);
+  };
   const statusFilters = ['Alla', 'KRITISK', 'BEVAKA', 'OK', 'ÖVERLAGER'];
   const abcFilters = ['Alla', 'A', 'B', 'C'];
   const filtered = articles?.filter(a => {
@@ -505,7 +551,9 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
       <table className="article-table">
         <thead>
           <tr>
-            <th>ARTIKEL</th><th>KLASS</th><th>SALDO</th><th>TÄCKTID</th><th>STATUS</th><th>ÅTGÄRD</th>
+            <th>ARTIKEL</th><th>KLASS</th><th>SALDO</th><th>TÄCKTID</th>
+            {onLedtidChange && <th title="Klicka på ledtid för att redigera">LEDTID <span style={{fontSize:9,color:'#475569'}}>✎</span></th>}
+            <th>STATUS</th><th>ÅTGÄRD</th>
           </tr>
         </thead>
         <tbody>
@@ -516,6 +564,35 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
                 <td><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}{a.xyz ? `/${a.xyz}` : ''}</span></td>
                 <td>{fmt(a.stock)}</td>
                 <td style={{ color: a.status === 'CRITICAL' ? '#ef4444' : a.status === 'WATCH' ? '#f97316' : '#94a3b8' }}>{fmtDays(a.coverage_days)}</td>
+                {onLedtidChange && (
+                  <td>
+                    {editingLedtid === a.article ? (
+                      <input
+                        autoFocus
+                        type="number"
+                        min="1" max="730"
+                        value={editVal}
+                        onChange={e => setEditVal(e.target.value)}
+                        onBlur={() => commitLedtid(a.article)}
+                        onKeyDown={e => { if (e.key === 'Enter') commitLedtid(a.article); if (e.key === 'Escape') setEditingLedtid(null); }}
+                        style={{ width: 54, background: '#1e293b', border: '1px solid #6366f1', borderRadius: 4, color: '#f1f5f9', fontSize: 12, padding: '2px 6px', textAlign: 'center' }}
+                      />
+                    ) : (
+                      <span
+                        onClick={() => handleLedtidClick(a)}
+                        title="Klicka för att redigera ledtid"
+                        style={{
+                          cursor: 'pointer', color: ledtidOverrides[a.article] ? '#6366f1' : '#64748b',
+                          fontSize: 12, borderBottom: '1px dashed #334155', paddingBottom: 1,
+                          fontWeight: ledtidOverrides[a.article] ? 700 : 400,
+                        }}
+                      >
+                        {Math.round(a.lead_time_days ?? 14)}d
+                        {ledtidOverrides[a.article] && <span style={{ fontSize: 9, marginLeft: 3, color: '#6366f1' }}>✎</span>}
+                      </span>
+                    )}
+                  </td>
+                )}
                 <td><span className="status-chip" style={{ background: statusColor(a.status) + '22', color: statusColor(a.status), border: `1px solid ${statusColor(a.status)}44` }}>{statusLabel(a.status)}</span></td>
                 <td className="action-cell">
                   {a.order_qty > 0 && <span className="action-pill order">Beställ {fmt(a.order_qty)} st</span>}
@@ -1010,7 +1087,24 @@ function exportCSV(rows) {
 // ─── DASHBOARD ────────────────────────────────────────────────────────────
 function Dashboard({ data, onReset, auth, onLogout }) {
   const [activeTab, setActiveTab] = useState('overview');
-  const { summary } = data;
+  const [ledtidOverrides, setLedtidOverrides] = useState({});
+
+  const handleLedtidChange = (articleId, newDays) => {
+    setLedtidOverrides(prev => ({ ...prev, [articleId]: newDays }));
+  };
+
+  // Bygg effectiveData med omräknade artiklar där ledtid overridats
+  const effectiveData = React.useMemo(() => {
+    if (Object.keys(ledtidOverrides).length === 0) return data;
+    const articles = (data.articles || []).map(a => {
+      const override = ledtidOverrides[a.article];
+      if (override == null) return a;
+      return recalcArticle(a, override);
+    });
+    return { ...data, articles };
+  }, [data, ledtidOverrides]);
+
+  const { summary } = effectiveData;
   const tabs = [
     { id: 'overview', label: 'Översikt', icon: 'home' },
     { id: 'abcxyz', label: summary?.xyz_available ? 'ABC/XYZ' : 'ABC', icon: 'grid' },
@@ -1096,11 +1190,11 @@ function Dashboard({ data, onReset, auth, onLogout }) {
             ))}
           </div>
         </div>
-        {activeTab === 'overview' && <OverviewTab data={data} />}
-        {activeTab === 'abcxyz' && <AbcXyzTab data={data} />}
-        {activeTab === 'purchasing' && <PurchasingTab data={data} />}
-        {activeTab === 'slotting' && <SlottingTab data={data} />}
-        {activeTab === 'capital' && <CapitalTab data={data} />}
+        {activeTab === 'overview' && <OverviewTab data={effectiveData} onLedtidChange={handleLedtidChange} ledtidOverrides={ledtidOverrides} />}
+        {activeTab === 'abcxyz' && <AbcXyzTab data={effectiveData} />}
+        {activeTab === 'purchasing' && <PurchasingTab data={effectiveData} />}
+        {activeTab === 'slotting' && <SlottingTab data={effectiveData} />}
+        {activeTab === 'capital' && <CapitalTab data={effectiveData} />}
         {activeTab === 'history' && auth && <HistoryTab token={auth.token} />}
       </div>
     </div>
