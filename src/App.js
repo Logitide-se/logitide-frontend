@@ -133,18 +133,18 @@ function ConfidenceWidget({ summary, dataQuality }) {
   const color = score === 100 ? '#22c55e' : score >= 67 ? '#f59e0b' : '#ef4444';
   const label = score === 100 ? 'Analys helt tillförlitlig' : score >= 67 ? 'Analys med varningar' : 'Kontrollera datakvalitet';
   return (
-    <div style={{ marginTop: 10, padding: '8px 10px', background: '#0f172a', borderRadius: 8, border: `1px solid ${color}33` }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-        <span style={{ color, fontSize: 10 }}>●</span>
-        <span style={{ fontSize: 10, fontWeight: 700, color, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{label}</span>
+    <div style={{ marginTop: 10, padding: '10px 12px', background: '#0f172a', borderRadius: 8, border: `1px solid ${color}44` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        <span style={{ color, fontSize: 8 }}>●</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color }}>{label}</span>
       </div>
-      <div style={{ height: 4, borderRadius: 2, background: '#1e293b', marginBottom: 7 }}>
-        <div style={{ height: '100%', width: `${score}%`, background: color, borderRadius: 2, transition: 'width 0.5s' }} />
+      <div style={{ height: 5, borderRadius: 3, background: '#1e293b', marginBottom: 8 }}>
+        <div style={{ height: '100%', width: `${score}%`, background: color, borderRadius: 3, transition: 'width 0.5s' }} />
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 8px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 6px' }}>
         {checks.map((c, i) => (
-          <span key={i} style={{ fontSize: 9, color: c.ok ? '#22c55e' : '#f59e0b', display: 'flex', alignItems: 'center', gap: 2 }}>
-            {c.ok ? '✓' : '⚠'} {c.label}
+          <span key={i} style={{ fontSize: 10, color: c.ok ? '#22c55e' : '#f59e0b', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 11 }}>{c.ok ? '✓' : '⚠'}</span> {c.label}
           </span>
         ))}
       </div>
