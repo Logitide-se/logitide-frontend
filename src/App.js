@@ -69,6 +69,78 @@ function recalcArticle(a, newLeadTime) {
 }
 
 // ─── DATA QUALITY BANNER ──────────────────────────────────────────────────
+const API = "https://web-production-2ab93.up.railway.app";
+
+function ActionRow({ a, hasCost, articles }) {
+  const [explanation, setExplanation] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  const fetchExplanation = async () => {
+    if (explanation) { setOpen(!open); return; }
+    setLoading(true);
+    try {
+      // Hitta full artikeldata för att skicka alla fakta till AI
+      const art = articles?.find(r => r.article === a.article) || {};
+      const res = await fetch(`${API}/explain-article`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          article: a.article,
+          name: a.name || art.name || '',
+          abc: a.abc || art.abc || '',
+          xyz: art.xyz || null,
+          status: a.status || art.status || '',
+          stock: art.stock ?? 0,
+          demand_per_day: art.demand_per_day ?? 0,
+          coverage_days: art.coverage_days ?? 0,
+          lead_time_days: art.lead_time_days ?? 14,
+          order_qty: a.qty || 0,
+          cost: art.cost ?? 0,
+          loc: art.loc || '',
+          ordered_qty: art.ordered_qty ?? 0,
+          eta_date: art.eta_date || null,
+          annual_value: art.annual_value ?? 0,
+        })
+      });
+      const data = await res.json();
+      if (data.explanation) { setExplanation(data.explanation); setOpen(true); }
+    } catch(e) { /* tyst fel */ }
+    setLoading(false);
+  };
+
+  return (
+    <div className="action-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span className="action-icon">{a.icon}</span>
+        <div className="action-body" style={{ flex: 1 }}>
+          <span className="action-name">{a.name || a.article}</span>
+          <span className="action-text">{a.action}</span>
+          <span className="action-reason">{a.reason}</span>
+        </div>
+        {hasCost && a.value_sek > 0 && <span className="action-value">{(a.value_sek/1000).toFixed(0)+' tkr'}</span>}
+        <button onClick={fetchExplanation} title="AI-förklaring" style={{
+          background: 'none', border: '1px solid var(--color-border)', borderRadius: '6px',
+          padding: '3px 8px', cursor: 'pointer', fontSize: '12px', color: 'var(--color-muted)',
+          whiteSpace: 'nowrap', flexShrink: 0
+        }}>
+          {loading ? '...' : open ? '▲ Dölj' : '✦ Förklara'}
+        </button>
+      </div>
+      {open && explanation && (
+        <div style={{
+          marginTop: '8px', marginLeft: '28px', padding: '10px 14px',
+          background: 'var(--color-bg)', border: '1px solid var(--color-border)',
+          borderRadius: '6px', fontSize: '13px', color: 'var(--color-text)',
+          lineHeight: '1.6', borderLeft: '3px solid #2196F3'
+        }}>
+          {explanation}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ValidationBanner({ validation }) {
   if (!validation || !validation.summary) return null;
   const hasWarnings = validation.warnings && validation.warnings.length > 0;
@@ -483,15 +555,7 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
           </div>
           <div className="actions-list">
             {top_actions.map((a, i) => (
-              <div key={i} className="action-row">
-                <span className="action-icon">{a.icon}</span>
-                <div className="action-body">
-                  <span className="action-name">{a.name || a.article}</span>
-                  <span className="action-text">{a.action}</span>
-                  <span className="action-reason">{a.reason}</span>
-                </div>
-                {hasCost && a.value_sek > 0 && <span className="action-value">{fmtKr(a.value_sek)}</span>}
-              </div>
+              <ActionRow key={i} a={a} hasCost={hasCost} articles={articles} />
             ))}
           </div>
         </div>
