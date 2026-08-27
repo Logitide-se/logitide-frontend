@@ -1373,7 +1373,7 @@ function SlottingTab({ data }) {
             <h3>Flyttlista — {zoneFilter ? `Zon ${zoneFilter} (${filteredMoves.length} st)` : 'prioriterad'}</h3>
             <button className="export-btn" onClick={() => exportCSV(filteredMoves)}><Icon name="download" size={14} /> Exportera CSV</button>
           </div>
-          <p className="section-desc">Slottinglistan baseras på ABC/XYZ-klassificering och förbrukningsmönster. Exakt placering bestäms av lageransvarig.</p>
+          <p className="section-desc">Rekommendationerna visar var artiklar idealt borde stå utifrån förbrukningsmönster och ABC/XYZ-klassificering. Lageransvarig avgör när plats finns och i vilken ordning flytten genomförs — systemet ger prioriteringsinblick, inte en garanti om lediga platser.</p>
           <table className="article-table">
             <thead>
               <tr><th>ARTIKEL</th><th>ABC</th><th>NUVARANDE</th><th>REKOMMENDERAD</th><th>PRIORITET</th><th>✓</th></tr>
