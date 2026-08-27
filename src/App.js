@@ -875,8 +875,8 @@ function ArticleDetailPanel({ article, onClose }) {
               { label: 'Lagervärde', val: a.cost > 0 ? fmtKr(a.stock * a.cost) : '—' },
               ...(a.order_qty > 0 ? [{ label: 'Rekommenderad order', val: `${fmt(a.order_qty)} st`, highlight: true }] : []),
               ...(a.ordered_qty > 0 ? [{ label: 'Beställt (på väg)', val: `${fmt(a.ordered_qty)} st` }] : []),
-              ...(a.eta_date ? [{ label: 'Förväntat leverans', val: a.eta_date }] : []),
-              ...(a.loc ? [{ label: 'Lagerplats', val: a.loc }] : []),
+              ...(a.eta_date ? [{ label: 'Förväntat leverans', val: String(a.eta_date).slice(0, 10) }] : []),
+              ...(a.loc && a.loc !== a.abc && a.loc.length > 1 ? [{ label: 'Lagerplats', val: a.loc }] : []),
               ...(a.recommended_zone && a.suggest_move ? [{ label: 'Rekomm. zon', val: `Zon ${a.recommended_zone}`, highlight: true }] : []),
             ].map((row, i) => (
               <div key={i} style={{ background: row.highlight ? '#3b82f618' : '#1e293b', borderRadius: 6, padding: '8px 10px', border: row.highlight ? '1px solid #3b82f640' : 'none' }}>
