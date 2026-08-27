@@ -757,6 +757,173 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
   );
 }
 
+// ─── ARTICLE DETAIL PANEL ─────────────────────────────────────────────────
+function ArticleDetailPanel({ article, onClose }) {
+  const [explanation, setExplanation] = useState(null);
+  const [loadingAI, setLoadingAI] = useState(false);
+  const a = article;
+
+  useEffect(() => {
+    if (!a) return;
+    setExplanation(null);
+    setLoadingAI(true);
+    fetch(`${API}/explain-article`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        article: a.article,
+        name: a.name || '',
+        abc: a.abc || '',
+        xyz: a.xyz || null,
+        status: a.status || '',
+        stock: a.stock ?? 0,
+        demand_per_day: a.demand_per_day ?? 0,
+        coverage_days: a.coverage_days ?? 0,
+        lead_time_days: a.lead_time_days ?? 14,
+        order_qty: a.order_qty ?? 0,
+        cost: a.cost ?? 0,
+        loc: a.loc || '',
+        ordered_qty: a.ordered_qty ?? 0,
+        eta_date: a.eta_date || null,
+        annual_value: a.annual_value ?? 0,
+      })
+    })
+      .then(r => r.json())
+      .then(d => setExplanation(d.explanation || null))
+      .catch(() => setExplanation(null))
+      .finally(() => setLoadingAI(false));
+  }, [a?.article]);
+
+  if (!a) return null;
+
+  // Gauge: coverage vs lead_time
+  const cov = a.coverage_days ?? 0;
+  const lt = a.lead_time_days ?? 14;
+  const maxDays = Math.max(cov, lt * 3, 60);
+  const covPct = Math.min((cov / maxDays) * 100, 100);
+  const ltPct = Math.min((lt / maxDays) * 100, 100);
+  const gaugeColor = a.status === 'CRITICAL' ? '#ef4444' : a.status === 'WATCH' ? '#f97316' : a.status === 'OVERSTOCK' ? '#a855f7' : '#22c55e';
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 1100, display: 'flex', alignItems: 'stretch' }}
+      onClick={onClose}
+    >
+      {/* Backdrop */}
+      <div style={{ flex: 1, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(2px)' }} />
+      {/* Panel */}
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: 380, maxWidth: '95vw', background: '#0c1420',
+          borderLeft: '1px solid #1e293b', display: 'flex', flexDirection: 'column',
+          overflowY: 'auto', boxShadow: '-16px 0 48px rgba(0,0,0,0.6)',
+          animation: 'slideIn 0.18s ease-out',
+        }}
+      >
+        <style>{`@keyframes slideIn { from { transform: translateX(40px); opacity:0; } to { transform: translateX(0); opacity:1; } }`}</style>
+        {/* Header */}
+        <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid #1e293b', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <span style={{
+                background: statusColor(a.status) + '22', color: statusColor(a.status),
+                border: `1px solid ${statusColor(a.status)}44`,
+                borderRadius: 5, padding: '2px 8px', fontSize: 11, fontWeight: 700
+              }}>{statusLabel(a.status)}</span>
+              <span style={{ background: abcColor(a.abc) + '22', color: abcColor(a.abc), borderRadius: 5, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
+                {a.abc}{a.xyz ? `/${a.xyz}` : ''}
+              </span>
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#f1f5f9', lineHeight: 1.3 }}>{a.name || '—'}</div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{a.article}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 20, cursor: 'pointer', lineHeight: 1, padding: '0 4px', flexShrink: 0 }}>✕</button>
+        </div>
+
+        {/* Coverage gauge */}
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b' }}>
+          <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>TÄCKTID VS LEDTID</div>
+          <div style={{ position: 'relative', height: 10, background: '#1e293b', borderRadius: 5, marginBottom: 8 }}>
+            {/* Lead time marker */}
+            <div style={{
+              position: 'absolute', left: `${ltPct}%`, top: -4, bottom: -4,
+              width: 2, background: '#f97316', borderRadius: 1, transform: 'translateX(-50%)', zIndex: 2
+            }} />
+            {/* Coverage bar */}
+            <div style={{ width: `${covPct}%`, height: '100%', background: gaugeColor, borderRadius: 5, transition: 'width 0.5s', position: 'relative', zIndex: 1 }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+            <span style={{ color: gaugeColor, fontWeight: 700 }}>Täcktid: {fmtDays(cov)}</span>
+            <span style={{ color: '#f97316' }}>Ledtid: {Math.round(lt)} d</span>
+          </div>
+          {cov < lt && (
+            <div style={{ marginTop: 8, padding: '6px 10px', background: '#ef444418', border: '1px solid #ef444430', borderRadius: 6, fontSize: 11, color: '#fca5a5' }}>
+              ⚠️ Täcktid understiger ledtid med {Math.round(lt - cov)} dagar
+            </div>
+          )}
+        </div>
+
+        {/* Key metrics */}
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b' }}>
+          <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>NYCKELDATA</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px' }}>
+            {[
+              { label: 'Lagersaldo', val: fmt(a.stock) + ' st' },
+              { label: 'Förbrukning/dag', val: a.demand_per_day != null ? `${a.demand_per_day.toFixed(1)} st` : '—' },
+              { label: 'Inköpspris', val: a.cost > 0 ? `${fmt(a.cost)} kr` : '—' },
+              { label: 'Lagervärde', val: a.cost > 0 ? fmtKr(a.stock * a.cost) : '—' },
+              ...(a.order_qty > 0 ? [{ label: 'Rekommenderad order', val: `${fmt(a.order_qty)} st`, highlight: true }] : []),
+              ...(a.ordered_qty > 0 ? [{ label: 'Beställt (på väg)', val: `${fmt(a.ordered_qty)} st` }] : []),
+              ...(a.eta_date ? [{ label: 'Förväntat leverans', val: a.eta_date }] : []),
+              ...(a.loc ? [{ label: 'Lagerplats', val: a.loc }] : []),
+              ...(a.recommended_zone && a.suggest_move ? [{ label: 'Rekomm. zon', val: `Zon ${a.recommended_zone}`, highlight: true }] : []),
+            ].map((row, i) => (
+              <div key={i} style={{ background: row.highlight ? '#3b82f618' : '#1e293b', borderRadius: 6, padding: '8px 10px', border: row.highlight ? '1px solid #3b82f640' : 'none' }}>
+                <div style={{ fontSize: 10, color: '#64748b', marginBottom: 2 }}>{row.label}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: row.highlight ? '#60a5fa' : '#f1f5f9' }}>{row.val}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Action recommendation */}
+        {(a.status === 'CRITICAL' || a.status === 'WATCH' || a.status === 'OVERSTOCK' || a.status === 'DEAD_STOCK') && (
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b' }}>
+            <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>REKOMMENDERAD ÅTGÄRD</div>
+            <div style={{ padding: '10px 14px', background: statusColor(a.status) + '18', border: `1px solid ${statusColor(a.status)}30`, borderRadius: 8, fontSize: 13, color: '#f1f5f9', lineHeight: 1.6 }}>
+              {a.status === 'CRITICAL' && `Beställ ${fmt(a.order_qty || Math.ceil((lt * 2 - cov) * (a.demand_per_day || 1)))} st omgående. Täcktiden är under ledtid — risk för lagerbrist.`}
+              {a.status === 'WATCH' && `Planera inköp inom kort. ${a.order_qty > 0 ? `Föreslaget antal: ${fmt(a.order_qty)} st.` : 'Täcktiden nærmar sig kritisk gräns.'}`}
+              {a.status === 'OVERSTOCK' && `Pausa inköp. Täcktiden är ${fmtDays(cov)} — överväg utförsäljning eller omfördelning.`}
+              {a.status === 'DEAD_STOCK' && `Ingen registrerad förbrukning. Överväg utrangering, försäljning eller bokföring av kassation.`}
+            </div>
+          </div>
+        )}
+
+        {/* AI explanation */}
+        <div style={{ padding: '16px 20px', flex: 1 }}>
+          <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>✦ AI-ANALYS</div>
+          {loadingAI && (
+            <div style={{ color: '#64748b', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 12, height: 12, border: '2px solid #334155', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+              Analyserar artikel…
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          )}
+          {!loadingAI && explanation && (
+            <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.7, borderLeft: '3px solid #6366f1', paddingLeft: 12 }}>
+              {explanation}
+            </div>
+          )}
+          {!loadingAI && !explanation && (
+            <div style={{ fontSize: 12, color: '#475569' }}>Ingen AI-analys tillgänglig.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── ARTICLE TABLE ────────────────────────────────────────────────────────
 function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc = true, onLedtidChange, ledtidOverrides = {}, onResetLedtider }) {
   const [filter, setFilter] = useState('Alla');
@@ -764,6 +931,7 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
   const [search, setSearch] = useState('');
   const [editingLedtid, setEditingLedtid] = useState(null); // article id
   const [editVal, setEditVal] = useState('');
+  const [selectedArticle, setSelectedArticle] = useState(null);
 
   const handleLedtidClick = (a) => {
     if (!onLedtidChange) return;
@@ -792,6 +960,7 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
   }) || [];
   return (
     <div>
+      {selectedArticle && <ArticleDetailPanel article={selectedArticle} onClose={() => setSelectedArticle(null)} />}
       <div className="table-filters">
         <input className="search-input" placeholder="Sök på artikelnamn eller ID..." value={search} onChange={e => setSearch(e.target.value)} />
         <div className="filter-group">
@@ -834,13 +1003,19 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
         <tbody>
           {(search ? filtered : filtered.slice(0, 100)).map((a, i) => (
             <React.Fragment key={i}>
-              <tr>
+              <tr
+                style={{ cursor: 'pointer' }}
+                onClick={() => setSelectedArticle(a)}
+                onMouseEnter={e => { e.currentTarget.style.background = '#1a2235'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = ''; }}
+                title="Klicka för detaljer"
+              >
                 <td><div className="art-name">{a.name}</div><div className="art-id">{a.article}</div></td>
                 <td><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}{a.xyz ? `/${a.xyz}` : ''}</span></td>
                 <td>{fmt(a.stock)}</td>
                 <td style={{ color: a.status === 'CRITICAL' ? '#ef4444' : a.status === 'WATCH' ? '#f97316' : '#94a3b8' }}>{fmtDays(a.coverage_days)}</td>
                 {onLedtidChange && (
-                  <td>
+                  <td onClick={e => e.stopPropagation()}>
                     {editingLedtid === a.article ? (
                       <input
                         autoFocus
