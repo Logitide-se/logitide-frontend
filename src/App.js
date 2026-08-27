@@ -328,12 +328,150 @@ function ConfidenceWidget({ summary, dataQuality }) {
 }
 
 // ─── UPLOAD PAGE ──────────────────────────────────────────────────────────
+// ─── ONBOARDING GUIDE MODAL ───────────────────────────────────────────────
+function OnboardingGuide({ onClose }) {
+  const tiers = [
+    {
+      level: '1',
+      label: 'Obligatoriskt',
+      color: '#ef4444',
+      bg: 'rgba(239,68,68,0.08)',
+      border: 'rgba(239,68,68,0.25)',
+      icon: '🔴',
+      desc: 'Utan dessa kolumner kan vi inte köra analysen.',
+      fields: [
+        { name: 'Artikelnummer', note: 'Unikt ID per artikel', ex: 'ART-1001' },
+        { name: 'Lagersaldo', note: 'Aktuellt lager i antal enheter', ex: '250' },
+        { name: 'Förbrukning / Försäljning', note: 'Per dag, vecka eller månad', ex: '12 st/dag' },
+      ]
+    },
+    {
+      level: '2',
+      label: 'Rekommenderat',
+      color: '#f97316',
+      bg: 'rgba(249,115,22,0.08)',
+      border: 'rgba(249,115,22,0.25)',
+      icon: '🟠',
+      desc: 'Med dessa kolumner får du inköpsförslag och kapitalanalys.',
+      fields: [
+        { name: 'Ledtid', note: 'Leveranstid i dagar', ex: '14 dagar' },
+        { name: 'Inköpspris', note: 'Kostnad per enhet (kr)', ex: '125 kr' },
+        { name: 'Artikelnamn / Beskrivning', note: 'Fritext', ex: 'Bult M8×30 Förzinkad' },
+        { name: 'Lagerposition / Plats', note: 'Hyllplats eller zon i lagret', ex: 'A1-02' },
+      ]
+    },
+    {
+      level: '3',
+      label: 'Ger full analys',
+      color: '#22c55e',
+      bg: 'rgba(34,197,94,0.08)',
+      border: 'rgba(34,197,94,0.25)',
+      icon: '🟢',
+      desc: 'Dessa kolumner låser upp XYZ-analys, slottning och leveransbevak.',
+      fields: [
+        { name: 'Historisk förbrukning', note: 'Månadsvis, minst 6 månader → XYZ', ex: 'Jan: 120, Feb: 98…' },
+        { name: 'Beställt antal', note: 'Pågående order som inte levererats', ex: '500' },
+        { name: 'Förväntat leveransdatum', note: 'För pågående inköpsorder', ex: '2025-06-15' },
+        { name: 'MOQ / Minsta orderenhet', note: 'Minsta kvantitet att beställa', ex: '100 st' },
+      ]
+    },
+  ];
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)',
+        zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: '#0f172a', border: '1px solid #1e293b', borderRadius: 20,
+          padding: '36px 40px', maxWidth: 640, width: '100%', maxHeight: '90vh',
+          overflowY: 'auto', position: 'relative', boxShadow: '0 24px 80px rgba(0,0,0,0.6)'
+        }}
+      >
+        <button
+          onClick={onClose}
+          style={{
+            position: 'absolute', top: 16, right: 20, background: 'none', border: 'none',
+            color: '#64748b', fontSize: 22, cursor: 'pointer', lineHeight: 1
+          }}
+        >×</button>
+
+        <div style={{ marginBottom: 28, textAlign: 'center' }}>
+          <div style={{ fontSize: 36, marginBottom: 10 }}>📋</div>
+          <h2 style={{ fontSize: 22, fontWeight: 800, color: '#f1f5f9', margin: 0 }}>Vad behöver jag ta med?</h2>
+          <p style={{ fontSize: 13, color: '#64748b', marginTop: 8, lineHeight: 1.6 }}>
+            Exportera en fil från ert affärssystem (ERP) med kolumnerna nedan.<br />
+            Ju mer data, desto bättre rekommendationer.
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {tiers.map(tier => (
+            <div key={tier.level} style={{
+              background: tier.bg, border: `1px solid ${tier.border}`,
+              borderRadius: 14, padding: '20px 24px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <span style={{
+                  background: tier.color, color: '#fff', borderRadius: '50%',
+                  width: 24, height: 24, display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', fontSize: 12, fontWeight: 800, flexShrink: 0
+                }}>{tier.level}</span>
+                <span style={{ fontSize: 15, fontWeight: 700, color: '#f1f5f9' }}>{tier.label}</span>
+              </div>
+              <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 14px 34px', lineHeight: 1.5 }}>{tier.desc}</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginLeft: 34 }}>
+                {tier.fields.map(f => (
+                  <div key={f.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                    <div>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>{f.name}</span>
+                      <span style={{ fontSize: 12, color: '#64748b', marginLeft: 8 }}>— {f.note}</span>
+                    </div>
+                    <span style={{
+                      fontSize: 11, color: '#94a3b8', background: '#1e293b', borderRadius: 6,
+                      padding: '2px 8px', whiteSpace: 'nowrap', flexShrink: 0, fontFamily: 'monospace'
+                    }}>{f.ex}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{
+          marginTop: 24, padding: '14px 18px', background: '#1e293b',
+          borderRadius: 10, fontSize: 12, color: '#94a3b8', lineHeight: 1.7
+        }}>
+          💡 <strong style={{ color: '#cbd5e1' }}>Tips:</strong> De flesta affärssystem kan exportera dessa kolumner direkt till Excel.
+          Kolumnnamnen behöver inte vara exakta — Logitide känner automatiskt igen svenska och engelska varianter.
+          Saknar ni viss data? Ingen fara — systemet ger rekommendationer <em>bara</em> på det ni har.
+        </div>
+
+        <button
+          onClick={onClose}
+          style={{
+            width: '100%', marginTop: 20, padding: '12px 0', borderRadius: 10,
+            background: '#6366f1', color: '#fff', border: 'none', fontWeight: 700,
+            fontSize: 14, cursor: 'pointer'
+          }}
+        >Förstått — ladda upp fil →</button>
+      </div>
+    </div>
+  );
+}
+
 function UploadPage({ onAnalysis, auth, onLogout }) {
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [loadingMsg, setLoadingMsg] = useState('');
   const [showHistory, setShowHistory] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   // Väck Railway så servern är redo när användaren laddar upp filen
   useEffect(() => {
     fetch(`${API_URL}/health`).catch(() => {});
@@ -441,6 +579,24 @@ function UploadPage({ onAnalysis, auth, onLogout }) {
             </div>
           ))}
         </div>
+
+        {/* ── Guide button ── */}
+        <div style={{ textAlign: 'center', marginBottom: 8 }}>
+          <button
+            onClick={() => setShowGuide(true)}
+            style={{
+              background: 'none', border: '1px solid #334155', borderRadius: 8,
+              color: '#94a3b8', fontSize: 13, padding: '8px 20px', cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 7, transition: 'border-color 0.15s, color 0.15s'
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.color = '#a5b4fc'; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = '#334155'; e.currentTarget.style.color = '#94a3b8'; }}
+          >
+            <span style={{ fontSize: 15 }}>📋</span> Vad behöver jag ta med?
+          </button>
+        </div>
+
+        {showGuide && <OnboardingGuide onClose={() => setShowGuide(false)} />}
 
         {!loading ? (
           <>
