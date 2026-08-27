@@ -1,6 +1,28 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import './App.css';
 const API_URL = 'https://web-production-2ab93.up.railway.app';
+
+// ─── THEME ────────────────────────────────────────────────────────────────
+function useTheme() {
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem('logitide-theme') || 'dark'; } catch { return 'dark'; }
+  });
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    try { localStorage.setItem('logitide-theme', theme); } catch {}
+  }, [theme]);
+  const toggle = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
+  return [theme, toggle];
+}
+
+function ThemeToggle({ theme, onToggle }) {
+  return (
+    <button className="theme-toggle" onClick={onToggle} title="Växla tema">
+      <span className="theme-toggle-icon">{theme === 'dark' ? '☀️' : '🌙'}</span>
+      {theme === 'dark' ? 'Ljust' : 'Mörkt'}
+    </button>
+  );
+}
 // ─── ICONS ────────────────────────────────────────────────────────────────
 const Icon = ({ name, size = 20 }) => {
   const icons = {
@@ -550,6 +572,9 @@ function UploadPage({ onAnalysis, auth, onLogout }) {
   }, []);
   return (
     <div className="upload-page">
+      <div style={{ position: 'absolute', top: 16, right: 16 }}>
+        <ThemeToggle theme={theme} onToggle={toggleTheme} />
+      </div>
       <div className="upload-content">
         <div className="logo-area">
           <div className="logo-icon">📦</div>
@@ -1885,10 +1910,13 @@ function Dashboard({ data, onReset, auth, onLogout }) {
               {summary?.overstock > 0 && <span className="stat-over">{summary?.overstock} överlager</span>}
             </div>
           </div>
-          <div className="top-tabs">
-            {tabs.filter(t => t.id !== 'overview').map(t => (
-              <button key={t.id} className={`top-tab ${activeTab === t.id ? 'active' : ''}`} onClick={() => setActiveTab(t.id)}>{t.label}</button>
-            ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="top-tabs">
+              {tabs.filter(t => t.id !== 'overview').map(t => (
+                <button key={t.id} className={`top-tab ${activeTab === t.id ? 'active' : ''}`} onClick={() => setActiveTab(t.id)}>{t.label}</button>
+              ))}
+            </div>
+            <ThemeToggle theme={theme} onToggle={toggleTheme} />
           </div>
         </div>
         {activeTab === 'overview' && <OverviewTab data={effectiveData} onLedtidChange={handleLedtidChange} ledtidOverrides={ledtidOverrides} onResetLedtider={Object.keys(ledtidOverrides).length > 0 ? handleResetLedtider : null} />}
@@ -2416,6 +2444,7 @@ function HistoryTab({ token }) {
 
 // ─── APP ──────────────────────────────────────────────────────────────────
 export default function App() {
+  const [theme, toggleTheme] = useTheme();
   const [analysisData, setAnalysisData] = useState(null);
   const [auth, setAuth] = useState(() => {
     const token = localStorage.getItem('logitide_token');
