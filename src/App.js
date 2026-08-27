@@ -1583,39 +1583,118 @@ function SlottingTab({ data }) {
         </div>
 
         {/* ── KPI-rad ── */}
-        <div className="kpi-grid-4">
+        <div className="kpi-grid-4" style={{ margin: '16px 0 12px' }}>
           <KpiCard label="KORREKT PLACERADE" value={fmt(summary.total_articles - summary.articles_to_move)} color="#22c55e" />
           <KpiCard label="KRITISKA FLYTT" value={fmt(moves.filter(a => a.move_priority === 'CRITICAL').length)} color="#ef4444" />
           <KpiCard label="MEDELPRIORITET" value={fmt(moves.filter(a => a.move_priority === 'MEDIUM').length)} color="#f59e0b" />
           <KpiCard label="LÅGPRIORITERADE" value={fmt(moves.filter(a => a.move_priority === 'LOW').length)} color="#6b7280" />
         </div>
-        <div className="section">
-          <div className="section-header">
-            <h3>Flyttlista — {zoneFilter ? `Zon ${zoneFilter} (${filteredMoves.length} st)` : 'prioriterad'}</h3>
-            <button className="export-btn" onClick={() => exportCSV(filteredMoves)}><Icon name="download" size={14} /> Exportera CSV</button>
-          </div>
-          <p className="section-desc">Rekommendationerna visar var artiklar idealt borde stå utifrån förbrukningsmönster och ABC/XYZ-klassificering. Lageransvarig avgör när plats finns och i vilken ordning flytten genomförs — systemet ger prioriteringsinblick, inte en garanti om lediga platser.</p>
-          <table className="article-table">
-            <thead>
-              <tr><th>ARTIKEL</th><th>ABC</th><th>NUVARANDE</th><th>REKOMMENDERAD</th><th>PRIORITET</th><th>✓</th></tr>
-            </thead>
-            <tbody>
-              {filteredMoves.map((a, i) => (
-                <tr key={i}>
-                  <td><div className="art-name">{a.name}</div><div className="art-id">{a.article}</div></td>
-                  <td><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}{a.xyz ? `/${a.xyz}` : ''}</span></td>
-                  <td>Zon {a.loc}</td>
-                  <td style={{ color: '#3b82f6', fontWeight: 600 }}>Zon {a.recommended_zone}</td>
-                  <td><span className="status-chip" style={{ background: (priorityColor[a.move_priority] || '#6b7280') + '22', color: priorityColor[a.move_priority] || '#6b7280', border: `1px solid ${(priorityColor[a.move_priority] || '#6b7280')}44` }}>{priorityLabel[a.move_priority] || a.move_priority}</span></td>
-                  <td><button className="check-btn">✓</button></td>
-                </tr>
-              ))}
-              {filteredMoves.length === 0 && (
-                <tr><td colSpan="6" style={{ textAlign: 'center', color: '#22c55e', padding: '20px 0' }}>✓ Inga artiklar att flytta i zon {zoneFilter}</td></tr>
+
+        {/* ── Toolbar ── */}
+        <style>{`
+          .slot-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+          .slot-search { flex: 1; min-width: 160px; background: var(--color-surface); border: 1px solid var(--color-border);
+            border-radius: 6px; padding: 6px 10px; color: var(--color-text); font-size: 13px; outline: none; }
+          .slot-search:focus { border-color: #3b82f6; }
+          .slot-col-hdr { display: grid; grid-template-columns: 8px 1fr 50px 90px 100px 90px 40px;
+            gap: 0 10px; padding: 0 10px 6px; font-size: 10px; font-weight: 700; letter-spacing: .06em;
+            color: var(--color-muted); text-transform: uppercase; align-items: center; }
+          .slot-row { display: grid; grid-template-columns: 8px 1fr 50px 90px 100px 90px 40px;
+            align-items: center; gap: 0 10px; padding: 7px 10px; border-radius: 7px;
+            border-bottom: 1px solid var(--color-border); transition: background 0.1s; font-size: 13px; }
+          .slot-row:hover { background: var(--color-surface); }
+          .slot-row:last-child { border-bottom: none; }
+          .slot-bar { width: 4px; height: 28px; border-radius: 2px; }
+          .slot-arrow { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; }
+          .slot-zone-from { color: var(--color-muted); }
+          .slot-zone-to { color: #3b82f6; }
+          .slot-check-btn { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--color-border);
+            background: var(--color-surface); color: var(--color-muted); cursor: pointer; font-size: 13px;
+            display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
+          .slot-check-btn:hover { background: #22c55e22; color: #22c55e; border-color: #22c55e44; }
+          .slot-priority-chip { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; letter-spacing: .04em; }
+        `}</style>
+
+        {(() => {
+          const [slotSearch, setSlotSearch] = React.useState('');
+          const [checked, setChecked] = React.useState({});
+          const displayed = filteredMoves.filter(a =>
+            !slotSearch || a.article?.toLowerCase().includes(slotSearch.toLowerCase()) || a.name?.toLowerCase().includes(slotSearch.toLowerCase())
+          );
+          const critMoves = displayed.filter(a => a.move_priority === 'CRITICAL');
+          const medMoves = displayed.filter(a => a.move_priority === 'MEDIUM');
+          const lowMoves = displayed.filter(a => a.move_priority === 'LOW');
+
+          const MoveRow = ({ a, i }) => {
+            const pc = priorityColor[a.move_priority] || '#6b7280';
+            const isDone = checked[a.article];
+            return (
+              <div className="slot-row" key={i} style={{ opacity: isDone ? 0.4 : 1 }}>
+                <div className="slot-bar" style={{ background: pc }} />
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: isDone ? 'line-through' : 'none' }}>{a.name || a.article}</div>
+                  <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>{a.article}</div>
+                </div>
+                <div><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}{a.xyz ? `/${a.xyz}` : ''}</span></div>
+                <div className="slot-zone-from" style={{ fontSize: 13 }}>Zon <b>{a.loc}</b></div>
+                <div className="slot-arrow">
+                  <span style={{ color: 'var(--color-muted)' }}>→</span>
+                  <span className="slot-zone-to">Zon <b>{a.recommended_zone}</b></span>
+                </div>
+                <div><span className="slot-priority-chip" style={{ background: pc + '20', color: pc }}>{priorityLabel[a.move_priority] || a.move_priority}</span></div>
+                <div>
+                  <button className="slot-check-btn" onClick={() => setChecked(c => ({ ...c, [a.article]: !c[a.article] }))}
+                    style={isDone ? { background: '#22c55e22', color: '#22c55e', borderColor: '#22c55e44' } : {}}>
+                    {isDone ? '✓' : '○'}
+                  </button>
+                </div>
+              </div>
+            );
+          };
+
+          return (
+            <>
+              <div className="slot-toolbar">
+                <input className="slot-search" placeholder="Sök artikel..." value={slotSearch} onChange={e => setSlotSearch(e.target.value)} />
+                <button className="export-btn" onClick={() => exportCSV(filteredMoves)}>
+                  <Icon name="download" size={14} /> Exportera CSV
+                </button>
+              </div>
+              <p style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 12, lineHeight: 1.5 }}>
+                Rekommendationer baserade på ABC-klass vs. nuvarande position. Lageransvarig avgör när plats finns.
+              </p>
+
+              {/* Column headers */}
+              <div className="slot-col-hdr">
+                <div /> <div>Artikel</div> <div>ABC</div> <div>Nuvarande</div> <div>Flytta till</div> <div>Prioritet</div> <div>Klar</div>
+              </div>
+
+              {critMoves.length > 0 && (
+                <>
+                  <div className="purch-section-label">🔴 Kritiska flytt <span style={{ background: '#ef444422', color: '#ef4444' }}>{critMoves.length} artiklar</span></div>
+                  {critMoves.map((a, i) => <MoveRow key={`c${i}`} a={a} i={i} />)}
+                </>
               )}
-            </tbody>
-          </table>
-        </div>
+              {medMoves.length > 0 && (
+                <>
+                  <div className="purch-section-label" style={{ marginTop: 12 }}>🟡 Medelprioritet <span style={{ background: '#f59e0b22', color: '#f59e0b' }}>{medMoves.length} artiklar</span></div>
+                  {medMoves.map((a, i) => <MoveRow key={`m${i}`} a={a} i={i} />)}
+                </>
+              )}
+              {lowMoves.length > 0 && (
+                <>
+                  <div className="purch-section-label" style={{ marginTop: 12 }}>⚪ Lågprioriterade <span style={{ background: '#6b728022', color: '#6b7280' }}>{lowMoves.length} artiklar</span></div>
+                  {lowMoves.map((a, i) => <MoveRow key={`l${i}`} a={a} i={i} />)}
+                </>
+              )}
+              {displayed.length === 0 && (
+                <div style={{ textAlign: 'center', padding: 32, color: 'var(--color-muted)', fontSize: 14 }}>
+                  {filteredMoves.length === 0 ? '✓ Alla artiklar är korrekt placerade' : 'Inga träffar på sökning'}
+                </div>
+              )}
+            </>
+          );
+        })()}
       </div>
     );
   }
