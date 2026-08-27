@@ -870,7 +870,7 @@ function ArticleDetailPanel({ article, onClose }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px' }}>
             {[
               { label: 'Lagersaldo', val: fmt(a.stock) + ' st' },
-              { label: 'Förbrukning/dag', val: a.demand_per_day != null ? `${a.demand_per_day.toFixed(1)} st` : '—' },
+              { label: 'Förbrukning/dag', val: (a.demand_per_day != null && a.demand_per_day !== '') ? `${Number(a.demand_per_day).toFixed(1)} st` : '—' },
               { label: 'Inköpspris', val: a.cost > 0 ? `${fmt(a.cost)} kr` : '—' },
               { label: 'Lagervärde', val: a.cost > 0 ? fmtKr(a.stock * a.cost) : '—' },
               ...(a.order_qty > 0 ? [{ label: 'Rekommenderad order', val: `${fmt(a.order_qty)} st`, highlight: true }] : []),
@@ -893,7 +893,7 @@ function ArticleDetailPanel({ article, onClose }) {
             <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>REKOMMENDERAD ÅTGÄRD</div>
             <div style={{ padding: '10px 14px', background: statusColor(a.status) + '18', border: `1px solid ${statusColor(a.status)}30`, borderRadius: 8, fontSize: 13, color: '#f1f5f9', lineHeight: 1.6 }}>
               {a.status === 'CRITICAL' && `Beställ ${fmt(a.order_qty || Math.ceil((lt * 2 - cov) * (a.demand_per_day || 1)))} st omgående. Täcktiden är under ledtid — risk för lagerbrist.`}
-              {a.status === 'WATCH' && `Planera inköp inom kort. ${a.order_qty > 0 ? `Föreslaget antal: ${fmt(a.order_qty)} st.` : 'Täcktiden nærmar sig kritisk gräns.'}`}
+              {a.status === 'WATCH' && `Planera inköp inom kort. ${a.order_qty > 0 ? `Föreslaget antal: ${fmt(a.order_qty)} st.` : 'Täcktiden närmar sig kritisk gräns.'}`}
               {a.status === 'OVERSTOCK' && `Pausa inköp. Täcktiden är ${fmtDays(cov)} — överväg utförsäljning eller omfördelning.`}
               {a.status === 'DEAD_STOCK' && `Ingen registrerad förbrukning. Överväg utrangering, försäljning eller bokföring av kassation.`}
             </div>
@@ -965,12 +965,12 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
         <input className="search-input" placeholder="Sök på artikelnamn eller ID..." value={search} onChange={e => setSearch(e.target.value)} />
         <div className="filter-group">
           {statusFilters.map(f => (
-            <button key={f} className={`filter-btn ${filter === f ? 'active' : ''}`} onClick={() => setFilter(f)}>{f}</button>
+            <button key={f} className={`filter-btn ${filter === f ? 'active' : ''}`} onClick={() => { setFilter(f); setSelectedArticle(null); }}>{f}</button>
           ))}
         </div>
         <div className="filter-group">
           {abcFilters.map(f => (
-            <button key={f} className={`filter-btn ${abcFilter === f ? 'active' : ''}`} onClick={() => setAbcFilter(f)}>{f}</button>
+            <button key={f} className={`filter-btn ${abcFilter === f ? 'active' : ''}`} onClick={() => { setAbcFilter(f); setSelectedArticle(null); }}>{f}</button>
           ))}
         </div>
         {onResetLedtider && (
