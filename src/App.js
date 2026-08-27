@@ -815,7 +815,7 @@ function ArticleDetailPanel({ article, onClose }) {
       <div
         onClick={e => e.stopPropagation()}
         style={{
-          width: 380, maxWidth: '95vw', background: '#0c1420',
+          width: 400, maxWidth: '95vw', background: '#0c1420',
           borderLeft: '1px solid #1e293b', display: 'flex', flexDirection: 'column',
           overflowY: 'auto', boxShadow: '-16px 0 48px rgba(0,0,0,0.6)',
           animation: 'slideIn 0.18s ease-out',
@@ -901,7 +901,7 @@ function ArticleDetailPanel({ article, onClose }) {
         )}
 
         {/* AI explanation */}
-        <div style={{ padding: '16px 20px', flex: 1 }}>
+        <div style={{ padding: '16px 20px', flex: 1, minHeight: 0 }}>
           <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>✦ AI-ANALYS</div>
           {loadingAI && (
             <div style={{ color: '#64748b', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
