@@ -1195,6 +1195,7 @@ function PurchasingTab({ data }) {
 function SlottingTab({ data }) {
   const { summary, articles } = data;
   const hasLoc = summary.has_location_data;
+  const [zoneFilter, setZoneFilter] = useState(null);
   // ── Med loc-data: befintlig flyttlista ──
   const moves = articles?.filter(a => a.suggest_move).sort((a, b) => {
     const p = { CRITICAL: 0, MEDIUM: 1, LOW: 2 };
@@ -1205,8 +1206,162 @@ function SlottingTab({ data }) {
 
   // ── Med loc: visa befintlig logik ──
   if (hasLoc) {
+    // ── Zonkarta-data ──
+    const zones = ['A', 'B', 'C'];
+    const zoneConfig = {
+      A: { label: 'Zon A — Guldzon', sub: 'Nära plockytan', color: '#22c55e', dimColor: '#14532d', textColor: '#bbf7d0', icon: '⚡' },
+      B: { label: 'Zon B — Silverzon', sub: 'Mittenlagret', color: '#f59e0b', dimColor: '#451a03', textColor: '#fde68a', icon: '📦' },
+      C: { label: 'Zon C — Bronszon', sub: 'Bakre lagret', color: '#6b7280', dimColor: '#1c1917', textColor: '#d1d5db', icon: '🗄️' },
+    };
+    const zoneStats = {};
+    zones.forEach(z => {
+      const inZone = articles?.filter(a => String(a.loc || '').toUpperCase().startsWith(z)) || [];
+      const correct = inZone.filter(a => !a.suggest_move);
+      const misplaced = inZone.filter(a => a.suggest_move);
+      const incoming = articles?.filter(a => a.suggest_move && String(a.recommended_zone || '').toUpperCase() === z) || [];
+      zoneStats[z] = { total: inZone.length, correct: correct.length, misplaced: misplaced.length, incoming: incoming.length };
+    });
+    const filteredMoves = zoneFilter
+      ? moves.filter(a => String(a.loc || '').toUpperCase().startsWith(zoneFilter))
+      : moves;
+
     return (
       <div className="tab-content">
+        {/* ── LAGERKARTA ── */}
+        <div className="section" style={{ marginBottom: 0 }}>
+          <div className="section-header" style={{ marginBottom: 12 }}>
+            <h3>Lagerkarta — zoner</h3>
+            <span style={{ fontSize: 12, color: '#64748b' }}>Klicka på en zon för att filtrera listan</span>
+          </div>
+          {/* SVG-karta */}
+          <div style={{ position: 'relative', marginBottom: 16 }}>
+            <svg viewBox="0 0 700 200" style={{ width: '100%', borderRadius: 10, overflow: 'visible' }}>
+              {/* Bakgrund */}
+              <rect x="0" y="0" width="700" height="200" rx="10" fill="#0a1628" />
+              {/* Plockytan / utgång */}
+              <rect x="0" y="0" width="80" height="200" rx="0" fill="#0d1f3c" />
+              <text x="40" y="95" textAnchor="middle" fill="#3b82f6" fontSize="9" fontWeight="700" letterSpacing="0.08em">PLOCK</text>
+              <text x="40" y="108" textAnchor="middle" fill="#3b82f6" fontSize="9" fontWeight="700" letterSpacing="0.08em">STATION</text>
+              {/* Pil — flöde */}
+              <defs>
+                <marker id="arrowhead" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+                  <polygon points="0 0, 6 3, 0 6" fill="#3b82f644" />
+                </marker>
+              </defs>
+              <line x1="80" y1="100" x2="680" y2="100" stroke="#1e3a5f" strokeWidth="1" strokeDasharray="6,6" markerEnd="url(#arrowhead)" />
+
+              {/* Zon A */}
+              <rect
+                x="90" y="10" width="180" height="180" rx="8"
+                fill={zoneFilter === 'A' ? '#14532d' : '#0f2d1a'}
+                stroke={zoneFilter === 'A' ? '#22c55e' : '#1a4a28'}
+                strokeWidth={zoneFilter === 'A' ? 2 : 1}
+                style={{ cursor: 'pointer' }}
+                onClick={() => setZoneFilter(zoneFilter === 'A' ? null : 'A')}
+              />
+              <text x="180" y="38" textAnchor="middle" fill="#22c55e" fontSize="11" fontWeight="700" letterSpacing="0.1em" style={{ pointerEvents: 'none' }}>ZON A</text>
+              <text x="180" y="52" textAnchor="middle" fill="#4ade80" fontSize="8.5" style={{ pointerEvents: 'none' }}>Guldzon · Nära plockytan</text>
+              {/* Zon A artiklar */}
+              <text x="180" y="90" textAnchor="middle" fill="#22c55e" fontSize="28" fontWeight="800" style={{ pointerEvents: 'none' }}>{zoneStats['A'].total}</text>
+              <text x="180" y="106" textAnchor="middle" fill="#86efac" fontSize="9" style={{ pointerEvents: 'none' }}>artiklar</text>
+              {zoneStats['A'].misplaced > 0 && (
+                <>
+                  <rect x="130" y="120" width="100" height="22" rx="4" fill="#ef444422" stroke="#ef444444" strokeWidth="1" style={{ pointerEvents: 'none' }} />
+                  <text x="180" y="135" textAnchor="middle" fill="#ef4444" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>⚠ {zoneStats['A'].misplaced} ska flyttas</text>
+                </>
+              )}
+              {zoneStats['A'].misplaced === 0 && (
+                <>
+                  <rect x="130" y="120" width="100" height="22" rx="4" fill="#22c55e22" stroke="#22c55e44" strokeWidth="1" style={{ pointerEvents: 'none' }} />
+                  <text x="180" y="135" textAnchor="middle" fill="#22c55e" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>✓ Korrekt placerade</text>
+                </>
+              )}
+              {zoneStats['A'].incoming > 0 && (
+                <text x="180" y="170" textAnchor="middle" fill="#3b82f6" fontSize="8.5" style={{ pointerEvents: 'none' }}>↙ {zoneStats['A'].incoming} på väg in</text>
+              )}
+
+              {/* Zon B */}
+              <rect
+                x="280" y="10" width="180" height="180" rx="8"
+                fill={zoneFilter === 'B' ? '#451a03' : '#1c1207'}
+                stroke={zoneFilter === 'B' ? '#f59e0b' : '#3d2408'}
+                strokeWidth={zoneFilter === 'B' ? 2 : 1}
+                style={{ cursor: 'pointer' }}
+                onClick={() => setZoneFilter(zoneFilter === 'B' ? null : 'B')}
+              />
+              <text x="370" y="38" textAnchor="middle" fill="#f59e0b" fontSize="11" fontWeight="700" letterSpacing="0.1em" style={{ pointerEvents: 'none' }}>ZON B</text>
+              <text x="370" y="52" textAnchor="middle" fill="#fbbf24" fontSize="8.5" style={{ pointerEvents: 'none' }}>Silverzon · Mittenlagret</text>
+              <text x="370" y="90" textAnchor="middle" fill="#f59e0b" fontSize="28" fontWeight="800" style={{ pointerEvents: 'none' }}>{zoneStats['B'].total}</text>
+              <text x="370" y="106" textAnchor="middle" fill="#fde68a" fontSize="9" style={{ pointerEvents: 'none' }}>artiklar</text>
+              {zoneStats['B'].misplaced > 0 && (
+                <>
+                  <rect x="320" y="120" width="100" height="22" rx="4" fill="#ef444422" stroke="#ef444444" strokeWidth="1" style={{ pointerEvents: 'none' }} />
+                  <text x="370" y="135" textAnchor="middle" fill="#ef4444" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>⚠ {zoneStats['B'].misplaced} ska flyttas</text>
+                </>
+              )}
+              {zoneStats['B'].misplaced === 0 && (
+                <>
+                  <rect x="320" y="120" width="100" height="22" rx="4" fill="#22c55e22" stroke="#22c55e44" strokeWidth="1" style={{ pointerEvents: 'none' }} />
+                  <text x="370" y="135" textAnchor="middle" fill="#22c55e" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>✓ Korrekt placerade</text>
+                </>
+              )}
+              {zoneStats['B'].incoming > 0 && (
+                <text x="370" y="170" textAnchor="middle" fill="#3b82f6" fontSize="8.5" style={{ pointerEvents: 'none' }}>↙ {zoneStats['B'].incoming} på väg in</text>
+              )}
+
+              {/* Zon C */}
+              <rect
+                x="470" y="10" width="220" height="180" rx="8"
+                fill={zoneFilter === 'C' ? '#1c1917' : '#111110'}
+                stroke={zoneFilter === 'C' ? '#6b7280' : '#292524'}
+                strokeWidth={zoneFilter === 'C' ? 2 : 1}
+                style={{ cursor: 'pointer' }}
+                onClick={() => setZoneFilter(zoneFilter === 'C' ? null : 'C')}
+              />
+              <text x="580" y="38" textAnchor="middle" fill="#9ca3af" fontSize="11" fontWeight="700" letterSpacing="0.1em" style={{ pointerEvents: 'none' }}>ZON C</text>
+              <text x="580" y="52" textAnchor="middle" fill="#9ca3af" fontSize="8.5" style={{ pointerEvents: 'none' }}>Bronszon · Bakre lagret</text>
+              <text x="580" y="90" textAnchor="middle" fill="#9ca3af" fontSize="28" fontWeight="800" style={{ pointerEvents: 'none' }}>{zoneStats['C'].total}</text>
+              <text x="580" y="106" textAnchor="middle" fill="#d1d5db" fontSize="9" style={{ pointerEvents: 'none' }}>artiklar</text>
+              {zoneStats['C'].misplaced > 0 && (
+                <>
+                  <rect x="530" y="120" width="100" height="22" rx="4" fill="#ef444422" stroke="#ef444444" strokeWidth="1" style={{ pointerEvents: 'none' }} />
+                  <text x="580" y="135" textAnchor="middle" fill="#ef4444" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>⚠ {zoneStats['C'].misplaced} ska flyttas</text>
+                </>
+              )}
+              {zoneStats['C'].misplaced === 0 && (
+                <>
+                  <rect x="530" y="120" width="100" height="22" rx="4" fill="#22c55e22" stroke="#22c55e44" strokeWidth="1" style={{ pointerEvents: 'none' }} />
+                  <text x="580" y="135" textAnchor="middle" fill="#22c55e" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>✓ Korrekt placerade</text>
+                </>
+              )}
+              {zoneStats['C'].incoming > 0 && (
+                <text x="580" y="170" textAnchor="middle" fill="#3b82f6" fontSize="8.5" style={{ pointerEvents: 'none' }}>↙ {zoneStats['C'].incoming} på väg in</text>
+              )}
+            </svg>
+            {/* Legenden under kartan */}
+            <div style={{ display: 'flex', gap: 20, marginTop: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#64748b' }}>
+                <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: '#ef4444' }} />
+                Artiklar som rekommenderas flytta
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#64748b' }}>
+                <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: '#3b82f6' }} />
+                Artiklar som ska hit (inkommande)
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#64748b' }}>
+                <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: '#22c55e' }} />
+                Korrekt placerade
+              </div>
+              {zoneFilter && (
+                <button onClick={() => setZoneFilter(null)} style={{ marginLeft: 'auto', fontSize: 11, color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                  ✕ Rensa filter (visar zon {zoneFilter})
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ── KPI-rad ── */}
         <div className="kpi-grid-4">
           <KpiCard label="KORREKT PLACERADE" value={fmt(summary.total_articles - summary.articles_to_move)} color="#22c55e" />
           <KpiCard label="KRITISKA FLYTT" value={fmt(moves.filter(a => a.move_priority === 'CRITICAL').length)} color="#ef4444" />
@@ -1215,8 +1370,8 @@ function SlottingTab({ data }) {
         </div>
         <div className="section">
           <div className="section-header">
-            <h3>Flyttlista — prioriterad</h3>
-            <button className="export-btn" onClick={() => exportCSV(moves)}><Icon name="download" size={14} /> Exportera CSV</button>
+            <h3>Flyttlista — {zoneFilter ? `Zon ${zoneFilter} (${filteredMoves.length} st)` : 'prioriterad'}</h3>
+            <button className="export-btn" onClick={() => exportCSV(filteredMoves)}><Icon name="download" size={14} /> Exportera CSV</button>
           </div>
           <p className="section-desc">Slottinglistan baseras på ABC/XYZ-klassificering och förbrukningsmönster. Exakt placering bestäms av lageransvarig.</p>
           <table className="article-table">
@@ -1224,7 +1379,7 @@ function SlottingTab({ data }) {
               <tr><th>ARTIKEL</th><th>ABC</th><th>NUVARANDE</th><th>REKOMMENDERAD</th><th>PRIORITET</th><th>✓</th></tr>
             </thead>
             <tbody>
-              {moves.map((a, i) => (
+              {filteredMoves.map((a, i) => (
                 <tr key={i}>
                   <td><div className="art-name">{a.name}</div><div className="art-id">{a.article}</div></td>
                   <td><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}{a.xyz ? `/${a.xyz}` : ''}</span></td>
@@ -1234,6 +1389,9 @@ function SlottingTab({ data }) {
                   <td><button className="check-btn">✓</button></td>
                 </tr>
               ))}
+              {filteredMoves.length === 0 && (
+                <tr><td colSpan="6" style={{ textAlign: 'center', color: '#22c55e', padding: '20px 0' }}>✓ Inga artiklar att flytta i zon {zoneFilter}</td></tr>
+              )}
             </tbody>
           </table>
         </div>
