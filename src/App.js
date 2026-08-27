@@ -487,7 +487,7 @@ function OnboardingGuide({ onClose }) {
   );
 }
 
-function UploadPage({ onAnalysis, auth, onLogout }) {
+function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -573,7 +573,7 @@ function UploadPage({ onAnalysis, auth, onLogout }) {
   return (
     <div className="upload-page">
       <div style={{ position: 'absolute', top: 16, right: 16 }}>
-        <ThemeToggle theme={theme} onToggle={toggleTheme} />
+        <ThemeToggle theme={theme} onToggle={onToggleTheme} />
       </div>
       <div className="upload-content">
         <div className="logo-area">
@@ -1799,7 +1799,7 @@ function exportCSV(rows) {
 
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────
-function Dashboard({ data, onReset, auth, onLogout }) {
+function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [ledtidOverrides, setLedtidOverrides] = useState({});
 
@@ -1916,7 +1916,7 @@ function Dashboard({ data, onReset, auth, onLogout }) {
                 <button key={t.id} className={`top-tab ${activeTab === t.id ? 'active' : ''}`} onClick={() => setActiveTab(t.id)}>{t.label}</button>
               ))}
             </div>
-            <ThemeToggle theme={theme} onToggle={toggleTheme} />
+            <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           </div>
         </div>
         {activeTab === 'overview' && <OverviewTab data={effectiveData} onLedtidChange={handleLedtidChange} ledtidOverrides={ledtidOverrides} onResetLedtider={Object.keys(ledtidOverrides).length > 0 ? handleResetLedtider : null} />}
@@ -2462,6 +2462,6 @@ export default function App() {
   };
 
   if (!auth) return <LoginPage onLogin={setAuth} />;
-  if (analysisData) return <Dashboard data={analysisData} auth={auth} onReset={() => setAnalysisData(null)} onLogout={handleLogout} />;
-  return <UploadPage onAnalysis={setAnalysisData} auth={auth} onLogout={handleLogout} />;
+  if (analysisData) return <Dashboard data={analysisData} auth={auth} onReset={() => setAnalysisData(null)} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />;
+  return <UploadPage onAnalysis={setAnalysisData} auth={auth} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />;
 }
