@@ -817,7 +817,7 @@ function ArticleDetailPanel({ article, onClose }) {
         style={{
           width: 400, maxWidth: '95vw', background: '#0c1420',
           borderLeft: '1px solid #1e293b', display: 'flex', flexDirection: 'column',
-          overflowY: 'auto', boxShadow: '-16px 0 48px rgba(0,0,0,0.6)',
+          height: '100vh', overflowY: 'auto', boxShadow: '-16px 0 48px rgba(0,0,0,0.6)',
           animation: 'slideIn 0.18s ease-out',
         }}
       >
@@ -875,7 +875,7 @@ function ArticleDetailPanel({ article, onClose }) {
               { label: 'Lagervärde', val: a.cost > 0 ? fmtKr(a.stock * a.cost) : '—' },
               ...(a.order_qty > 0 ? [{ label: 'Rekommenderad order', val: `${fmt(a.order_qty)} st`, highlight: true }] : []),
               ...(a.ordered_qty > 0 ? [{ label: 'Beställt (på väg)', val: `${fmt(a.ordered_qty)} st` }] : []),
-              ...(a.eta_date ? [{ label: 'Förväntat leverans', val: String(a.eta_date).slice(0, 10) }] : []),
+              ...(a.eta_date && !['NaT', 'nat', 'null', 'None', 'undefined', ''].includes(String(a.eta_date).trim()) ? [{ label: 'Förväntat leverans', val: String(a.eta_date).slice(0, 10) }] : []),
               ...(a.loc && a.loc !== a.abc && a.loc.length > 1 ? [{ label: 'Lagerplats', val: a.loc }] : []),
               ...(a.recommended_zone && a.suggest_move ? [{ label: 'Rekomm. zon', val: `Zon ${a.recommended_zone}`, highlight: true }] : []),
             ].map((row, i) => (
