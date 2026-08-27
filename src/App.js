@@ -661,6 +661,12 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
           </button>
         )}
       </div>
+      {filtered.length === 0 && search && (
+        <div style={{ padding: '32px', textAlign: 'center', color: 'var(--color-muted)', fontSize: 14 }}>
+          Ingen artikel matchar "<strong>{search}</strong>" — prova artikelnummer eller delar av namnet.
+        </div>
+      )}
+      {filtered.length > 0 && (
       <table className="article-table">
         <thead>
           <tr>
@@ -670,7 +676,7 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
           </tr>
         </thead>
         <tbody>
-          {filtered.slice(0, 100).map((a, i) => (
+          {(search ? filtered : filtered.slice(0, 100)).map((a, i) => (
             <React.Fragment key={i}>
               <tr>
                 <td><div className="art-name">{a.name}</div><div className="art-id">{a.article}</div></td>
@@ -720,7 +726,13 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
           ))}
         </tbody>
       </table>
-      {filtered.length > 100 && <p className="table-more">Visar 100 av {filtered.length} artiklar</p>}
+      )}
+      {!search && filtered.length > 100 && (
+        <p className="table-more">Visar 100 av {filtered.length} artiklar — sök på artikelnummer eller namn för att hitta en specifik artikel</p>
+      )}
+      {search && filtered.length > 0 && (
+        <p className="table-more">Visar {filtered.length} träff{filtered.length !== 1 ? 'ar' : ''} på "{search}"</p>
+      )}
     </div>
   );
 }
