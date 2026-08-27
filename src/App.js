@@ -1834,7 +1834,7 @@ function Dashboard({ data, onReset, auth, onLogout }) {
         </nav>
         <div className="sidebar-footer">
           <div className="service-level">
-            <span>SERVICENIVÅ (A-ART.) <InfoTooltip text="Andel A-artiklar där saldo + inkommande order täcker ledtiden. En A-artikel med order på väg räknas som täckt. Mål: ≥95%. Lagerhälsa (alla) visar samma mått för samtliga artiklar oavsett klass." /></span>
+            <span>SERVICENIVÅ A-ART. <InfoTooltip text="Andel A-artiklar (högprioriterade) där saldo + inkommande order täcker ledtiden. Mål: ≥95%. Dessa artiklar är kritiska för driften — det är denna siffra som räknas." /></span>
             <div className="sl-bars">
               <span className="sl-low">95%</span>
               <span className="sl-cur" style={{
@@ -1844,10 +1844,16 @@ function Dashboard({ data, onReset, auth, onLogout }) {
               <span className="sl-high">99%</span>
             </div>
             <div style={{ fontSize: 10, color: '#64748b', marginTop: 2, lineHeight: 1.4, wordBreak: 'break-word', overflowWrap: 'break-word' }}>
-              A-artiklar med täckning över ledtid.
+              A-artiklar med täckning ≥ ledtid. Mål: ≥95%.
             </div>
-            <div style={{ fontSize: 10, color: '#475569', marginTop: 3 }}>
-              Lagerhälsa (alla): {summary?.service_level_pct}%
+            <div style={{ fontSize: 10, color: '#475569', marginTop: 6, borderTop: '1px solid #1e293b', paddingTop: 5 }}>
+              <span style={{ color: '#64748b' }}>Alla artiklar: </span>
+              <span style={{
+                fontWeight: 600,
+                color: (summary?.service_level_pct ?? 0) >= 95 ? '#22c55e'
+                  : (summary?.service_level_pct ?? 0) >= 85 ? '#f97316' : '#ef4444'
+              }}>{summary?.service_level_pct ?? '—'}%</span>
+              <span style={{ color: '#475569' }}> (inkl. B/C)</span>
             </div>
           </div>
           {summary && <ConfidenceWidget summary={summary} dataQuality={data?.data_quality} />}
