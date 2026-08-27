@@ -1266,18 +1266,21 @@ function SlottingTab({ data }) {
               <text x="180" y="106" textAnchor="middle" fill="#86efac" fontSize="9" style={{ pointerEvents: 'none' }}>artiklar</text>
               {zoneStats['A'].misplaced > 0 && (
                 <>
-                  <rect x="130" y="120" width="100" height="22" rx="4" fill="#ef444422" stroke="#ef444444" strokeWidth="1" style={{ pointerEvents: 'none' }} />
-                  <text x="180" y="135" textAnchor="middle" fill="#ef4444" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>⚠ {zoneStats['A'].misplaced} ska flyttas</text>
+                  <rect x="130" y="115" width="100" height="22" rx="4" fill="#ef444422" stroke="#ef444444" strokeWidth="1" style={{ pointerEvents: 'none' }} />
+                  <text x="180" y="130" textAnchor="middle" fill="#ef4444" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>⚠ {zoneStats['A'].misplaced} ska flyttas</text>
                 </>
               )}
               {zoneStats['A'].misplaced === 0 && (
                 <>
-                  <rect x="130" y="120" width="100" height="22" rx="4" fill="#22c55e22" stroke="#22c55e44" strokeWidth="1" style={{ pointerEvents: 'none' }} />
-                  <text x="180" y="135" textAnchor="middle" fill="#22c55e" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>✓ Korrekt placerade</text>
+                  <rect x="130" y="115" width="100" height="22" rx="4" fill="#22c55e22" stroke="#22c55e44" strokeWidth="1" style={{ pointerEvents: 'none' }} />
+                  <text x="180" y="130" textAnchor="middle" fill="#22c55e" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>✓ Korrekt placerade</text>
                 </>
               )}
               {zoneStats['A'].incoming > 0 && (
-                <text x="180" y="170" textAnchor="middle" fill="#3b82f6" fontSize="8.5" style={{ pointerEvents: 'none' }}>↙ {zoneStats['A'].incoming} på väg in</text>
+                <>
+                  <rect x="130" y="143" width="100" height="22" rx="4" fill="#3b82f622" stroke="#3b82f644" strokeWidth="1" style={{ pointerEvents: 'none' }} />
+                  <text x="180" y="158" textAnchor="middle" fill="#3b82f6" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>→ {zoneStats['A'].incoming} på väg in</text>
+                </>
               )}
 
               {/* Zon B */}
@@ -1295,18 +1298,21 @@ function SlottingTab({ data }) {
               <text x="370" y="106" textAnchor="middle" fill="#fde68a" fontSize="9" style={{ pointerEvents: 'none' }}>artiklar</text>
               {zoneStats['B'].misplaced > 0 && (
                 <>
-                  <rect x="320" y="120" width="100" height="22" rx="4" fill="#ef444422" stroke="#ef444444" strokeWidth="1" style={{ pointerEvents: 'none' }} />
-                  <text x="370" y="135" textAnchor="middle" fill="#ef4444" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>⚠ {zoneStats['B'].misplaced} ska flyttas</text>
+                  <rect x="320" y="115" width="100" height="22" rx="4" fill="#ef444422" stroke="#ef444444" strokeWidth="1" style={{ pointerEvents: 'none' }} />
+                  <text x="370" y="130" textAnchor="middle" fill="#ef4444" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>⚠ {zoneStats['B'].misplaced} ska flyttas</text>
                 </>
               )}
               {zoneStats['B'].misplaced === 0 && (
                 <>
-                  <rect x="320" y="120" width="100" height="22" rx="4" fill="#22c55e22" stroke="#22c55e44" strokeWidth="1" style={{ pointerEvents: 'none' }} />
-                  <text x="370" y="135" textAnchor="middle" fill="#22c55e" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>✓ Korrekt placerade</text>
+                  <rect x="320" y="115" width="100" height="22" rx="4" fill="#22c55e22" stroke="#22c55e44" strokeWidth="1" style={{ pointerEvents: 'none' }} />
+                  <text x="370" y="130" textAnchor="middle" fill="#22c55e" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>✓ Korrekt placerade</text>
                 </>
               )}
               {zoneStats['B'].incoming > 0 && (
-                <text x="370" y="170" textAnchor="middle" fill="#3b82f6" fontSize="8.5" style={{ pointerEvents: 'none' }}>↙ {zoneStats['B'].incoming} på väg in</text>
+                <>
+                  <rect x="320" y="143" width="100" height="22" rx="4" fill="#3b82f622" stroke="#3b82f644" strokeWidth="1" style={{ pointerEvents: 'none' }} />
+                  <text x="370" y="158" textAnchor="middle" fill="#3b82f6" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>→ {zoneStats['B'].incoming} på väg in</text>
+                </>
               )}
 
               {/* Zon C */}
@@ -1324,18 +1330,21 @@ function SlottingTab({ data }) {
               <text x="580" y="106" textAnchor="middle" fill="#d1d5db" fontSize="9" style={{ pointerEvents: 'none' }}>artiklar</text>
               {zoneStats['C'].misplaced > 0 && (
                 <>
-                  <rect x="530" y="120" width="100" height="22" rx="4" fill="#ef444422" stroke="#ef444444" strokeWidth="1" style={{ pointerEvents: 'none' }} />
-                  <text x="580" y="135" textAnchor="middle" fill="#ef4444" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>⚠ {zoneStats['C'].misplaced} ska flyttas</text>
+                  <rect x="530" y="115" width="100" height="22" rx="4" fill="#ef444422" stroke="#ef444444" strokeWidth="1" style={{ pointerEvents: 'none' }} />
+                  <text x="580" y="130" textAnchor="middle" fill="#ef4444" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>⚠ {zoneStats['C'].misplaced} ska flyttas</text>
                 </>
               )}
               {zoneStats['C'].misplaced === 0 && (
                 <>
-                  <rect x="530" y="120" width="100" height="22" rx="4" fill="#22c55e22" stroke="#22c55e44" strokeWidth="1" style={{ pointerEvents: 'none' }} />
-                  <text x="580" y="135" textAnchor="middle" fill="#22c55e" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>✓ Korrekt placerade</text>
+                  <rect x="530" y="115" width="100" height="22" rx="4" fill="#22c55e22" stroke="#22c55e44" strokeWidth="1" style={{ pointerEvents: 'none' }} />
+                  <text x="580" y="130" textAnchor="middle" fill="#22c55e" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>✓ Korrekt placerade</text>
                 </>
               )}
               {zoneStats['C'].incoming > 0 && (
-                <text x="580" y="170" textAnchor="middle" fill="#3b82f6" fontSize="8.5" style={{ pointerEvents: 'none' }}>↙ {zoneStats['C'].incoming} på väg in</text>
+                <>
+                  <rect x="530" y="143" width="100" height="22" rx="4" fill="#3b82f622" stroke="#3b82f644" strokeWidth="1" style={{ pointerEvents: 'none' }} />
+                  <text x="580" y="158" textAnchor="middle" fill="#3b82f6" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>→ {zoneStats['C'].incoming} på väg in</text>
+                </>
               )}
             </svg>
             {/* Legenden under kartan */}
