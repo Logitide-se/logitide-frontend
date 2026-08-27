@@ -2288,8 +2288,8 @@ function LoginPage({ onLogin }) {
   );
 }
 
-// ─── SPARKLINE ────────────────────────────────────────────────────────────
-function Sparkline({ values, color = '#6366f1', width = 120, height = 36, inverted = false }) {
+// ─── SPARKLINE (legacy — used in KapitalTab) ──────────────────────────────
+function SparklineLegacy({ values, color = '#6366f1', width = 120, height = 36, inverted = false }) {
   if (!values || values.length < 2) return null;
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -2625,7 +2625,7 @@ function HistoryTab({ token }) {
               )}
               {!card.diff && <span />}
               {card.sparkValues.length >= 2 && (
-                <Sparkline values={card.sparkValues} color={card.sparkColor} inverted={card.inverted} width={100} height={30} />
+                <SparklineLegacy values={card.sparkValues} color={card.sparkColor} inverted={card.inverted} width={100} height={30} />
               )}
             </div>
           </div>
