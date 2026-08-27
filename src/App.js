@@ -1209,121 +1209,196 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
 function PurchasingTab({ data }) {
   const { summary, articles } = data;
   const hasCost = summary.has_cost_data;
-  const toOrder = articles?.filter(a => a.order_qty > 0).sort((a, b) => b.order_value - a.order_value) || [];
+  const toOrder = articles?.filter(a => a.order_qty > 0).sort((a, b) => {
+    // Sort: CRITICAL first, then by days_until_reorder asc, then value desc
+    const statusPriority = { CRITICAL: 0, WATCH: 1 };
+    const sp = (statusPriority[a.status] ?? 2) - (statusPriority[b.status] ?? 2);
+    if (sp !== 0) return sp;
+    return (a.days_until_reorder ?? 99) - (b.days_until_reorder ?? 99);
+  }) || [];
   const [exporting, setExporting] = React.useState(false);
+  const [abcFilter, setAbcFilter] = React.useState('Alla');
+  const [search, setSearch] = React.useState('');
 
   const handleExport = async () => {
-    if (!window._lastUploadedFile) {
-      alert('Ladda upp filen igen för att exportera inköpslista.');
-      return;
-    }
+    if (!window._lastUploadedFile) { alert('Ladda upp filen igen för att exportera inköpslista.'); return; }
     setExporting(true);
     try {
       const formData = new FormData();
       formData.append('file', window._lastUploadedFile);
       let res;
-      try {
-        res = await fetch(`${API_URL}/export-purchase-order`, { method: 'POST', body: formData });
-      } catch (networkErr) {
-        alert('Kunde inte nå servern. Kontrollera din internetanslutning och försök igen.');
-        return;
-      }
-      if (!res.ok) {
-        alert('Export misslyckades. Försök igen om en stund.');
-        return;
-      }
+      try { res = await fetch(`${API_URL}/export-purchase-order`, { method: 'POST', body: formData }); }
+      catch { alert('Kunde inte nå servern.'); return; }
+      if (!res.ok) { alert('Export misslyckades.'); return; }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       const today = new Date().toISOString().slice(0, 10);
-      a.href = url;
-      a.download = `logitide_inkopslista_${today}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      a.href = url; a.download = `logitide_inkopslista_${today}.xlsx`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } finally {
-      setExporting(false);
-    }
+    } finally { setExporting(false); }
   };
+
+  const critical = toOrder.filter(a => a.status === 'CRITICAL');
+  const watch = toOrder.filter(a => a.status === 'WATCH');
+  const filtered = toOrder.filter(a =>
+    (abcFilter === 'Alla' || a.abc === abcFilter) &&
+    (!search || a.article?.toLowerCase().includes(search.toLowerCase()) || a.name?.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  const urgColor = (daysLeft) => daysLeft <= 0 ? '#ef4444' : daysLeft <= 3 ? '#f97316' : daysLeft <= 7 ? '#eab308' : '#22c55e';
 
   return (
     <div className="tab-content">
+      <style>{`
+        .purch-kpi { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 16px; }
+        .purch-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+        .purch-search { flex: 1; min-width: 160px; background: var(--color-surface); border: 1px solid var(--color-border);
+          border-radius: 6px; padding: 6px 10px; color: var(--color-text); font-size: 13px; outline: none; }
+        .purch-search:focus { border-color: #3b82f6; }
+        .purch-filters { display: flex; gap: 4px; }
+        .purch-filter-btn { padding: 5px 12px; border-radius: 6px; border: 1px solid var(--color-border);
+          background: var(--color-surface); color: var(--color-muted); font-size: 12px; font-weight: 600;
+          cursor: pointer; letter-spacing: .04em; }
+        .purch-filter-btn.active { background: var(--color-text); color: var(--color-bg); border-color: var(--color-text); }
+        .purch-section-label { font-size: 11px; font-weight: 700; letter-spacing: .07em; color: var(--color-muted);
+          text-transform: uppercase; padding: 10px 0 6px; display: flex; align-items: center; gap: 8px; }
+        .purch-section-label span { padding: 1px 7px; border-radius: 10px; font-size: 10px; }
+        .purch-row { display: grid; grid-template-columns: 36px 1fr 44px 70px 70px 80px 80px ${hasCost ? '80px ' : ''}90px;
+          align-items: center; gap: 0 8px; padding: 7px 10px; border-radius: 7px;
+          border-bottom: 1px solid var(--color-border); transition: background 0.1s; font-size: 13px; }
+        .purch-row:hover { background: var(--color-surface); }
+        .purch-row:last-child { border-bottom: none; }
+        .purch-urgency-bar { width: 4px; height: 28px; border-radius: 2px; flex-shrink: 0; }
+        .purch-col-hdr { display: grid; grid-template-columns: 36px 1fr 44px 70px 70px 80px 80px ${hasCost ? '80px ' : ''}90px;
+          gap: 0 8px; padding: 0 10px 6px; font-size: 10px; font-weight: 700; letter-spacing: .06em;
+          color: var(--color-muted); text-transform: uppercase; }
+        .purch-art-id { font-size: 11px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+        .purch-art-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .purch-qty { font-weight: 700; color: var(--color-text); font-variant-numeric: tabular-nums; }
+        .purch-val { font-variant-numeric: tabular-nums; color: var(--color-muted); }
+        .purch-days { font-variant-numeric: tabular-nums; font-weight: 600; }
+        .purch-status-chip { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; letter-spacing: .04em; white-space: nowrap; }
+        @media (max-width: 900px) {
+          .purch-row, .purch-col-hdr { grid-template-columns: 8px 1fr 44px 70px 80px; }
+          .purch-row > *:nth-child(5), .purch-row > *:nth-child(6), .purch-row > *:nth-child(7),
+          .purch-col-hdr > *:nth-child(5), .purch-col-hdr > *:nth-child(6), .purch-col-hdr > *:nth-child(7) { display: none; }
+        }
+      `}</style>
+
       {!hasCost && (
         <div className="info-banner">
           <Icon name="info" size={16} />
-          Inköpspris saknas i filen — ordervärden kan inte beräknas. ABC-klassning baseras på förbrukning.
-          Lägg till kolumnen <code>cost</code> (eller "inköpspris", "pris") för fullständig analys.
+          Inköpspris saknas — ordervärden kan inte beräknas. Lägg till kolumnen <code>cost</code> för fullständig analys.
         </div>
       )}
-      <div className="kpi-grid-3">
-        <KpiCard label="ARTIKLAR ATT BESTÄLLA" value={fmt(summary.articles_to_order)} sub={`${summary.critical} kritiska · ${summary.watch} bevakas`} color="#f97316" />
-        <KpiCard
-          label="TOTALT ORDERVÄRDE"
+
+      <div className="purch-kpi">
+        <KpiCard label="ATT BESTÄLLA" value={fmt(summary.articles_to_order)}
+          sub={`${summary.critical} kritiska · ${summary.watch} bevakas`} color="#f97316" />
+        <KpiCard label="TOTALT ORDERVÄRDE"
           value={hasCost ? fmtKr(summary.total_order_value_sek) : null}
-          missingReason={!hasCost ? 'Kräver inköpspris i filen' : null}
-          color="#3b82f6"
-        />
-        <KpiCard
-          label="SNITT PER ARTIKEL"
+          missingReason={!hasCost ? 'Kräver inköpspris i filen' : null} color="#3b82f6" />
+        <KpiCard label="SNITT PER ORDER"
           value={hasCost ? fmtKr(Math.round(summary.total_order_value_sek / Math.max(summary.articles_to_order, 1))) : null}
-          missingReason={!hasCost ? 'Kräver inköpspris i filen' : null}
-          color="#8b5cf6"
-        />
+          missingReason={!hasCost ? 'Kräver inköpspris i filen' : null} color="#8b5cf6" />
       </div>
-      <div className="section">
-        <div className="section-header">
-          <h3>Inköpslista — {toOrder.length} artiklar att beställa</h3>
-          <button
-            className="export-btn"
-            onClick={handleExport}
-            disabled={exporting}
-            style={{ background: '#3b82f6', color: '#fff', borderColor: '#3b82f6', fontWeight: 600 }}
-          >
-            <Icon name="download" size={14} />
-            {exporting ? 'Exporterar...' : 'Exportera inköpslista (.xlsx)'}
-          </button>
+
+      {/* Toolbar */}
+      <div className="purch-toolbar">
+        <input className="purch-search" placeholder="Sök artikel..." value={search} onChange={e => setSearch(e.target.value)} />
+        <div className="purch-filters">
+          {['Alla','A','B','C'].map(f => (
+            <button key={f} className={`purch-filter-btn${abcFilter===f?' active':''}`} onClick={() => setAbcFilter(f)}>{f}</button>
+          ))}
         </div>
-        <table className="article-table">
-          <thead>
-            <tr>
-              <th>ARTIKEL-ID</th><th>ARTIKELNAMN</th><th>ABC</th><th>SALDO</th>
-              <th>TÄCKTID</th><th>DAGAR KVAR</th><th>BESTÄLL SENAST</th><th>ORDERKVANTITET</th>
-              {hasCost && <th>ORDERVÄRDE</th>}
-              <th>STATUS</th>
-            </tr>
-          </thead>
-          <tbody>
-            {toOrder.slice(0, 100).map((a, i) => {
-              const daysLeft = a.days_until_reorder ?? 0;
-              const dagarKvarLabel = daysLeft <= 0 ? '0 d' : `${daysLeft} d`;
-              const reorderLabel = a.reorder_date || 'Idag';
-              const urgencyColor = daysLeft <= 0 ? '#ef4444'
-                : daysLeft <= 3 ? '#f97316'
-                : '#22c55e';
-              return (
-              <React.Fragment key={i}>
-                <tr>
-                  <td className="art-id">{a.article}</td>
-                  <td><div className="art-name">{a.name}</div></td>
-                  <td><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}</span></td>
-                  <td>{fmt(a.stock)}</td>
-                  <td style={{ color: a.status === 'CRITICAL' ? '#ef4444' : '#f97316' }}>{fmtDays(a.coverage_days)}</td>
-                  <td style={{ color: urgencyColor, fontWeight: daysLeft <= 3 ? 700 : 400 }}>{dagarKvarLabel}</td>
-                  <td style={{ color: urgencyColor, fontWeight: daysLeft <= 3 ? 700 : 400 }}>{reorderLabel}</td>
-                  <td><b>{fmt(a.order_qty)} st</b></td>
-                  {hasCost && <td>{fmtKr(a.order_value)}</td>}
-                  <td><span className="status-chip" style={{ background: statusColor(a.status) + '22', color: statusColor(a.status), border: `1px solid ${statusColor(a.status)}44` }}>{statusLabel(a.status)}</span></td>
-                </tr>
-                {a.explanation && (
-                  <tr className="explanation-row"><td colSpan={hasCost ? 10 : 9}><span className="explanation">{a.explanation}</span></td></tr>
-                )}
-              </React.Fragment>
-              );
-            })}
-          </tbody>
-        </table>
+        <button className="export-btn" onClick={handleExport} disabled={exporting}
+          style={{ background: '#3b82f6', color: '#fff', borderColor: '#3b82f6', fontWeight: 600, marginLeft: 'auto' }}>
+          <Icon name="download" size={14} />
+          {exporting ? 'Exporterar...' : 'Exportera .xlsx'}
+        </button>
       </div>
+
+      {/* Column headers */}
+      <div className="purch-col-hdr">
+        <div /> <div>Artikel</div> <div>ABC</div> <div>Täcktid</div> <div>Beställ om</div>
+        <div>Senast</div> <div>Antal</div> {hasCost && <div>Värde</div>} <div>Status</div>
+      </div>
+
+      {/* CRITICAL group */}
+      {critical.filter(a => abcFilter === 'Alla' || a.abc === abcFilter).filter(a => !search || a.article?.toLowerCase().includes(search.toLowerCase()) || a.name?.toLowerCase().includes(search.toLowerCase())).length > 0 && (
+        <>
+          <div className="purch-section-label">
+            🔴 Kritiska brister
+            <span style={{ background: '#ef444422', color: '#ef4444' }}>
+              {critical.filter(a => abcFilter==='Alla'||a.abc===abcFilter).length} artiklar
+            </span>
+          </div>
+          {critical.filter(a => (abcFilter==='Alla'||a.abc===abcFilter) && (!search||a.article?.toLowerCase().includes(search.toLowerCase())||a.name?.toLowerCase().includes(search.toLowerCase()))).map((a, i) => {
+            const daysLeft = a.days_until_reorder ?? 0;
+            const uc = urgColor(daysLeft);
+            return (
+              <div className="purch-row" key={`c${i}`}>
+                <div style={{ display:'flex', alignItems:'center' }}>
+                  <div className="purch-urgency-bar" style={{ background: uc }} />
+                </div>
+                <div>
+                  <div className="purch-art-name">{a.name || a.article}</div>
+                  <div className="purch-art-id">{a.article}</div>
+                </div>
+                <div><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}</span></div>
+                <div className="purch-days" style={{ color: '#ef4444' }}>{fmtDays(a.coverage_days)}</div>
+                <div className="purch-days" style={{ color: uc }}>{daysLeft <= 0 ? 'Nu' : `${daysLeft} d`}</div>
+                <div style={{ fontSize: 12, color: uc, fontWeight: 600 }}>{a.reorder_date || 'Idag'}</div>
+                <div className="purch-qty">{fmt(a.order_qty)} st</div>
+                {hasCost && <div className="purch-val">{fmtKr(a.order_value)}</div>}
+                <div><span className="purch-status-chip" style={{ background:'#ef444420', color:'#ef4444' }}>KRITISK</span></div>
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      {/* WATCH group */}
+      {watch.filter(a => abcFilter === 'Alla' || a.abc === abcFilter).filter(a => !search || a.article?.toLowerCase().includes(search.toLowerCase()) || a.name?.toLowerCase().includes(search.toLowerCase())).length > 0 && (
+        <>
+          <div className="purch-section-label" style={{ marginTop: 12 }}>
+            🟡 Bevaka — beställ inom kort
+            <span style={{ background: '#f9731620', color: '#f97316' }}>
+              {watch.filter(a => abcFilter==='Alla'||a.abc===abcFilter).length} artiklar
+            </span>
+          </div>
+          {watch.filter(a => (abcFilter==='Alla'||a.abc===abcFilter) && (!search||a.article?.toLowerCase().includes(search.toLowerCase())||a.name?.toLowerCase().includes(search.toLowerCase()))).map((a, i) => {
+            const daysLeft = a.days_until_reorder ?? 0;
+            const uc = urgColor(daysLeft);
+            return (
+              <div className="purch-row" key={`w${i}`}>
+                <div style={{ display:'flex', alignItems:'center' }}>
+                  <div className="purch-urgency-bar" style={{ background: uc }} />
+                </div>
+                <div>
+                  <div className="purch-art-name">{a.name || a.article}</div>
+                  <div className="purch-art-id">{a.article}</div>
+                </div>
+                <div><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}</span></div>
+                <div className="purch-days" style={{ color: '#f97316' }}>{fmtDays(a.coverage_days)}</div>
+                <div className="purch-days" style={{ color: uc }}>{daysLeft <= 0 ? 'Nu' : `${daysLeft} d`}</div>
+                <div style={{ fontSize: 12, color: uc, fontWeight: 600 }}>{a.reorder_date || '—'}</div>
+                <div className="purch-qty">{fmt(a.order_qty)} st</div>
+                {hasCost && <div className="purch-val">{fmtKr(a.order_value)}</div>}
+                <div><span className="purch-status-chip" style={{ background:'#f9731620', color:'#f97316' }}>BEVAKA</span></div>
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      {filtered.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '32px', color: 'var(--color-muted)', fontSize: 14 }}>
+          Inga artiklar matchar filtret
+        </div>
+      )}
     </div>
   );
 }
