@@ -1601,155 +1601,155 @@ function CapitalTab({ data }) {
   );
 }
 
-// ─── ABC/XYZ TAB — VISUELL MATRIS MED WOW-FAKTOR ─────────────────────────
+// ─── ABC/XYZ TAB — KOMPAKT NETSTOCK-STIL ─────────────────────────────────
 function AbcXyzTab({ data }) {
-  const { abc_distribution, articles, summary } = data;
+  const { articles, summary } = data;
   const hasCost = summary.has_cost_data;
   const xyzAvailable = summary.xyz_available === true;
-  const [selectedCell, setSelectedCell] = useState(null);
-  const [hoveredCell, setHoveredCell] = useState(null);
+  const [selectedCell, setSelectedCell] = React.useState(null);
 
-  // Bygg matrisdata
+  // ── Matrisdata ──
   const matrix = {};
-  ['A', 'B', 'C'].forEach(abc => {
-    ['X', 'Y', 'Z'].forEach(xyz => {
+  ['A','B','C'].forEach(abc => {
+    ['X','Y','Z'].forEach(xyz => {
       const key = abc + xyz;
       const arts = articles?.filter(a => a.abc === abc && a.xyz === xyz) || [];
       const value = arts.reduce((s, a) => s + (a.stock_value || a.annual_value || 0), 0);
-      matrix[key] = { arts, count: arts.length, value };
+      const critical = arts.filter(a => a.status === 'CRITICAL').length;
+      matrix[key] = { arts, count: arts.length, value, critical };
     });
   });
 
-  // ABC-only (när XYZ saknas)
+  // ── ABC-only ──
   const abcGroups = {};
-  ['A', 'B', 'C'].forEach(abc => {
+  ['A','B','C'].forEach(abc => {
     const arts = articles?.filter(a => a.abc === abc) || [];
     const value = arts.reduce((s, a) => s + (a.stock_value || a.annual_value || 0), 0);
-    abcGroups[abc] = { arts, count: arts.length, value };
+    const critical = arts.filter(a => a.status === 'CRITICAL').length;
+    abcGroups[abc] = { arts, count: arts.length, value, critical };
   });
 
   const totalArticles = articles?.length || 1;
   const totalValue = articles?.reduce((s, a) => s + (a.stock_value || a.annual_value || 0), 0) || 1;
 
-  // Färger och metadata per cell
-  const cellMeta = {
-    AX: { label: 'Prioritet 1', desc: 'Högt värde, stabil förbrukning. Håll alltid i lager.', bg: '#064e3b', border: '#22c55e', text: '#4ade80', badge: '⭐', strategy: 'Automatisera inköp, håll säkerhetslager' },
-    AY: { label: 'Prioritet 2', desc: 'Högt värde, varierande förbrukning. Bevaka noga.', bg: '#1c3118', border: '#86efac', text: '#86efac', badge: '🔶', strategy: 'Manuell granskning månadsvis' },
-    AZ: { label: 'Kritisk risk', desc: 'Högt värde, oregelbunden förbrukning. Riskfyllt.', bg: '#3d1505', border: '#f97316', text: '#fb923c', badge: '⚠️', strategy: 'Konsultbeställning, undvik lagerhållning' },
-    BX: { label: 'Stabil mid', desc: 'Medelvärde, stabil förbrukning. Standardhantering.', bg: '#1c2a1c', border: '#4ade80', text: '#86efac', badge: '✅', strategy: 'Standardbeställningsintervall' },
-    BY: { label: 'Bevaka', desc: 'Medelvärde, variabel. Regelbunden uppföljning.', bg: '#1c2318', border: '#a3e635', text: '#a3e635', badge: '👁️', strategy: 'Kvartalsvis granskning' },
-    BZ: { label: 'Osäker mid', desc: 'Medelvärde, oregelbunden. Se över behovet.', bg: '#1c1a10', border: '#facc15', text: '#fde68a', badge: '🔄', strategy: 'Behovsstyrd anskaffning' },
-    CX: { label: 'Lågvärde stabil', desc: 'Lågt värde, stabil. Enkla rutiner.', bg: '#151515', border: '#6b7280', text: '#9ca3af', badge: '📦', strategy: 'Massbeställning, lång intervall' },
-    CY: { label: 'Lågvärde variabel', desc: 'Lågt värde, varierande. Minimal uppmärksamhet.', bg: '#121212', border: '#52525b', text: '#71717a', badge: '📋', strategy: 'Årlig genomgång' },
-    CZ: { label: 'Avvecklingskandidat', desc: 'Lågt värde, oregelbunden. Överväg avveckling.', bg: '#0f0f0f', border: '#3f3f46', text: '#52525b', badge: '🗑️', strategy: 'Avveckla eller slow-mover hantering' },
+  const abcColor2 = { A: '#22c55e', B: '#f59e0b', C: '#6b7280' };
+  const xyzColor  = { X: '#22c55e', Y: '#f59e0b', Z: '#ef4444' };
+  const xyzLabel  = { X: 'Stabil', Y: 'Varierande', Z: 'Oregelbunden' };
+
+  // Cell-strategi
+  const strategy = {
+    AX: 'Automatisera inköp',  AY: 'Bevaka månadsvis',     AZ: 'Konsultbeställning',
+    BX: 'Standardintervall',   BY: 'Kvartalsvis granskning', BZ: 'Behovsstyrt',
+    CX: 'Massbeställ',         CY: 'Årlig granskning',       CZ: 'Avveckla',
   };
 
-  const abcMeta = {
-    A: { color: '#22c55e', label: 'A-artiklar', desc: 'Topp 80% av lagervärdet' },
-    B: { color: '#f59e0b', label: 'B-artiklar', desc: '80–95% av lagervärdet' },
-    C: { color: '#6b7280', label: 'C-artiklar', desc: 'De sista 5% av lagervärdet' },
-  };
+  // Artiklar för vald cell/klass
+  const selectedArts = selectedCell
+    ? (xyzAvailable ? (matrix[selectedCell]?.arts || []) : (abcGroups[selectedCell]?.arts || []))
+    : [];
+
+  // Insights
+  const insights = [];
+  if (xyzAvailable) {
+    const ax = matrix['AX'] || {};
+    const az = matrix['AZ'] || {};
+    const cz = matrix['CZ'] || {};
+    if (ax.count > 0) insights.push({ color: '#22c55e', icon: '⭐', text: `${ax.count} AX — automatisera inköpen, stabila A-artiklar` });
+    if (az.count > 0) insights.push({ color: '#f97316', icon: '⚠️', text: `${az.count} AZ — högt värde men oregelbunden, manuell styrning krävs` });
+    if (cz.count > 0) insights.push({ color: '#6b7280', icon: '🗑️', text: `${cz.count} CZ — avvecklingskandidater, lågt värde och oregelbunden` });
+  } else {
+    const a = abcGroups['A'] || {};
+    const pctVal = totalValue > 0 ? Math.round((a.value / totalValue) * 100) : 0;
+    if (a.count > 0) insights.push({ color: '#22c55e', icon: '⭐', text: `${a.count} A-artiklar binder ${pctVal}% av kapitalet — ${a.critical || 0} kritiska` });
+    const c = abcGroups['C'] || {};
+    if (c.count > 0) insights.push({ color: '#6b7280', icon: '📦', text: `${c.count} C-artiklar — ${Math.round((c.count/totalArticles)*100)}% av sortimentet, låg prioritet` });
+  }
 
   return (
-    <div className="tab-content">
-      {!hasCost && (
-        <div className="info-banner">
-          <Icon name="info" size={16} />
-          ABC-klassning baseras på förbrukning — inköpspris saknas i filen.
-        </div>
-      )}
+    <div className="tab-content" style={{ paddingTop: 0 }}>
+      <style>{`
+        .abcxyz-grid { display: grid; grid-template-columns: 1fr 280px; gap: 16px; align-items: start; }
+        @media (max-width: 900px) { .abcxyz-grid { grid-template-columns: 1fr; } }
+        .abc-matrix-table { width: 100%; border-collapse: separate; border-spacing: 4px; }
+        .abc-matrix-table th { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; padding: 6px 10px; text-align: center; }
+        .abc-matrix-cell {
+          padding: 10px 12px; border-radius: 8px; cursor: pointer;
+          transition: all 0.12s; border: 1.5px solid transparent;
+          text-align: center; min-width: 90px;
+        }
+        .abc-matrix-cell:hover { filter: brightness(1.15); transform: translateY(-1px); }
+        .abc-matrix-cell.selected { border-color: currentColor !important; box-shadow: 0 0 0 2px rgba(255,255,255,0.08); }
+        .abc-matrix-cell.empty { opacity: 0.25; cursor: default; }
+        .abc-matrix-cell.empty:hover { filter: none; transform: none; }
+        .abc-only-card { border-radius: 10px; padding: 12px 16px; cursor: pointer; transition: all 0.12s; border: 1.5px solid transparent; display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
+        .abc-only-card:hover { filter: brightness(1.1); }
+        .abc-only-card.selected { border-color: currentColor !important; }
+        .art-chip-sm { display: inline-flex; align-items: center; gap: 4px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 5px; padding: 3px 8px; font-size: 11px; color: var(--color-text); margin: 2px; }
+      `}</style>
 
-      {/* ── HEADER ── */}
-      <div style={{ marginBottom: 20 }}>
-        <h3 style={{ color: '#f1f5f9', margin: '0 0 4px', fontSize: 18, fontWeight: 800 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '12px 0 16px' }}>
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: 'var(--color-text)' }}>
           {xyzAvailable ? 'ABC/XYZ-matris' : 'ABC-klassificering'}
         </h3>
-        <p style={{ color: '#64748b', fontSize: 13, margin: 0 }}>
-          {xyzAvailable
-            ? 'Kombinerad klassificering efter kapitalvärde (ABC) och efterfrågevariabilitet (XYZ). Klicka på en cell för artiklar och strategi.'
-            : 'Klassificering efter årsvolymsvärde. Lägg till månadsdata för XYZ-analys.'}
-        </p>
+        <span style={{ fontSize: 12, color: 'var(--color-muted)' }}>
+          {xyzAvailable ? 'Klicka cell för artiklar och strategi' : 'Lägg till månadsdata för XYZ-analys'}
+        </span>
       </div>
 
-      {xyzAvailable ? (
-        <>
+      <div className="abcxyz-grid">
+        {/* ── VÄNSTER: Matris + artikellista ── */}
+        <div>
+          {/* XYZ saknas-banner */}
+          {!xyzAvailable && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderLeft: '3px solid #3b82f6', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: 'var(--color-muted)' }}>
+              <Icon name="info" size={14} />
+              <span>Lägg till månadskolumner (jan…dec) för XYZ-analys och komplett 9-cellsmatris.</span>
+            </div>
+          )}
+
           {/* ── MATRIS ── */}
-          <div style={{ overflowX: 'auto', marginBottom: 24 }}>
-            <table style={{ borderCollapse: 'separate', borderSpacing: 6, minWidth: 520 }}>
+          {xyzAvailable ? (
+            <table className="abc-matrix-table">
               <thead>
                 <tr>
-                  <th style={{ width: 48, padding: '0 8px 8px', fontSize: 10, color: '#475569', fontWeight: 700, letterSpacing: '0.1em', textAlign: 'left' }}>ABC↓ XYZ→</th>
-                  {[
-                    { key: 'X', label: 'X', sub: 'Stabil', color: '#22c55e' },
-                    { key: 'Y', label: 'Y', sub: 'Varierande', color: '#f59e0b' },
-                    { key: 'Z', label: 'Z', sub: 'Oregelbunden', color: '#ef4444' },
-                  ].map(col => (
-                    <th key={col.key} style={{ padding: '0 0 12px', textAlign: 'center', minWidth: 140 }}>
-                      <div style={{ fontSize: 16, fontWeight: 800, color: col.color }}>{col.label}</div>
-                      <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600, letterSpacing: '0.05em' }}>{col.sub}</div>
+                  <th style={{ color: 'var(--color-muted)', textAlign: 'left', width: 32 }}></th>
+                  {['X','Y','Z'].map(xyz => (
+                    <th key={xyz} style={{ color: xyzColor[xyz] }}>
+                      {xyz} <span style={{ color: 'var(--color-muted)', fontWeight: 400 }}>— {xyzLabel[xyz]}</span>
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {['A', 'B', 'C'].map(abc => (
+                {['A','B','C'].map(abc => (
                   <tr key={abc}>
-                    <td style={{ padding: '0 12px 0 0', verticalAlign: 'middle' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                        <span style={{ fontSize: 20, fontWeight: 900, color: abcMeta[abc].color }}>{abc}</span>
-                        <span style={{ fontSize: 9, color: '#475569', fontWeight: 600, textAlign: 'center', lineHeight: 1.3 }}>
-                          {abc === 'A' ? 'Högt\nvärde' : abc === 'B' ? 'Medel\nvärde' : 'Lågt\nvärde'}
-                        </span>
-                      </div>
-                    </td>
-                    {['X', 'Y', 'Z'].map(xyz => {
+                    <td style={{ fontSize: 13, fontWeight: 800, color: abcColor2[abc], padding: '4px 8px 4px 0', verticalAlign: 'middle' }}>{abc}</td>
+                    {['X','Y','Z'].map(xyz => {
                       const key = abc + xyz;
-                      const meta = cellMeta[key] || {};
-                      const cell = matrix[key] || { count: 0, value: 0, arts: [] };
+                      const cell = matrix[key] || { count: 0, value: 0, critical: 0 };
                       const isSelected = selectedCell === key;
-                      const isHovered = hoveredCell === key;
-                      const pct = totalArticles > 0 ? Math.round((cell.count / totalArticles) * 100) : 0;
                       const hasData = cell.count > 0;
-
+                      const bg = abc === 'A' ? `${abcColor2.A}` : abc === 'B' ? `${abcColor2.B}` : `${abcColor2.C}`;
                       return (
-                        <td key={xyz} style={{ padding: 0, verticalAlign: 'top' }}>
+                        <td key={xyz}>
                           <div
-                            onClick={() => hasData && setSelectedCell(isSelected ? null : key)}
-                            onMouseEnter={() => setHoveredCell(key)}
-                            onMouseLeave={() => setHoveredCell(null)}
+                            className={`abc-matrix-cell${isSelected ? ' selected' : ''}${!hasData ? ' empty' : ''}`}
                             style={{
-                              background: isSelected ? meta.bg + 'cc' : meta.bg,
-                              border: `2px solid ${isSelected ? meta.border : isHovered && hasData ? meta.border + '88' : meta.border + '33'}`,
-                              borderRadius: 12,
-                              padding: '14px 16px',
-                              cursor: hasData ? 'pointer' : 'default',
-                              opacity: hasData ? 1 : 0.35,
-                              transition: 'all 0.15s ease',
-                              transform: isSelected ? 'scale(1.02)' : isHovered && hasData ? 'scale(1.01)' : 'scale(1)',
-                              minHeight: 100,
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: 4,
-                              position: 'relative',
-                              boxShadow: isSelected ? `0 0 0 1px ${meta.border}44, 0 4px 20px ${meta.border}22` : 'none',
+                              background: `${bg}${isSelected ? '22' : '11'}`,
+                              color: abcColor2[abc],
+                              borderColor: isSelected ? abcColor2[abc] : 'transparent',
                             }}
+                            onClick={() => hasData && setSelectedCell(isSelected ? null : key)}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
-                              <span style={{ fontSize: 13 }}>{meta.badge}</span>
-                              <span style={{ fontSize: 10, color: meta.text, fontWeight: 700, letterSpacing: '0.05em' }}>{key}</span>
+                            <div style={{ fontSize: 22, fontWeight: 900, lineHeight: 1 }}>{cell.count}</div>
+                            <div style={{ fontSize: 10, color: 'var(--color-muted)', marginTop: 2 }}>
+                              {hasData ? `${Math.round((cell.count/totalArticles)*100)}% av art.` : '—'}
                             </div>
-                            <div style={{ fontSize: 26, fontWeight: 900, color: meta.text, lineHeight: 1 }}>{cell.count}</div>
-                            <div style={{ fontSize: 10, color: '#64748b' }}>{pct}% av artiklar</div>
                             {hasCost && cell.value > 0 && (
-                              <div style={{ fontSize: 11, color: meta.text + 'cc', fontWeight: 600, marginTop: 2 }}>{fmtKr(cell.value)}</div>
+                              <div style={{ fontSize: 11, fontWeight: 600, marginTop: 3 }}>{fmtKr(cell.value)}</div>
                             )}
-                            {hasData && (
-                              <div style={{ marginTop: 6, height: 3, background: '#ffffff11', borderRadius: 2 }}>
-                                <div style={{ width: `${Math.min(pct * 3, 100)}%`, height: '100%', background: meta.border, borderRadius: 2, transition: 'width 0.5s' }} />
-                              </div>
-                            )}
-                            {isSelected && (
-                              <div style={{ position: 'absolute', top: 8, right: 10, fontSize: 10, color: meta.border, fontWeight: 700 }}>▼</div>
+                            {cell.critical > 0 && (
+                              <div style={{ fontSize: 10, color: '#ef4444', marginTop: 2, fontWeight: 700 }}>⚠ {cell.critical} krit.</div>
                             )}
                           </div>
                         </td>
@@ -1759,218 +1759,173 @@ function AbcXyzTab({ data }) {
                 ))}
               </tbody>
             </table>
-          </div>
+          ) : (
+            /* ABC-only — kompakta rader */
+            <div>
+              {['A','B','C'].map(abc => {
+                const g = abcGroups[abc] || { count: 0, value: 0, critical: 0 };
+                const pct = Math.round((g.count / totalArticles) * 100);
+                const valPct = totalValue > 0 ? Math.round((g.value / totalValue) * 100) : 0;
+                const isSelected = selectedCell === abc;
+                return (
+                  <div
+                    key={abc}
+                    className={`abc-only-card${isSelected ? ' selected' : ''}`}
+                    style={{ background: `${abcColor2[abc]}11`, color: abcColor2[abc] }}
+                    onClick={() => setSelectedCell(isSelected ? null : abc)}
+                  >
+                    <div style={{ fontSize: 28, fontWeight: 900, width: 32, flexShrink: 0 }}>{abc}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                        <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--color-text)' }}>{g.count}</span>
+                        <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>artiklar · {pct}% av sortiment</span>
+                      </div>
+                      {hasCost && g.value > 0 && (
+                        <div style={{ fontSize: 12, fontWeight: 600, marginTop: 1 }}>
+                          {fmtKr(g.value)} <span style={{ color: 'var(--color-muted)', fontWeight: 400 }}>({valPct}% av totalt)</span>
+                        </div>
+                      )}
+                      {/* Mini progress */}
+                      <div style={{ height: 3, background: 'var(--color-border)', borderRadius: 2, marginTop: 6, overflow: 'hidden' }}>
+                        <div style={{ width: `${pct}%`, height: '100%', background: abcColor2[abc], borderRadius: 2 }} />
+                      </div>
+                    </div>
+                    {g.critical > 0 && (
+                      <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 700, flexShrink: 0 }}>⚠ {g.critical}</div>
+                    )}
+                    <div style={{ fontSize: 11, color: abcColor2[abc], flexShrink: 0 }}>{isSelected ? '▼' : '▶'}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
-          {/* ── SNABBFILTER LEGEND ── */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
-            {Object.entries(cellMeta).map(([key, meta]) => {
-              const cell = matrix[key] || { count: 0 };
-              if (cell.count === 0) return null;
-              return (
-                <div
-                  key={key}
-                  onClick={() => setSelectedCell(selectedCell === key ? null : key)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    background: selectedCell === key ? meta.bg + 'cc' : '#1e293b',
-                    border: `1px solid ${selectedCell === key ? meta.border : '#334155'}`,
-                    borderRadius: 8, padding: '6px 10px', cursor: 'pointer',
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  <span style={{ fontSize: 11 }}>{meta.badge}</span>
-                  <span style={{ fontSize: 11, color: meta.text, fontWeight: 700 }}>{key}</span>
-                  <span style={{ fontSize: 11, color: '#64748b' }}>{cell.count} art.</span>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* ── DETALJPANEL ── */}
-          {selectedCell && matrix[selectedCell]?.count > 0 && (
+          {/* ── ARTIKELLISTA (inline, direkt under matrisen) ── */}
+          {selectedCell && selectedArts.length > 0 && (
             <div style={{
-              background: '#0f172a',
-              border: `1px solid ${cellMeta[selectedCell]?.border + '44' || '#1e293b'}`,
-              borderLeft: `4px solid ${cellMeta[selectedCell]?.border || '#6366f1'}`,
-              borderRadius: 12,
-              padding: '20px 24px',
-              marginBottom: 24,
-              animation: 'fadeIn 0.2s ease',
+              marginTop: 12,
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 10,
+              overflow: 'hidden',
+              animation: 'fadeSlideIn 0.15s ease',
             }}>
-              <style>{`@keyframes fadeIn { from { opacity:0; transform: translateY(4px); } to { opacity:1; transform: translateY(0); } }`}</style>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontSize: 20 }}>{cellMeta[selectedCell]?.badge}</span>
-                    <span style={{ fontSize: 18, fontWeight: 800, color: cellMeta[selectedCell]?.text }}>
-                      {selectedCell} — {cellMeta[selectedCell]?.label}
+              <style>{`@keyframes fadeSlideIn { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:translateY(0); } }`}</style>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid var(--color-border)' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text)' }}>
+                  {selectedCell} — {selectedArts.length} artiklar
+                  {xyzAvailable && strategy[selectedCell] && (
+                    <span style={{ marginLeft: 10, fontWeight: 400, color: 'var(--color-muted)', fontSize: 11 }}>
+                      Strategi: {strategy[selectedCell]}
+                    </span>
+                  )}
+                </span>
+                <button onClick={() => setSelectedCell(null)} style={{ background: 'none', border: 'none', color: 'var(--color-muted)', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>✕</button>
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
+                    <th style={{ padding: '6px 14px', textAlign: 'left', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10, letterSpacing: '0.07em' }}>ART.NR</th>
+                    <th style={{ padding: '6px 14px', textAlign: 'left', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10 }}>NAMN</th>
+                    <th style={{ padding: '6px 14px', textAlign: 'right', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10 }}>SALDO</th>
+                    <th style={{ padding: '6px 14px', textAlign: 'right', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10 }}>TÄCKTID</th>
+                    <th style={{ padding: '6px 14px', textAlign: 'center', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10 }}>STATUS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedArts.slice(0, 30).map((a, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                      <td style={{ padding: '7px 14px', color: 'var(--color-muted)', fontFamily: 'monospace', fontSize: 11 }}>{a.article}</td>
+                      <td style={{ padding: '7px 14px', color: 'var(--color-text)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name || '—'}</td>
+                      <td style={{ padding: '7px 14px', textAlign: 'right', color: 'var(--color-text)', fontVariantNumeric: 'tabular-nums' }}>{fmt(a.stock)}</td>
+                      <td style={{ padding: '7px 14px', textAlign: 'right', color: a.status === 'CRITICAL' ? '#ef4444' : a.status === 'WATCH' ? '#f97316' : 'var(--color-muted)', fontWeight: a.status === 'CRITICAL' ? 700 : 400 }}>{fmtDays(a.coverage_days)}</td>
+                      <td style={{ padding: '7px 14px', textAlign: 'center' }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: statusColor(a.status) }}>{statusLabel(a.status)}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {selectedArts.length > 30 && (
+                <div style={{ padding: '8px 14px', fontSize: 11, color: 'var(--color-muted)', borderTop: '1px solid var(--color-border)' }}>
+                  … och {selectedArts.length - 30} till
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── HÖGER: Insiktskort ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {/* Sammanfattning */}
+          <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 10, padding: '14px 16px' }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--color-muted)', marginBottom: 10 }}>SAMMANFATTNING</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {['A','B','C'].map(abc => {
+                const g = xyzAvailable
+                  ? { count: ['X','Y','Z'].reduce((s,xyz) => s + (matrix[abc+xyz]?.count||0), 0),
+                      value: ['X','Y','Z'].reduce((s,xyz) => s + (matrix[abc+xyz]?.value||0), 0) }
+                  : abcGroups[abc] || { count: 0, value: 0 };
+                const pct = Math.round((g.count / totalArticles) * 100);
+                return (
+                  <div key={abc} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: abcColor2[abc], width: 14 }}>{abc}</span>
+                    <div style={{ flex: 1, height: 6, background: 'var(--color-bg)', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ width: `${pct}%`, height: '100%', background: abcColor2[abc], borderRadius: 3, transition: 'width 0.5s' }} />
+                    </div>
+                    <span style={{ fontSize: 12, color: 'var(--color-text)', fontVariantNumeric: 'tabular-nums', minWidth: 24, textAlign: 'right' }}>{g.count}</span>
+                    {hasCost && g.value > 0 && (
+                      <span style={{ fontSize: 11, color: 'var(--color-muted)', minWidth: 56, textAlign: 'right' }}>{fmtKr(g.value)}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Insikter */}
+          {insights.length > 0 && (
+            <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 10, padding: '14px 16px' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--color-muted)', marginBottom: 10 }}>INSIKTER</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {insights.map((ins, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                    <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>{ins.icon}</span>
+                    <span style={{ fontSize: 12, color: 'var(--color-muted)', lineHeight: 1.5 }}>
+                      {ins.text}
                     </span>
                   </div>
-                  <p style={{ color: '#94a3b8', fontSize: 13, margin: 0 }}>{cellMeta[selectedCell]?.desc}</p>
-                </div>
-                <div style={{ background: '#1e293b', borderRadius: 8, padding: '10px 16px', textAlign: 'right', flexShrink: 0 }}>
-                  <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, marginBottom: 2 }}>REKOMMENDERAD STRATEGI</div>
-                  <div style={{ fontSize: 12, color: cellMeta[selectedCell]?.text, fontWeight: 600 }}>{cellMeta[selectedCell]?.strategy}</div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-                <div style={{ background: '#1e293b', borderRadius: 8, padding: '10px 16px', flex: '1 1 120px' }}>
-                  <div style={{ fontSize: 10, color: '#64748b', marginBottom: 2 }}>ANTAL ARTIKLAR</div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: cellMeta[selectedCell]?.text }}>{matrix[selectedCell]?.count}</div>
-                </div>
-                {hasCost && matrix[selectedCell]?.value > 0 && (
-                  <div style={{ background: '#1e293b', borderRadius: 8, padding: '10px 16px', flex: '1 1 120px' }}>
-                    <div style={{ fontSize: 10, color: '#64748b', marginBottom: 2 }}>LAGERVÄRDE</div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: cellMeta[selectedCell]?.text }}>{fmtKr(matrix[selectedCell]?.value)}</div>
-                  </div>
-                )}
-                <div style={{ background: '#1e293b', borderRadius: 8, padding: '10px 16px', flex: '1 1 120px' }}>
-                  <div style={{ fontSize: 10, color: '#64748b', marginBottom: 2 }}>ANDEL AV SORTIMENT</div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: cellMeta[selectedCell]?.text }}>
-                    {Math.round((matrix[selectedCell]?.count / totalArticles) * 100)}%
-                  </div>
-                </div>
-              </div>
-              <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>
-                ARTIKLAR I DENNA KATEGORI ({matrix[selectedCell]?.count})
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 200, overflowY: 'auto' }}>
-                {matrix[selectedCell]?.arts.slice(0, 60).map((a, i) => (
-                  <div
-                    key={i}
-                    title={`${a.article} — ${a.name || ''}\nSaldo: ${fmt(a.stock)} st\nTäcktid: ${fmtDays(a.coverage_days)}\nStatus: ${statusLabel(a.status)}`}
-                    style={{
-                      background: '#1e293b',
-                      border: `1px solid ${statusColor(a.status)}33`,
-                      borderRadius: 6, padding: '4px 10px',
-                      fontSize: 11, color: '#e2e8f0',
-                      cursor: 'default',
-                      display: 'flex', alignItems: 'center', gap: 5,
-                    }}
-                  >
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor(a.status), flexShrink: 0 }} />
-                    <span style={{ color: '#94a3b8', fontSize: 10 }}>{a.article}</span>
-                    {a.name && <span style={{ color: '#cbd5e1' }}>{a.name.slice(0, 22)}{a.name.length > 22 ? '…' : ''}</span>}
-                  </div>
-                ))}
-                {matrix[selectedCell]?.count > 60 && (
-                  <div style={{ fontSize: 11, color: '#475569', padding: '4px 10px' }}>… och {matrix[selectedCell].count - 60} till</div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ── INSIGHTS ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
-            {(() => {
-              const insights = [];
-              const ax = matrix['AX'] || { count: 0 };
-              const az = matrix['AZ'] || { count: 0 };
-              const cz = matrix['CZ'] || { count: 0 };
-              const cx = matrix['CX'] || { count: 0 };
-              if (ax.count > 0) insights.push({ icon: '⭐', title: `${ax.count} AX-artiklar`, desc: 'Stabila A-artiklar — automatisera inköpen', color: '#22c55e' });
-              if (az.count > 0) insights.push({ icon: '⚠️', title: `${az.count} AZ-artiklar`, desc: 'Högt värde, oregelbunden — kräver manuell styrning', color: '#ef4444' });
-              if (cz.count > 0) insights.push({ icon: '🗑️', title: `${cz.count} CZ-artiklar`, desc: 'Avvecklingskandidater — lågt värde, oregelbunden', color: '#6b7280' });
-              if (cx.count > 0) insights.push({ icon: '📦', title: `${cx.count} CX-artiklar`, desc: 'Massbeställ — stabil förbrukning, låg prioritet', color: '#6b7280' });
-              return insights.map((ins, i) => (
-                <div key={i} style={{ background: '#1e293b', borderRadius: 10, padding: '14px 16px', borderLeft: `3px solid ${ins.color}` }}>
-                  <div style={{ fontSize: 16, marginBottom: 4 }}>{ins.icon}</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9', marginBottom: 4 }}>{ins.title}</div>
-                  <div style={{ fontSize: 12, color: '#94a3b8' }}>{ins.desc}</div>
-                </div>
-              ));
-            })()}
-          </div>
-        </>
-      ) : (
-        /* ── ABC-ONLY VY ── */
-        <>
-          <div className="info-banner xyz-missing-banner" style={{ marginBottom: 20 }}>
-            <Icon name="info" size={16} />
-            <div>
-              <strong>XYZ-analys kräver historisk månadsdata</strong>
-              <p style={{ margin: '4px 0 0' }}>Lägg till kolumner för varje period (t.ex. <code>jan</code>, <code>feb</code>…<code>dec</code> eller <code>period_1</code>…<code>period_12</code>) med respektive månads förbrukning.</p>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
-            {['A', 'B', 'C'].map(abc => {
-              const meta = abcMeta[abc];
-              const group = abcGroups[abc] || { count: 0, value: 0, arts: [] };
-              const pct = Math.round((group.count / totalArticles) * 100);
-              const valPct = totalValue > 0 ? Math.round((group.value / totalValue) * 100) : 0;
-              const isSelected = selectedCell === abc;
-              return (
-                <div
-                  key={abc}
-                  onClick={() => setSelectedCell(isSelected ? null : abc)}
-                  style={{
-                    background: isSelected ? `${meta.color}18` : '#1e293b',
-                    border: `2px solid ${isSelected ? meta.color : meta.color + '33'}`,
-                    borderRadius: 14, padding: '20px', cursor: 'pointer',
-                    transition: 'all 0.15s',
-                    transform: isSelected ? 'scale(1.02)' : 'scale(1)',
-                  }}
-                >
-                  <div style={{ fontSize: 36, fontWeight: 900, color: meta.color, lineHeight: 1, marginBottom: 4 }}>{abc}</div>
-                  <div style={{ fontSize: 28, fontWeight: 800, color: '#f1f5f9', marginBottom: 2 }}>{group.count}</div>
-                  <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>{pct}% av artiklar</div>
-                  {hasCost && group.value > 0 && (
-                    <div style={{ marginBottom: 10 }}>
-                      <div style={{ fontSize: 10, color: '#64748b', marginBottom: 4 }}>LAGERVÄRDE</div>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: meta.color }}>{fmtKr(group.value)}</div>
-                      <div style={{ fontSize: 11, color: '#475569' }}>{valPct}% av totalt</div>
-                    </div>
-                  )}
-                  <div style={{ height: 6, background: '#0f172a', borderRadius: 3, overflow: 'hidden' }}>
-                    <div style={{ width: `${pct}%`, height: '100%', background: meta.color, borderRadius: 3, transition: 'width 0.6s ease' }} />
-                  </div>
-                  <div style={{ fontSize: 11, color: meta.color, marginTop: 8, fontWeight: 600 }}>
-                    {isSelected ? '▼ Visa artiklar' : '▶ Klicka för artiklar'}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {selectedCell && abcGroups[selectedCell]?.count > 0 && (
-            <div style={{
-              background: '#0f172a',
-              border: `1px solid ${abcMeta[selectedCell]?.color + '44'}`,
-              borderLeft: `4px solid ${abcMeta[selectedCell]?.color}`,
-              borderRadius: 12, padding: '20px 24px',
-              animation: 'fadeIn 0.2s ease',
-            }}>
-              <style>{`@keyframes fadeIn { from { opacity:0; transform: translateY(4px); } to { opacity:1; transform: translateY(0); } }`}</style>
-              <div style={{ fontSize: 12, fontWeight: 700, color: abcMeta[selectedCell]?.color, marginBottom: 12 }}>
-                {abcMeta[selectedCell]?.label} — {abcGroups[selectedCell]?.count} artiklar
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {abcGroups[selectedCell]?.arts.slice(0, 60).map((a, i) => (
-                  <div
-                    key={i}
-                    title={`${a.article}\nSaldo: ${fmt(a.stock)}\nTäcktid: ${fmtDays(a.coverage_days)}`}
-                    style={{
-                      background: '#1e293b',
-                      border: `1px solid ${statusColor(a.status)}33`,
-                      borderRadius: 6, padding: '4px 10px',
-                      fontSize: 11, color: '#cbd5e1',
-                      display: 'flex', alignItems: 'center', gap: 5,
-                    }}
-                  >
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor(a.status), flexShrink: 0 }} />
-                    <span style={{ color: '#94a3b8', fontSize: 10 }}>{a.article}</span>
-                    {a.name && <span>{a.name.slice(0, 22)}{a.name.length > 22 ? '…' : ''}</span>}
-                  </div>
                 ))}
               </div>
             </div>
           )}
-        </>
-      )}
+
+          {/* XYZ-förklaring (kompakt) */}
+          {xyzAvailable && (
+            <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 10, padding: '14px 16px' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--color-muted)', marginBottom: 8 }}>KLASSIFICERING</div>
+              {[
+                { key: 'X', label: 'Stabil', desc: 'Låg variationskoefficient', color: '#22c55e' },
+                { key: 'Y', label: 'Varierande', desc: 'Medel variabilitet', color: '#f59e0b' },
+                { key: 'Z', label: 'Oregelbunden', desc: 'Hög variabilitet', color: '#ef4444' },
+              ].map(r => (
+                <div key={r.key} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: r.color, width: 14 }}>{r.key}</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text)' }}>{r.label}</span>
+                  <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>— {r.desc}</span>
+                </div>
+              ))}
+              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--color-border)', fontSize: 10, color: 'var(--color-muted)', lineHeight: 1.5 }}>
+                A = topp 80% av årsvolymsvärde · B = 80–95% · C = 95–100%
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
+
 
 // ─── PDF RAPPORT ───────────────────────────────────────────────────────
 async function openPDFReport() {
