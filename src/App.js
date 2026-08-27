@@ -1819,7 +1819,7 @@ function ComparePanel({ idA, idB, token, labelA, labelB, onClose }) {
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
         <div style={{ fontSize: 12, color: '#64748b', marginBottom: 20 }}>
-          <span style={{ color: '#94a3b8' }}>{labelB}</span> → <span style={{ color: '#60a5fa' }}>{labelA}</span>
+          <span style={{ color: '#94a3b8' }}>{labelA}</span> → <span style={{ color: '#60a5fa' }}>{labelB}</span>
         </div>
         {loading && <p style={{ color: '#94a3b8' }}>Beräknar…</p>}
         {!loading && !diff && <p style={{ color: '#ef4444' }}>Kunde inte jämföra analyserna.</p>}
@@ -1896,14 +1896,15 @@ function HistoryTab({ token }) {
       setCompareSelected(null);
     } else {
       // Compare compareSelected (older) vs h (could be newer or older) — always compare vs latest
-      const idA = Math.max(compareSelected, h.id); // newer
-      const idB = Math.min(compareSelected, h.id); // older
-      const hA = history.find(x => x.id === idA);
-      const hB = history.find(x => x.id === idB);
+      const idOlder = Math.min(compareSelected, h.id); // äldre = lägre id
+      const idNewer = Math.max(compareSelected, h.id); // nyare = högre id
+      const hOlder = history.find(x => x.id === idOlder);
+      const hNewer = history.find(x => x.id === idNewer);
       setCompareIds({
-        idA, idB,
-        labelA: `${fmtDate(hA.created_at)} · ${hA.filename}`,
-        labelB: `${fmtDate(hB.created_at)} · ${hB.filename}`,
+        idA: idOlder, // backend: id_a = äldre
+        idB: idNewer, // backend: id_b = nyare
+        labelA: `${fmtDate(hOlder.created_at)} · ${hOlder.filename}`,
+        labelB: `${fmtDate(hNewer.created_at)} · ${hNewer.filename}`,
       });
       setCompareSelected(null);
     }
