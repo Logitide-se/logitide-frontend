@@ -254,37 +254,36 @@ function DataQualityBannerFull({ summary, dataQuality }) {
 function InfoTooltip({ text }) {
   const [visible, setVisible] = useState(false);
   const ref = React.useRef(null);
-  const [pos, setPos] = React.useState({ vertical: 'above', align: 'center' });
+  const [tooltipPos, setTooltipPos] = React.useState({ top: 0, left: 0 });
   const hideTimer = React.useRef(null);
 
   const handleEnter = () => {
     clearTimeout(hideTimer.current);
     if (ref.current) {
       const rect = ref.current.getBoundingClientRect();
-      const vertical = rect.top < 220 ? 'below' : 'above';
-      const align = window.innerWidth - rect.right < 140 ? 'right' : rect.left < 140 ? 'left' : 'center';
-      setPos({ vertical, align });
+      const above = rect.top > 220;
+      const top = above ? rect.top - 8 : rect.bottom + 8;
+      let left = rect.left + rect.width / 2 - 140;
+      if (left < 8) left = 8;
+      if (left + 280 > window.innerWidth - 8) left = window.innerWidth - 288;
+      setTooltipPos({ top, left, above });
     }
     setVisible(true);
   };
   const handleLeave = () => { hideTimer.current = setTimeout(() => setVisible(false), 120); };
-  const { vertical, align } = pos;
   const popupStyle = {
-    position: 'absolute',
-    ...(vertical === 'above' ? { bottom: '130%' } : { top: '130%' }),
-    background: '#0f172a', border: '1px solid #334155', color: '#cbd5e1',
-    borderRadius: 8, padding: '10px 14px', fontSize: 11, lineHeight: 1.6,
-    width: 260, zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+    position: 'fixed',
+    top: tooltipPos.above ? 'auto' : tooltipPos.top,
+    bottom: tooltipPos.above ? `calc(100vh - ${tooltipPos.top}px)` : 'auto',
+    left: tooltipPos.left,
+    background: '#0f172a',
+    border: '1px solid #475569',
+    color: '#e2e8f0',
+    borderRadius: 8, padding: '10px 14px', fontSize: 12, lineHeight: 1.7,
+    width: 280, zIndex: 99999, boxShadow: '0 8px 32px rgba(0,0,0,0.8)',
     whiteSpace: 'pre-line', textAlign: 'left', fontWeight: 400,
     pointerEvents: 'auto', cursor: 'text', userSelect: 'text',
-    ...(align === 'center' ? { left: '50%', transform: 'translateX(-50%)' } :
-        align === 'right' ? { right: 0, transform: 'none' } : { left: 0, transform: 'none' }),
   };
-  const arrowLeft = align === 'center' ? '50%' : align === 'right' ? 'auto' : '10px';
-  const arrowRight = align === 'right' ? '10px' : 'auto';
-  const arrowStyle = vertical === 'above'
-    ? { top: '100%', borderColor: '#334155 transparent transparent transparent' }
-    : { bottom: '100%', borderColor: 'transparent transparent #334155 transparent' };
 
   return (
     <span ref={ref} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', marginLeft: 4, cursor: 'help', verticalAlign: 'middle' }}
@@ -293,9 +292,6 @@ function InfoTooltip({ text }) {
       {visible && (
         <span style={popupStyle} onMouseEnter={() => clearTimeout(hideTimer.current)} onMouseLeave={handleLeave}>
           {text}
-          <span style={{ position: 'absolute', left: arrowLeft, right: arrowRight,
-            transform: align === 'center' ? 'translateX(-50%)' : 'none',
-            borderWidth: 5, borderStyle: 'solid', pointerEvents: 'none', ...arrowStyle }} />
         </span>
       )}
     </span>
