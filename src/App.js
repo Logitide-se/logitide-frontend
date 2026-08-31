@@ -2391,6 +2391,158 @@ function ImprovementCards({ cards, totalSaved }) {
   );
 }
 
+// ─── TREND CHART ──────────────────────────────────────────────────────────
+function TrendChart({ history, fmtKr }) {
+  const [activeChart, setActiveChart] = useState('critical');
+  if (!history || history.length < 2) return null;
+
+  const sorted = [...history].reverse(); // oldest first
+  const labels = sorted.map(h => {
+    const dt = new Date(h.created_at);
+    return dt.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
+  });
+
+  const charts = {
+    critical: {
+      label: 'Kritiska artiklar',
+      color: '#ef4444',
+      fillColor: 'rgba(239,68,68,0.12)',
+      values: sorted.map(h => h.summary?.critical ?? 0),
+      unit: 'st',
+      lowerIsBetter: true,
+    },
+    capital: {
+      label: 'Bundet kapital (tkr)',
+      color: '#a78bfa',
+      fillColor: 'rgba(167,139,250,0.12)',
+      values: sorted.map(h => Math.round((h.summary?.total_stock_value_sek ?? 0) / 1000)),
+      unit: 'tkr',
+      lowerIsBetter: true,
+    },
+    service: {
+      label: 'Servicenivå A-artiklar',
+      color: '#22c55e',
+      fillColor: 'rgba(34,197,94,0.12)',
+      values: sorted.map(h => h.summary?.a_service_level_pct ?? 0),
+      unit: '%',
+      lowerIsBetter: false,
+    },
+  };
+
+  const chart = charts[activeChart];
+  const values = chart.values;
+  const W = 600, H = 160, padL = 52, padR = 16, padT = 16, padB = 32;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const minVal = Math.min(...values);
+  const maxVal = Math.max(...values);
+  const range = maxVal - minVal || 1;
+  const n = values.length;
+
+  const xOf = (i) => padL + (i / (n - 1)) * plotW;
+  const yOf = (v) => padT + plotH - ((v - minVal) / range) * plotH;
+
+  // Line path
+  const linePts = values.map((v, i) => `${xOf(i)},${yOf(v)}`).join(' ');
+  const areaPath = `M${xOf(0)},${yOf(values[0])} ` +
+    values.map((v, i) => `L${xOf(i)},${yOf(v)}`).join(' ') +
+    ` L${xOf(n - 1)},${padT + plotH} L${xOf(0)},${padT + plotH} Z`;
+
+  // Y axis ticks (3)
+  const yTicks = [minVal, minVal + range / 2, maxVal].map(v => ({
+    v: Math.round(v * 10) / 10,
+    y: yOf(v),
+  }));
+
+  // Trend direction
+  const first = values[0], last = values[values.length - 1];
+  const delta = last - first;
+  const improved = chart.lowerIsBetter ? delta < 0 : delta > 0;
+  const trendColor = delta === 0 ? '#64748b' : improved ? '#22c55e' : '#ef4444';
+  const trendIcon = delta === 0 ? '→' : delta > 0 ? '▲' : '▼';
+  const trendLabel = delta === 0 ? 'Oförändrat' : `${trendIcon} ${Math.abs(Math.round(delta * 10) / 10)} ${chart.unit} sedan start`;
+
+  return (
+    <div style={{ background: '#111827', borderRadius: 14, padding: '20px 20px 16px', marginBottom: 20, border: '1px solid #1e293b' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9' }}>Trend över tid</div>
+          <div style={{ fontSize: 11, color: trendColor, fontWeight: 600, marginTop: 2 }}>{trendLabel}</div>
+        </div>
+        {/* Selector */}
+        <div style={{ display: 'flex', gap: 6 }}>
+          {Object.entries(charts).map(([key, c]) => (
+            <button
+              key={key}
+              onClick={() => setActiveChart(key)}
+              style={{
+                background: activeChart === key ? c.color + '22' : 'transparent',
+                border: `1px solid ${activeChart === key ? c.color : '#334155'}`,
+                color: activeChart === key ? c.color : '#64748b',
+                borderRadius: 20, padding: '4px 12px', fontSize: 11,
+                fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s',
+                letterSpacing: '0.03em',
+              }}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* SVG chart */}
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
+        {/* Grid lines */}
+        {yTicks.map((t, i) => (
+          <line key={i} x1={padL} y1={t.y} x2={W - padR} y2={t.y}
+            stroke="#1e293b" strokeWidth="1" strokeDasharray="4 4" />
+        ))}
+        {/* Y axis labels */}
+        {yTicks.map((t, i) => (
+          <text key={i} x={padL - 6} y={t.y + 4} textAnchor="end"
+            fontSize="10" fill="#475569" fontFamily="Inter,system-ui,sans-serif">
+            {t.v}{chart.unit === '%' ? '%' : ''}
+          </text>
+        ))}
+        {/* Area fill */}
+        <path d={areaPath} fill={chart.fillColor} />
+        {/* Line */}
+        <polyline points={linePts} fill="none" stroke={chart.color} strokeWidth="2"
+          strokeLinejoin="round" strokeLinecap="round" />
+        {/* Data points */}
+        {values.map((v, i) => (
+          <circle key={i} cx={xOf(i)} cy={yOf(v)} r="4"
+            fill="#0a0f1e" stroke={chart.color} strokeWidth="2" />
+        ))}
+        {/* X axis labels */}
+        {labels.map((l, i) => {
+          // Show max 6 labels evenly
+          const step = Math.max(1, Math.floor(n / 6));
+          if (i % step !== 0 && i !== n - 1) return null;
+          return (
+            <text key={i} x={xOf(i)} y={H - 4} textAnchor="middle"
+              fontSize="10" fill="#475569" fontFamily="Inter,system-ui,sans-serif">
+              {l}
+            </text>
+          );
+        })}
+      </svg>
+
+      {/* Latest value callout */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+        <div style={{ fontSize: 11, color: '#64748b' }}>
+          Senaste: <span style={{ color: chart.color, fontWeight: 700 }}>
+            {activeChart === 'capital'
+              ? `${values[values.length - 1].toLocaleString('sv-SE')} tkr`
+              : `${values[values.length - 1]}${chart.unit === '%' ? '%' : ' st'}`}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── HISTORY DETAIL MODAL ─────────────────────────────────────────────────
 function HistoryDetailModal({ analysisId, token, onClose }) {
   const [detail, setDetail] = useState(null);
@@ -2627,6 +2779,9 @@ function HistoryTab({ token }) {
       {compareIds && (
         <ComparePanel {...compareIds} token={token} onClose={() => setCompareIds(null)} />
       )}
+
+      {/* Trend chart — only shown with 2+ history entries */}
+      {history.length >= 2 && <TrendChart history={history} fmtKr={fmtKr} />}
 
       {/* Trend summary */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
