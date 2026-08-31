@@ -49,6 +49,8 @@ const fmtKr = (n, hasCostData = true) => {
   if (!hasCostData) return null;
   if (n == null || n === undefined) return '—';
   if (n === 0) return '0 kr';
+  if (Math.abs(n) < 1000) return `${Math.round(n).toLocaleString('sv-SE')} kr`;
+  if (Math.abs(n) < 1_000_000) return `${(n / 1000).toFixed(1).replace('.', ',').toLocaleString('sv-SE')} tkr`;
   return `${Math.round(n / 1000).toLocaleString('sv-SE')} tkr`;
 };
 const fmtDays = (n) => n === 999 ? '∞' : `${parseFloat(n).toFixed(1)} d`;
@@ -120,7 +122,7 @@ function ActionRow({ a, hasCost, articles }) {
           <span className="action-text">{a.action}</span>
           <span className="action-reason">{a.reason}</span>
         </div>
-        {hasCost && a.value_sek > 0 && <span className="action-value">{(a.value_sek/1000).toFixed(0)+' tkr'}</span>}
+        {hasCost && a.value_sek > 0 && <span className="action-value">{fmtKr(a.value_sek)}</span>}
         <button onClick={fetchExplanation} title="AI-förklaring" style={{
           background: 'none', border: '1px solid var(--border)', borderRadius: '6px',
           padding: '3px 8px', cursor: 'pointer', fontSize: '12px', color: 'var(--text2)',
@@ -2373,7 +2375,7 @@ function ImprovementCards({ cards, totalSaved }) {
           <span style={{ fontSize: 28 }}>💰</span>
           <div>
             <div style={{ fontSize: 11, color: '#93c5fd', fontWeight: 600 }}>TOTALT FRIGJORT KAPITAL</div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: '#60a5fa' }}>{fmt(Math.round(totalSaved / 1000))} tkr</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: '#60a5fa' }}>{fmtKr(totalSaved)}</div>
           </div>
         </div>
       )}
@@ -2662,7 +2664,7 @@ function HistoryTab({ token }) {
             inverted: true, // lower capital = better
             diff: prev && prev.summary?.total_stock_value_sek != null ? (() => {
               const d = Math.round(((latest.summary?.total_stock_value_sek ?? 0) - (prev.summary?.total_stock_value_sek ?? 0)) / 1000);
-              return `${d >= 0 ? '▲' : '▼'} ${fmt(Math.abs(d))} tkr`;
+              return `${d >= 0 ? '▲' : '▼'} ${fmtKr(Math.abs(d))}`;
             })() : null,
             improved: prev ? (latest.summary?.total_stock_value_sek ?? 0) <= (prev.summary?.total_stock_value_sek ?? 0) : null,
           },
