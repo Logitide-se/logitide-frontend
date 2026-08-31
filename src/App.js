@@ -147,26 +147,34 @@ function ValidationBanner({ validation }) {
   if (!validation || !validation.summary) return null;
   const hasWarnings = validation.warnings && validation.warnings.length > 0;
   const [expanded, setExpanded] = useState(false);
+  if (!hasWarnings) return null; // only show if there's something to act on
   return (
-    <div style={{
-      background: 'var(--bg2)', border: '1px solid var(--border)', borderLeft: '4px solid #2196F3',
-      borderRadius: '8px', padding: '12px 16px', marginBottom: '12px', fontSize: '14px',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <span style={{ fontSize: '16px' }}>✅</span>
-        <span style={{ color: 'var(--text)', flex: 1 }}>{validation.summary}</span>
-        {hasWarnings && (
-          <button onClick={() => setExpanded(!expanded)} style={{
-            background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text2)', fontSize: '12px', padding: '2px 6px'
-          }}>
-            {validation.warnings.length} varning{validation.warnings.length > 1 ? 'ar' : ''} {expanded ? '▲' : '▼'}
-          </button>
-        )}
+    <div style={{ marginBottom: '12px' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '10px',
+        padding: '9px 14px', borderRadius: expanded ? '7px 7px 0 0' : '7px',
+        background: 'var(--bg2)', border: '1px solid var(--border)',
+        borderBottom: expanded ? 'none' : '1px solid var(--border)',
+        cursor: 'pointer',
+      }} onClick={() => setExpanded(!expanded)}>
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#3b82f6', flexShrink: 0, display: 'inline-block' }} />
+        <span style={{ flex: 1, fontSize: '13px', color: 'var(--text2)' }}>
+          <strong style={{ color: 'var(--text)', fontWeight: 500 }}>{validation.warnings.length} valideringsnotering{validation.warnings.length > 1 ? 'ar' : ''}</strong>
+          {' '}— {validation.summary}
+        </span>
+        <span style={{ fontSize: '11px', color: 'var(--text3)', flexShrink: 0 }}>{expanded ? 'Dölj ▲' : 'Visa ▼'}</span>
       </div>
-      {expanded && hasWarnings && (
-        <ul style={{ marginTop: '8px', paddingLeft: '24px', color: 'var(--text2)', fontSize: '13px' }}>
-          {validation.warnings.map((w, i) => <li key={i} style={{ marginBottom: '4px' }}>⚠️ {w}</li>)}
-        </ul>
+      {expanded && (
+        <div style={{
+          background: 'var(--bg2)', border: '1px solid var(--border)', borderTop: 'none',
+          borderRadius: '0 0 7px 7px', padding: '10px 14px',
+        }}>
+          {validation.warnings.map((w, i) => (
+            <div key={i} style={{ fontSize: '12px', color: 'var(--text2)', padding: '4px 0', borderBottom: i < validation.warnings.length - 1 ? '1px solid var(--border)' : 'none' }}>
+              {w}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -180,21 +188,61 @@ function DataQualityBanner({ summary, dataQuality }) {
   if (!summary.has_lead_time_data) missing.push({ field: 'Ledtid (lead_time_days)', impact: 'Standardvärde 14 dagar används — justera för er verklighet' });
   if (missing.length === 0) return null;
   return (
-    <div className="data-quality-banner">
-      <div className="dq-header" onClick={() => setExpanded(!expanded)}>
-        <span className="dq-icon"><Icon name="info" size={16} /></span>
-        <span className="dq-title">{missing.length} kolumn{missing.length > 1 ? 'er' : ''} saknas i filen — analysen är delvis begränsad</span>
-        <span className="dq-toggle">{expanded ? '▲' : '▼'}</span>
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: '10px',
+      padding: '9px 14px', borderRadius: '7px', marginBottom: '10px',
+      background: 'var(--bg2)', border: '1px solid var(--border)',
+      cursor: 'pointer', transition: 'border-color 0.15s',
+    }} onClick={() => setExpanded(!expanded)}>
+      <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#f59e0b', flexShrink: 0, display: 'inline-block' }} />
+      <span style={{ flex: 1, fontSize: '13px', color: 'var(--text2)' }}>
+        <strong style={{ color: 'var(--text)', fontWeight: 500 }}>{missing.length} datakvalitetsnoteringar</strong>
+        {' '}— analysen körs men precisionen förbättras när dessa kolumner läggs till.
+      </span>
+      <span style={{ fontSize: '11px', color: 'var(--text3)', flexShrink: 0 }}>{expanded ? 'Dölj ▲' : 'Visa detaljer ▼'}</span>
+      {expanded && (
+        <div style={{ position: 'absolute', marginTop: '8px' }} onClick={e => e.stopPropagation()} />
+      )}
+    </div>
+  );
+  // Expanded state renders below via wrapper
+}
+
+function DataQualityBannerFull({ summary, dataQuality }) {
+  const [expanded, setExpanded] = useState(false);
+  const missing = [];
+  if (!summary.has_cost_data) missing.push({ field: 'Inköpspris (cost)', impact: 'Kapitalanalys och ordervärde kan inte beräknas' });
+  if (!summary.has_location_data) missing.push({ field: 'Lagerposition (loc)', impact: 'Slottingförslag kan inte genereras' });
+  if (!summary.has_lead_time_data) missing.push({ field: 'Ledtid (lead_time_days)', impact: 'Standardvärde 14 dagar används — justera för er verklighet' });
+  if (missing.length === 0) return null;
+  return (
+    <div style={{ marginBottom: '12px' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '10px',
+        padding: '9px 14px', borderRadius: expanded ? '7px 7px 0 0' : '7px',
+        background: 'var(--bg2)', border: '1px solid var(--border)',
+        borderBottom: expanded ? 'none' : '1px solid var(--border)',
+        cursor: 'pointer',
+      }} onClick={() => setExpanded(!expanded)}>
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#f59e0b', flexShrink: 0, display: 'inline-block' }} />
+        <span style={{ flex: 1, fontSize: '13px', color: 'var(--text2)' }}>
+          <strong style={{ color: 'var(--text)', fontWeight: 500 }}>{missing.length} datakvalitetsnoteringar</strong>
+          {' '}— analysen körs men precisionen förbättras när dessa kolumner läggs till.
+        </span>
+        <span style={{ fontSize: '11px', color: 'var(--text3)', flexShrink: 0 }}>{expanded ? 'Dölj ▲' : 'Visa detaljer ▼'}</span>
       </div>
       {expanded && (
-        <div className="dq-body">
+        <div style={{
+          background: 'var(--bg2)', border: '1px solid var(--border)', borderTop: 'none',
+          borderRadius: '0 0 7px 7px', padding: '12px 14px',
+        }}>
           {missing.map((m, i) => (
-            <div key={i} className="dq-row">
-              <span className="dq-field">{m.field}</span>
-              <span className="dq-impact">{m.impact}</span>
+            <div key={i} style={{ display: 'flex', gap: '12px', padding: '6px 0', borderBottom: i < missing.length - 1 ? '1px solid var(--border)' : 'none' }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', minWidth: 180 }}>{m.field}</span>
+              <span style={{ fontSize: '12px', color: 'var(--text2)' }}>{m.impact}</span>
             </div>
           ))}
-          <p className="dq-tip">Lägg till dessa kolumner i er exportfil från WMS/ERP för en komplett analys.</p>
+          <p style={{ marginTop: '10px', fontSize: '12px', color: 'var(--text3)', fontStyle: 'italic' }}>Lägg till dessa kolumner i er exportfil från WMS/ERP för en komplett analys.</p>
         </div>
       )}
     </div>
@@ -844,15 +892,9 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
   return (
     <div className="tab-content">
       <ValidationBanner validation={validation} />
-      <DataQualityBanner summary={summary} dataQuality={data_quality} />
-      {summary.critical > 0 && (
-        <div className="alert-banner">
-          <Icon name="alert" size={18} />
-          {summary.critical} artiklar kräver omedelbar handling — lagret kan stanna.
-        </div>
-      )}
+      <DataQualityBannerFull summary={summary} dataQuality={data_quality} />
       <div className="kpi-grid">
-        <KpiCard label="KRITISKA BRISTER" value={fmt(summary.critical)} sub={`${summary.watch} bevakas`} color="#ef4444"
+        <KpiCard label="KRITISKA BRISTER" value={fmt(summary.critical)} sub={`${summary.watch} bevakas`} color={summary.critical > 0 ? "#ef4444" : "var(--text3)"}
           sparkPoints={sparkCritical}
           trend={summary.critical > 0 ? { direction: 'up', pct: Math.round((summary.critical / Math.max(1, summary.total_articles)) * 100) } : null}
           tooltip={"Kritisk = täcktid ≤ ledtid OCH ingen inköpsorder är lagd.\nBevaka = brist men order är redan på väg.\n\nBevaka-tröskel per ABC-klass:\nA-artiklar: täcktid < 2× ledtid\nB-artiklar: täcktid < 1.5× ledtid\nC-artiklar: täcktid < 1.2× ledtid"} />
@@ -872,6 +914,11 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
           sub={hasCost ? fmtKr(summary.dead_stock_value_sek) : `${summary.dead_stock} artiklar utan förbrukning`}
           color="#6b7280" sparkPoints={sparkDead}
           tooltip={"Artiklar med saldo > 0 men registrerad förbrukning = 0."} />
+        <KpiCard label="I BALANS"
+          value={fmt(Math.max(0, (summary.total_articles || 0) - (summary.critical || 0) - (summary.watch || 0) - (summary.dead_stock || 0)))}
+          sub={`av ${fmt(summary.total_articles)} artiklar`}
+          color="#10b981"
+          tooltip={"Artiklar med tillräcklig täcktid och aktiv förbrukning — inga åtgärder krävs."} />
       </div>
       {top_actions?.length > 0 && (
         <div className="section">
