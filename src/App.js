@@ -85,36 +85,10 @@ function recalcArticle(a, newLeadTime) {
 
 const API = "https://web-production-2ab93.up.railway.app";
 
-function ActionRow({ a, hasCost, articles }) {
-  const [explanation, setExplanation] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [open, setOpen] = useState(false);
-
-  const fetchExplanation = async () => {
-    if (explanation) { setOpen(!open); return; }
-    setLoading(true);
-    try {
-      const art = articles?.find(r => r.article === a.article) || {};
-      const res = await fetch(`${API}/explain-article`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          article: a.article, name: a.name || art.name || '', abc: a.abc || art.abc || '',
-          xyz: art.xyz || null, status: a.status || art.status || '', stock: art.stock ?? 0,
-          demand_per_day: art.demand_per_day ?? 0, coverage_days: art.coverage_days ?? 0,
-          lead_time_days: art.lead_time_days ?? 14, order_qty: a.qty || 0, cost: art.cost ?? 0,
-          loc: art.loc || '', ordered_qty: art.ordered_qty ?? 0, eta_date: art.eta_date || null,
-          annual_value: art.annual_value ?? 0,
-        })
-      });
-      const data = await res.json();
-      if (data.explanation) { setExplanation(data.explanation); setOpen(true); }
-    } catch(e) {}
-    setLoading(false);
-  };
-
+function ActionRow({ a, hasCost, onSelect }) {
   return (
-    <div className="action-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0 }}>
+    <div className="action-row" onClick={() => onSelect && onSelect(a.article)}
+      style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0, cursor: 'pointer' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span className="action-icon">{a.icon}</span>
         <div className="action-body" style={{ flex: 1 }}>
@@ -123,28 +97,8 @@ function ActionRow({ a, hasCost, articles }) {
           <span className="action-reason">{a.reason}</span>
         </div>
         {hasCost && a.value_sek > 0 && <span className="action-value">{fmtKr(a.value_sek)}</span>}
-        <button onClick={fetchExplanation} title="AI-förklaring" style={{
-          background: open ? 'rgba(167,139,250,0.12)' : 'none',
-          border: `1px solid ${open ? 'rgba(167,139,250,0.35)' : 'var(--border)'}`,
-          borderRadius: '6px', padding: '3px 10px', cursor: 'pointer',
-          fontSize: '12px', fontWeight: 600,
-          color: open ? '#c4b5fd' : 'var(--text2)',
-          whiteSpace: 'nowrap', flexShrink: 0,
-          transition: 'all 0.15s',
-        }}>
-          {loading ? '⏳ Tänker…' : open ? '✕ Stäng' : '? Varför'}
-        </button>
+        <span style={{ fontSize: 11, color: 'var(--text3)', flexShrink: 0, paddingRight: 4 }}>→</span>
       </div>
-      {open && explanation && (
-        <div style={{
-          marginTop: '8px', marginLeft: '28px', padding: '10px 14px',
-          background: 'var(--bg)', border: '1px solid var(--border)',
-          borderRadius: '6px', fontSize: '13px', color: 'var(--text)',
-          lineHeight: '1.6', borderLeft: '3px solid #2196F3'
-        }}>
-          {explanation}
-        </div>
-      )}
     </div>
   );
 }
@@ -993,6 +947,11 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
   const { summary, top_actions, abc_distribution, articles, data_quality, validation } = data;
   const hasCost = summary.has_cost_data;
   const hasLoc = summary.has_location_data;
+  const [selectedArticle, setSelectedArticle] = useState(null);
+  const handleSelectArticle = (articleId) => {
+    const art = articles?.find(a => a.article === articleId);
+    if (art) setSelectedArticle(art);
+  };
 
   const aiSummary = React.useMemo(() => {
     if (!summary || !articles?.length) return null;
@@ -1113,7 +1072,7 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
             <span className="badge">{top_actions.length} prioriterade</span>
           </div>
           <div className="actions-list">
-            {top_actions.map((a, i) => <ActionRow key={i} a={a} hasCost={hasCost} articles={articles} />)}
+            {top_actions.map((a, i) => <ActionRow key={i} a={a} hasCost={hasCost} onSelect={handleSelectArticle} />)}
           </div>
         </div>
       )}
@@ -1158,6 +1117,7 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
         </div>
         <ArticleTable articles={articles} hasCost={hasCost} hasLoc={hasLoc} onLedtidChange={onLedtidChange} ledtidOverrides={ledtidOverrides} onResetLedtider={onResetLedtider} />
       </div>
+      {selectedArticle && <ArticleDetailPanel article={selectedArticle} onClose={() => setSelectedArticle(null)} />}
     </div>
   );
 }
