@@ -1022,37 +1022,43 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
   const hasCost = summary.has_cost_data;
   const hasLoc = summary.has_location_data;
 
-  const [aiSummary, setAiSummary] = useState(null);
-  const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
-
-  useEffect(() => {
-    if (!summary || !articles?.length) return;
-    setAiSummary(null);
-    setAiSummaryLoading(true);
+  const aiSummary = React.useMemo(() => {
+    if (!summary || !articles?.length) return null;
     const critical = articles.filter(a => a.status === 'CRITICAL');
     const watch = articles.filter(a => a.status === 'WATCH');
     const aClass = articles.filter(a => a.abc === 'A' && (a.status === 'CRITICAL' || a.status === 'WATCH'));
-    fetch(`${API}/explain-article`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        article: '__overview__',
-        name: 'Lageröversikt — sammanfattning',
-        status: 'OVERVIEW',
-        stock: summary.total_articles,
-        demand_per_day: summary.critical,
-        coverage_days: summary.watch,
-        lead_time_days: aClass.length,
-        order_qty: summary.articles_to_order,
-        cost: summary.total_stock_value_sek || 0,
-        annual_value: summary.total_order_value_sek || 0,
-        abc: `${critical.length} kritiska, ${watch.length} bevakas, ${aClass.length} A-klass kräver åtgärd`,
-        xyz: null,
-        loc: hasLoc ? 'ja' : 'nej',
-        ordered_qty: 0, eta_date: null,
-        overview: true,
-      })
-    }).then(r => r.json()).then(d => setAiSummary(d.explanation || null)).catch(() => setAiSummary(null)).finally(() => setAiSummaryLoading(false));
-  }, [summary?.total_articles, summary?.critical]);
+    const overstock = articles.filter(a => a.status === 'OVERSTOCK');
+    const dead = articles.filter(a => a.status === 'DEAD_STOCK');
+    const toOrder = summary.articles_to_order || 0;
+
+    const parts = [];
+
+    if (critical.length === 0 && watch.length === 0) {
+      parts.push(`Lagerstatus ser bra ut — inga kritiska brister just nu bland ${summary.total_articles} artiklar.`);
+    } else {
+      const urgency = critical.length > 10 ? 'Akut läge:' : critical.length > 0 ? 'Åtgärd krävs:';
+      parts.push(`${urgency} ${critical.length} artiklar är kritiska och ${watch.length} bevakas.`);
+    }
+
+    if (aClass.length > 0) {
+      parts.push(`${aClass.length} A-klass artikel${aClass.length > 1 ? 'ar' : ''} kräver omedelbar uppmärksamhet — dessa driver störst påverkan på servicenivå.`);
+    }
+
+    if (toOrder > 0) {
+      const orderVal = hasCost && summary.total_order_value_sek > 0 ? ` (ca ${fmtKr(summary.total_order_value_sek)})` : '';
+      parts.push(`${toOrder} inköpsorder behöver läggas${orderVal}.`);
+    }
+
+    if (overstock.length > 5) {
+      parts.push(`${overstock.length} artiklar är överlagerda — överväg att pausa inköp eller se över lagernivåer.`);
+    }
+
+    if (dead.length > 0) {
+      parts.push(`${dead.length} artikel${dead.length > 1 ? 'ar' : ''} saknar förbrukning och bör utvärderas för utrangering.`);
+    }
+
+    return parts.join(' ');
+  }, [summary?.total_articles, summary?.critical, summary?.watch, articles?.length]);
 
   const sparkCritical = React.useMemo(() => {
     if (!articles?.length) return null;
@@ -1093,13 +1099,10 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
     <div className="tab-content">
       <ValidationBanner validation={validation} />
       <DataQualityBannerFull summary={summary} dataQuality={data_quality} />
-      {(aiSummaryLoading || aiSummary) && (
+      {aiSummary && (
         <div style={{ marginBottom: 18, padding: '14px 18px', background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 10, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-          <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>✦</span>
-          {aiSummaryLoading
-            ? <span style={{ fontSize: 13, color: '#64748b', display: 'flex', alignItems: 'center', gap: 8 }}><div style={{ width: 11, height: 11, border: '2px solid #334155', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} /><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>AI sammanfattar lagerstatus…</span>
-            : <span style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.65 }}>{aiSummary}</span>
-          }
+          <span style={{ fontSize: 15, flexShrink: 0, marginTop: 1, color: '#818cf8' }}>✦</span>
+          <span style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.65 }}>{aiSummary}</span>
         </div>
       )}
       <div className="kpi-grid">
