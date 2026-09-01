@@ -124,11 +124,15 @@ function ActionRow({ a, hasCost, articles }) {
         </div>
         {hasCost && a.value_sek > 0 && <span className="action-value">{fmtKr(a.value_sek)}</span>}
         <button onClick={fetchExplanation} title="AI-förklaring" style={{
-          background: 'none', border: '1px solid var(--border)', borderRadius: '6px',
-          padding: '3px 8px', cursor: 'pointer', fontSize: '12px', color: 'var(--text2)',
-          whiteSpace: 'nowrap', flexShrink: 0
+          background: open ? 'rgba(99,102,241,0.12)' : 'none',
+          border: `1px solid ${open ? 'rgba(99,102,241,0.35)' : 'var(--border)'}`,
+          borderRadius: '6px', padding: '3px 10px', cursor: 'pointer',
+          fontSize: '12px', fontWeight: 600,
+          color: open ? '#818cf8' : 'var(--text2)',
+          whiteSpace: 'nowrap', flexShrink: 0,
+          transition: 'all 0.15s',
         }}>
-          {loading ? '...' : open ? '▲ Dölj' : '✦ Förklara'}
+          {loading ? '⏳ Tänker…' : open ? '✕ Stäng' : '? Varför'}
         </button>
       </div>
       {open && explanation && (
@@ -480,6 +484,128 @@ function OnboardingGuide({ onClose }) {
   );
 }
 
+// ─── DATA SANITY MODAL ────────────────────────────────────────────────────
+function DataSanityModal({ warnings, onContinue, onCancel }) {
+  const categories = {
+    missing_leadtime:    { label: 'Saknar ledtid',        icon: '⏱', color: '#f97316' },
+    missing_demand:      { label: 'Saknar efterfrågan',   icon: '📉', color: '#f97316' },
+    missing_cost:        { label: 'Saknar kostnad',       icon: '💰', color: '#a78bfa' },
+    missing_location:    { label: 'Saknar lagerplats',    icon: '📍', color: '#a78bfa' },
+    zero_stock:          { label: 'Nollsaldo',            icon: '📦', color: '#64748b' },
+    duplicate_article:   { label: 'Dubbletter',           icon: '⚠️', color: '#ef4444' },
+    negative_stock:      { label: 'Negativt saldo',       icon: '❗', color: '#ef4444' },
+  };
+
+  // Gruppera warnings per typ
+  const grouped = {};
+  warnings.forEach(w => {
+    // Försök matcha känd kategori, annars "other"
+    const key = Object.keys(categories).find(k => w.toLowerCase().includes(k.replace('_', ' ')) || w.toLowerCase().includes(k.split('_')[1])) || 'other';
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(w);
+  });
+
+  const hasBlocker = warnings.some(w =>
+    w.toLowerCase().includes('dubblett') || w.toLowerCase().includes('negativt')
+  );
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      zIndex: 9999, padding: 24,
+    }}>
+      <div style={{
+        background: 'var(--bg, #0a0f1e)', border: '1px solid rgba(255,255,255,0.1)',
+        borderRadius: 16, maxWidth: 520, width: '100%',
+        boxShadow: '0 24px 64px rgba(0,0,0,0.6)',
+        maxHeight: '90vh', overflow: 'auto',
+      }}>
+        {/* Header */}
+        <div style={{
+          padding: '22px 24px 18px',
+          borderBottom: '1px solid rgba(255,255,255,0.07)',
+          display: 'flex', gap: 14, alignItems: 'flex-start',
+        }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+            background: hasBlocker ? 'rgba(239,68,68,0.15)' : 'rgba(249,115,22,0.15)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
+          }}>
+            {hasBlocker ? '🚫' : '⚠️'}
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text, #e2e8f0)', marginBottom: 4 }}>
+              {hasBlocker ? 'Dataproblem hittades' : 'Datakvalitet — kontrollera innan du fortsätter'}
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--muted, #64748b)', lineHeight: 1.5 }}>
+              {hasBlocker
+                ? 'Vi hittade problem som kan påverka analysens tillförlitlighet. Granska listan nedan.'
+                : `Vi hittade ${warnings.length} varning${warnings.length !== 1 ? 'ar' : ''} i din fil. Analysen kan köras men resultaten kan vara ofullständiga för berörda artiklar.`
+              }
+            </div>
+          </div>
+        </div>
+
+        {/* Warnings list */}
+        <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {warnings.map((w, i) => {
+            const isBlocker = w.toLowerCase().includes('dubblett') || w.toLowerCase().includes('negativt');
+            return (
+              <div key={i} style={{
+                background: isBlocker ? 'rgba(239,68,68,0.08)' : 'rgba(249,115,22,0.07)',
+                border: `1px solid ${isBlocker ? 'rgba(239,68,68,0.2)' : 'rgba(249,115,22,0.15)'}`,
+                borderRadius: 8, padding: '10px 14px',
+                display: 'flex', gap: 10, alignItems: 'flex-start',
+              }}>
+                <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>{isBlocker ? '❗' : '⚠️'}</span>
+                <span style={{ fontSize: 13, color: 'var(--text, #e2e8f0)', lineHeight: 1.55, opacity: 0.9 }}>{w}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Tips */}
+        <div style={{
+          margin: '0 24px 16px',
+          background: 'rgba(96,165,250,0.07)',
+          border: '1px solid rgba(96,165,250,0.15)',
+          borderRadius: 8, padding: '12px 14px',
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#60a5fa', marginBottom: 6 }}>Tips</div>
+          <div style={{ fontSize: 12.5, color: 'var(--text, #e2e8f0)', opacity: 0.85, lineHeight: 1.6 }}>
+            Artiklar med saknad ledtid eller efterfrågan analyseras ej fullt ut. För bästa resultat: komplettera data i din Excel och ladda upp igen. Du kan ändå fortsätta om du vill se en preliminär analys.
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div style={{
+          padding: '16px 24px 22px',
+          borderTop: '1px solid rgba(255,255,255,0.07)',
+          display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap',
+        }}>
+          <button onClick={onCancel} style={{
+            padding: '9px 18px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)',
+            background: 'transparent', color: 'var(--muted, #64748b)', cursor: 'pointer',
+            fontSize: 13, fontWeight: 600,
+          }}>
+            Avbryt — förbättra data
+          </button>
+          {!hasBlocker && (
+            <button onClick={onContinue} style={{
+              padding: '9px 20px', borderRadius: 8, border: 'none',
+              background: '#60a5fa', color: '#fff', cursor: 'pointer',
+              fontSize: 13, fontWeight: 700,
+            }}>
+              Fortsätt ändå →
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── UPLOAD PAGE (NY DESIGN) ──────────────────────────────────────────────
 function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
   const [dragging, setDragging] = useState(false);
@@ -489,6 +615,8 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
   const [showHistory, setShowHistory] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   const [tickerIndex, setTickerIndex] = useState(0);
+  const [sanityWarnings, setSanityWarnings] = useState(null);
+  const [pendingFile, setPendingFile] = useState(null);
 
   const tickers = [
     { value: '5', label: 'affärssystem stöds' },
@@ -504,9 +632,7 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
 
   const loadingMessages = ['Läser er fil…', 'Matchar kolumner…', 'Beräknar täcktid…', 'Analyserar ABC/XYZ…', 'Skapar rekommendationer…'];
 
-  const handleFile = async (file) => {
-    if (!file) return;
-    window._lastUploadedFile = file;
+  const runAnalysis = async (file) => {
     setLoading(true);
     setError(null);
     let msgIndex = 0;
@@ -516,19 +642,6 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
       setLoadingMsg(loadingMessages[msgIndex]);
     }, 1200);
     try {
-      setLoadingMsg('Kontrollerar filen…');
-      const valForm = new FormData();
-      valForm.append('file', file);
-      let valRes;
-      try {
-        valRes = await fetch(`${API_URL}/validate`, { method: 'POST', body: valForm });
-      } catch { throw new Error('Kunde inte nå servern. Kontrollera din internetanslutning och försök igen.'); }
-      if (valRes.ok) {
-        const val = await valRes.json();
-        if (!val.valid && val.errors?.length) throw new Error(val.errors.join('\n'));
-        if (val.warnings?.length) window._lastValidationWarnings = val.warnings;
-      }
-      setLoadingMsg(loadingMessages[0]);
       const formData = new FormData();
       formData.append('file', file);
       let res;
@@ -556,6 +669,48 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
       clearInterval(interval);
       setLoading(false);
     }
+  };
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    window._lastUploadedFile = file;
+    setError(null);
+
+    // Steg 1: validera filen och visa sanity-check om det finns warnings
+    try {
+      setLoading(true);
+      setLoadingMsg('Kontrollerar filen…');
+      const valForm = new FormData();
+      valForm.append('file', file);
+      let valRes;
+      try {
+        valRes = await fetch(`${API_URL}/validate`, { method: 'POST', body: valForm });
+      } catch { throw new Error('Kunde inte nå servern. Kontrollera din internetanslutning och försök igen.'); }
+
+      if (valRes.ok) {
+        const val = await valRes.json();
+        // Hårda fel — stoppa direkt
+        if (!val.valid && val.errors?.length) {
+          setLoading(false);
+          throw new Error(val.errors.join('\n'));
+        }
+        // Warnings — visa modal, låt kunden bestämma
+        if (val.warnings?.length) {
+          setLoading(false);
+          setPendingFile(file);
+          setSanityWarnings(val.warnings);
+          return; // Vänta på kunden
+        }
+      }
+      setLoading(false);
+    } catch(e) {
+      setLoading(false);
+      setError(e.message);
+      return;
+    }
+
+    // Inga warnings — kör direkt
+    await runAnalysis(file);
   };
 
   const onDrop = useCallback((e) => {
@@ -842,6 +997,21 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
       </div>
 
       {showGuide && <OnboardingGuide onClose={() => setShowGuide(false)} />}
+      {sanityWarnings && (
+        <DataSanityModal
+          warnings={sanityWarnings}
+          onContinue={async () => {
+            setSanityWarnings(null);
+            const file = pendingFile;
+            setPendingFile(null);
+            await runAnalysis(file);
+          }}
+          onCancel={() => {
+            setSanityWarnings(null);
+            setPendingFile(null);
+          }}
+        />
+      )}
     </>
   );
 }
@@ -851,6 +1021,38 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
   const { summary, top_actions, abc_distribution, articles, data_quality, validation } = data;
   const hasCost = summary.has_cost_data;
   const hasLoc = summary.has_location_data;
+
+  const [aiSummary, setAiSummary] = useState(null);
+  const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
+
+  useEffect(() => {
+    if (!summary || !articles?.length) return;
+    setAiSummary(null);
+    setAiSummaryLoading(true);
+    const critical = articles.filter(a => a.status === 'CRITICAL');
+    const watch = articles.filter(a => a.status === 'WATCH');
+    const aClass = articles.filter(a => a.abc === 'A' && (a.status === 'CRITICAL' || a.status === 'WATCH'));
+    fetch(`${API}/explain-article`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        article: '__overview__',
+        name: 'Lageröversikt — sammanfattning',
+        status: 'OVERVIEW',
+        stock: summary.total_articles,
+        demand_per_day: summary.critical,
+        coverage_days: summary.watch,
+        lead_time_days: aClass.length,
+        order_qty: summary.articles_to_order,
+        cost: summary.total_stock_value_sek || 0,
+        annual_value: summary.total_order_value_sek || 0,
+        abc: `${critical.length} kritiska, ${watch.length} bevakas, ${aClass.length} A-klass kräver åtgärd`,
+        xyz: null,
+        loc: hasLoc ? 'ja' : 'nej',
+        ordered_qty: 0, eta_date: null,
+        overview: true,
+      })
+    }).then(r => r.json()).then(d => setAiSummary(d.explanation || null)).catch(() => setAiSummary(null)).finally(() => setAiSummaryLoading(false));
+  }, [summary?.total_articles, summary?.critical]);
 
   const sparkCritical = React.useMemo(() => {
     if (!articles?.length) return null;
@@ -891,6 +1093,15 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
     <div className="tab-content">
       <ValidationBanner validation={validation} />
       <DataQualityBannerFull summary={summary} dataQuality={data_quality} />
+      {(aiSummaryLoading || aiSummary) && (
+        <div style={{ marginBottom: 18, padding: '14px 18px', background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 10, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+          <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>✦</span>
+          {aiSummaryLoading
+            ? <span style={{ fontSize: 13, color: '#64748b', display: 'flex', alignItems: 'center', gap: 8 }}><div style={{ width: 11, height: 11, border: '2px solid #334155', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} /><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>AI sammanfattar lagerstatus…</span>
+            : <span style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.65 }}>{aiSummary}</span>
+          }
+        </div>
+      )}
       <div className="kpi-grid">
         <KpiCard label="KRITISKA BRISTER" value={fmt(summary.critical)} sub={`${summary.watch} bevakas`} color={summary.critical > 0 ? "#ef4444" : "var(--text3)"}
           sparkPoints={sparkCritical}
@@ -975,8 +1186,8 @@ function ArticleDetailPanel({ article, onClose }) {
   const [loadingAI, setLoadingAI] = useState(false);
   const a = article;
 
-  useEffect(() => {
-    if (!a) return;
+  const fetchAI = () => {
+    if (!a || loadingAI) return;
     setExplanation(null);
     setLoadingAI(true);
     fetch(`${API}/explain-article`, {
@@ -989,7 +1200,7 @@ function ArticleDetailPanel({ article, onClose }) {
         ordered_qty: a.ordered_qty ?? 0, eta_date: a.eta_date || null, annual_value: a.annual_value ?? 0,
       })
     }).then(r => r.json()).then(d => setExplanation(d.explanation || null)).catch(() => setExplanation(null)).finally(() => setLoadingAI(false));
-  }, [a?.article]);
+  };
 
   if (!a) return null;
   const cov = a.coverage_days ?? 0;
@@ -1065,9 +1276,15 @@ function ArticleDetailPanel({ article, onClose }) {
         )}
         <div style={{ padding: '16px 20px', flex: 1 }}>
           <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>✦ AI-ANALYS</div>
+          {!explanation && !loadingAI && (
+            <button onClick={fetchAI} style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 8, padding: '9px 16px', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#818cf8', display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.15s' }}
+              onMouseEnter={e => e.currentTarget.style.background='rgba(99,102,241,0.18)'}
+              onMouseLeave={e => e.currentTarget.style.background='rgba(99,102,241,0.1)'}>
+              ✦ Analysera med AI
+            </button>
+          )}
           {loadingAI && <div style={{ color: '#64748b', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}><div style={{ width: 12, height: 12, border: '2px solid #334155', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />Analyserar artikel…<style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>}
           {!loadingAI && explanation && <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.7, borderLeft: '3px solid #6366f1', paddingLeft: 12 }}>{explanation}</div>}
-          {!loadingAI && !explanation && <div style={{ fontSize: 12, color: '#475569' }}>Ingen AI-analys tillgänglig.</div>}
         </div>
       </div>
     </div>
