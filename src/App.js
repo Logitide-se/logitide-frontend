@@ -97,7 +97,6 @@ function ActionRow({ a, hasCost, onSelect }) {
           <span className="action-reason">{a.reason}</span>
         </div>
         {hasCost && a.value_sek > 0 && <span className="action-value">{fmtKr(a.value_sek)}</span>}
-        <span style={{ fontSize: 11, color: 'var(--text3)', flexShrink: 0, paddingRight: 4 }}>→</span>
       </div>
     </div>
   );
@@ -1128,8 +1127,8 @@ function ArticleDetailPanel({ article, onClose }) {
   const [loadingAI, setLoadingAI] = useState(false);
   const a = article;
 
-  const fetchAI = () => {
-    if (!a || loadingAI) return;
+  useEffect(() => {
+    if (!a) return;
     setExplanation(null);
     setLoadingAI(true);
     fetch(`${API}/explain-article`, {
@@ -1142,7 +1141,7 @@ function ArticleDetailPanel({ article, onClose }) {
         ordered_qty: a.ordered_qty ?? 0, eta_date: a.eta_date || null, annual_value: a.annual_value ?? 0,
       })
     }).then(r => r.json()).then(d => setExplanation(d.explanation || null)).catch(() => setExplanation(null)).finally(() => setLoadingAI(false));
-  };
+  }, [a?.article]);
 
   if (!a) return null;
   const cov = a.coverage_days ?? 0;
@@ -1217,16 +1216,14 @@ function ArticleDetailPanel({ article, onClose }) {
           </div>
         )}
         <div style={{ padding: '16px 20px', flex: 1 }}>
-          <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>✦ AI-ANALYS</div>
-          {!explanation && !loadingAI && (
-            <button onClick={fetchAI} style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(167,139,250,0.3)', borderRadius: 8, padding: '9px 16px', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#c4b5fd', display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.15s' }}
-              onMouseEnter={e => e.currentTarget.style.background='rgba(167,139,250,0.18)'}
-              onMouseLeave={e => e.currentTarget.style.background='rgba(99,102,241,0.1)'}>
-              ✦ Analysera med AI
-            </button>
-          )}
-          {loadingAI && <div style={{ color: '#64748b', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}><div style={{ width: 12, height: 12, border: '2px solid #334155', borderTopColor: '#a78bfa', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />Analyserar artikel…<style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>}
+          <div style={{ fontSize: 10, color: '#a78bfa', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>✦</span> AI-ANALYS
+            {loadingAI && <div style={{ width: 10, height: 10, border: '2px solid #334155', borderTopColor: '#a78bfa', borderRadius: '50%', animation: 'spin 0.8s linear infinite', marginLeft: 4 }} />}
+            <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+          </div>
+          {loadingAI && <div style={{ color: '#475569', fontSize: 13, fontStyle: 'italic' }}>Analyserar…</div>}
           {!loadingAI && explanation && <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.7, borderLeft: '3px solid #a78bfa', paddingLeft: 12 }}>{explanation}</div>}
+          {!loadingAI && !explanation && <div style={{ color: '#475569', fontSize: 12 }}>Ingen AI-analys tillgänglig.</div>}
         </div>
       </div>
     </div>
