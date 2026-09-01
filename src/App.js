@@ -1150,18 +1150,23 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
             ABC-fördelning {!hasCost && <span className="section-note">(baserad på förbrukning)</span>}
             <InfoTooltip text="A = topp 80 % av årsvolymsvärdet. B = 80–95 %. C = 95–100 %." />
           </h3>
-          {['A', 'B', 'C'].map(cls => (
-            <div key={cls} className="abc-row">
-              <span className="abc-badge" style={{ background: abcColor(cls) }}>{cls}</span>
-              <span className="abc-count">{fmt(abc_distribution?.[cls]?.count)} art.</span>
-              <div className="abc-bar-wrap">
-                <div className="abc-bar" style={{ width: `${abc_distribution?.[cls]?.pct || 0}%`, background: abcColor(cls) }} />
+          {['A', 'B', 'C'].map(cls => {
+            const count = abc_distribution?.[cls]?.count ?? 0;
+            const countPct = summary.total_articles > 0 ? Math.round((count / summary.total_articles) * 100) : 0;
+            const barPct = hasCost ? (abc_distribution?.[cls]?.pct || 0) : countPct;
+            return (
+              <div key={cls} className="abc-row">
+                <span className="abc-badge" style={{ background: abcColor(cls) }}>{cls}</span>
+                <span className="abc-count">{fmt(count)} art.</span>
+                <div className="abc-bar-wrap">
+                  <div className="abc-bar" style={{ width: `${barPct}%`, background: abcColor(cls) }} />
+                </div>
+                {hasCost
+                  ? <span className="abc-val">{fmtKr(abc_distribution?.[cls]?.value_sek)}</span>
+                  : <span className="abc-val abc-dim">{countPct}% av artiklar</span>}
               </div>
-              {hasCost
-                ? <span className="abc-val">{fmtKr(abc_distribution?.[cls]?.value_sek)}</span>
-                : <span className="abc-val abc-dim">{abc_distribution?.[cls]?.pct}% av artiklar</span>}
-            </div>
-          ))}
+            );
+          })}
         </div>
         <div className="section">
           <h3>Snabbåtgärder</h3>
@@ -1538,11 +1543,6 @@ function SlottingTab({ data }) {
   if (hasLoc) {
     // ── Zonkarta-data ──
     const zones = ['A', 'B', 'C'];
-    const zoneConfig = {
-      A: { label: 'Zon A — Guldzon', sub: 'Nära plockytan', color: '#22c55e', dimColor: '#14532d', textColor: '#bbf7d0', icon: '⚡' },
-      B: { label: 'Zon B — Silverzon', sub: 'Mittenlagret', color: '#f59e0b', dimColor: '#451a03', textColor: '#fde68a', icon: '📦' },
-      C: { label: 'Zon C — Bronszon', sub: 'Bakre lagret', color: '#6b7280', dimColor: '#1c1917', textColor: '#d1d5db', icon: '🗄️' },
-    };
     const zoneStats = {};
     zones.forEach(z => {
       const inZone = articles?.filter(a => String(a.loc || '').toUpperCase().startsWith(z)) || [];
