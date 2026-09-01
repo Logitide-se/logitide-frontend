@@ -186,33 +186,6 @@ function ValidationBanner({ validation }) {
   );
 }
 
-function DataQualityBanner({ summary, dataQuality }) {
-  const [expanded, setExpanded] = useState(false);
-  const missing = [];
-  if (!summary.has_cost_data) missing.push({ field: 'Inköpspris (cost)', impact: 'Kapitalanalys och ordervärde kan inte beräknas' });
-  if (!summary.has_location_data) missing.push({ field: 'Lagerposition (loc)', impact: 'Slottingförslag kan inte genereras' });
-  if (!summary.has_lead_time_data) missing.push({ field: 'Ledtid (lead_time_days)', impact: 'Standardvärde 14 dagar används — justera för er verklighet' });
-  if (missing.length === 0) return null;
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: '10px',
-      padding: '9px 14px', borderRadius: '7px', marginBottom: '10px',
-      background: 'var(--bg2)', border: '1px solid var(--border)',
-      cursor: 'pointer', transition: 'border-color 0.15s',
-    }} onClick={() => setExpanded(!expanded)}>
-      <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#f59e0b', flexShrink: 0, display: 'inline-block' }} />
-      <span style={{ flex: 1, fontSize: '13px', color: 'var(--text2)' }}>
-        <strong style={{ color: 'var(--text)', fontWeight: 500 }}>{missing.length} datakvalitetsnoteringar</strong>
-        {' '}— analysen körs men precisionen förbättras när dessa kolumner läggs till.
-      </span>
-      <span style={{ fontSize: '11px', color: 'var(--text3)', flexShrink: 0 }}>{expanded ? 'Dölj ▲' : 'Visa detaljer ▼'}</span>
-      {expanded && (
-        <div style={{ position: 'absolute', marginTop: '8px' }} onClick={e => e.stopPropagation()} />
-      )}
-    </div>
-  );
-  // Expanded state renders below via wrapper
-}
 
 function DataQualityBannerFull({ summary, dataQuality }) {
   const [expanded, setExpanded] = useState(false);
@@ -1035,7 +1008,7 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
     if (critical.length === 0 && watch.length === 0) {
       parts.push(`Lagerstatus ser bra ut — inga kritiska brister just nu bland ${summary.total_articles} artiklar.`);
     } else {
-      const urgency = critical.length > 10 ? 'Akut läge:' : critical.length > 0 ? 'Åtgärd krävs:';
+      const urgency = critical.length > 10 ? 'Akut läge:' : critical.length > 0 ? 'Åtgärd krävs:' : 'Notering:';
       parts.push(`${urgency} ${critical.length} artiklar är kritiska och ${watch.length} bevakas.`);
     }
 
