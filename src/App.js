@@ -124,11 +124,11 @@ function ActionRow({ a, hasCost, articles }) {
         </div>
         {hasCost && a.value_sek > 0 && <span className="action-value">{fmtKr(a.value_sek)}</span>}
         <button onClick={fetchExplanation} title="AI-förklaring" style={{
-          background: open ? 'rgba(99,102,241,0.12)' : 'none',
-          border: `1px solid ${open ? 'rgba(99,102,241,0.35)' : 'var(--border)'}`,
+          background: open ? 'rgba(167,139,250,0.12)' : 'none',
+          border: `1px solid ${open ? 'rgba(167,139,250,0.35)' : 'var(--border)'}`,
           borderRadius: '6px', padding: '3px 10px', cursor: 'pointer',
           fontSize: '12px', fontWeight: 600,
-          color: open ? '#818cf8' : 'var(--text2)',
+          color: open ? '#c4b5fd' : 'var(--text2)',
           whiteSpace: 'nowrap', flexShrink: 0,
           transition: 'all 0.15s',
         }}>
@@ -280,7 +280,7 @@ function InfoTooltip({ text }) {
     top: tooltipPos.above ? 'auto' : tooltipPos.top,
     bottom: tooltipPos.above ? `calc(100vh - ${tooltipPos.top}px)` : 'auto',
     left: tooltipPos.left,
-    background: '#0f172a',
+    background: '#141720',
     border: '1px solid #475569',
     color: '#e2e8f0',
     borderRadius: 8, padding: '10px 14px', fontSize: 12, lineHeight: 1.7,
@@ -345,9 +345,8 @@ function KpiCard({ label, value, sub, color, missingReason, tooltip, sparkPoints
     );
   }
   return (
-    <div className="kpi-card" style={{ position: 'relative', overflow: 'hidden' }}>
-      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: color, borderRadius: '8px 0 0 8px' }} />
-      <div style={{ paddingLeft: 8 }}>
+    <div className="kpi-card" style={{ position: 'relative', overflow: 'hidden', borderTop: `2px solid ${color}` }}>
+      <div style={{ paddingLeft: 0 }}>
         <div className="kpi-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
           <span>{label}</span>
           {tooltip && <InfoTooltip text={tooltip} />}
@@ -380,12 +379,12 @@ function ConfidenceWidget({ summary, dataQuality }) {
   const color = score === 100 ? '#22c55e' : score >= 67 ? '#f59e0b' : '#ef4444';
   const label = score === 100 ? 'Analys helt tillförlitlig' : score >= 67 ? 'Analys med varningar' : 'Kontrollera datakvalitet';
   return (
-    <div style={{ marginTop: 10, padding: '10px 12px', background: '#0f172a', borderRadius: 8, border: `1px solid ${color}44` }}>
+    <div style={{ marginTop: 10, padding: '10px 12px', background: '#141720', borderRadius: 8, border: `1px solid ${color}44` }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
         <span style={{ color, fontSize: 8 }}>●</span>
         <span style={{ fontSize: 11, fontWeight: 700, color }}>{label}</span>
       </div>
-      <div style={{ height: 5, borderRadius: 3, background: '#1e293b', marginBottom: 8 }}>
+      <div style={{ height: 5, borderRadius: 3, background: '#1a1f2e', marginBottom: 8 }}>
         <div style={{ height: '100%', width: `${score}%`, background: color, borderRadius: 3, transition: 'width 0.5s' }} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 6px' }}>
@@ -439,7 +438,7 @@ function OnboardingGuide({ onClose }) {
       zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
     }}>
       <div onClick={e => e.stopPropagation()} style={{
-        background: '#0f172a', border: '1px solid #1e293b', borderRadius: 20,
+        background: '#141720', border: '1px solid #1a1f2e', borderRadius: 20,
         padding: '36px 40px', maxWidth: 640, width: '100%', maxHeight: '90vh',
         overflowY: 'auto', position: 'relative', boxShadow: '0 24px 80px rgba(0,0,0,0.6)'
       }}>
@@ -466,17 +465,17 @@ function OnboardingGuide({ onClose }) {
                       <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>{f.name}</span>
                       <span style={{ fontSize: 12, color: '#64748b', marginLeft: 8 }}>— {f.note}</span>
                     </div>
-                    <span style={{ fontSize: 11, color: '#94a3b8', background: '#1e293b', borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap', flexShrink: 0, fontFamily: 'monospace' }}>{f.ex}</span>
+                    <span style={{ fontSize: 11, color: '#94a3b8', background: '#1a1f2e', borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap', flexShrink: 0, fontFamily: 'monospace' }}>{f.ex}</span>
                   </div>
                 ))}
               </div>
             </div>
           ))}
         </div>
-        <div style={{ marginTop: 24, padding: '14px 18px', background: '#1e293b', borderRadius: 10, fontSize: 12, color: '#94a3b8', lineHeight: 1.7 }}>
+        <div style={{ marginTop: 24, padding: '14px 18px', background: '#1a1f2e', borderRadius: 10, fontSize: 12, color: '#94a3b8', lineHeight: 1.7 }}>
           💡 <strong style={{ color: '#cbd5e1' }}>Tips:</strong> De flesta affärssystem kan exportera dessa kolumner direkt till Excel. Kolumnnamnen behöver inte vara exakta — Logitide känner automatiskt igen svenska och engelska varianter.
         </div>
-        <button onClick={onClose} style={{ width: '100%', marginTop: 20, padding: '12px 0', borderRadius: 10, background: '#6366f1', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+        <button onClick={onClose} style={{ width: '100%', marginTop: 20, padding: '12px 0', borderRadius: 10, background: '#3b82f6', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
           Förstått — ladda upp fil →
         </button>
       </div>
@@ -516,7 +515,7 @@ function DataSanityModal({ warnings, onContinue, onCancel }) {
       zIndex: 9999, padding: 24,
     }}>
       <div style={{
-        background: 'var(--bg, #0a0f1e)', border: '1px solid rgba(255,255,255,0.1)',
+        background: 'var(--bg, #0c0e11)', border: '1px solid rgba(255,255,255,0.1)',
         borderRadius: 16, maxWidth: 520, width: '100%',
         boxShadow: '0 24px 64px rgba(0,0,0,0.6)',
         maxHeight: '90vh', overflow: 'auto',
@@ -729,7 +728,7 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
           min-height: 100vh;
           display: flex;
           flex-direction: column;
-          background: #0a0f1e;
+          background: #0c0e11;
           color: #f8faff;
           position: relative;
           overflow-x: hidden;
@@ -985,7 +984,7 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
             <div className="up-auth-footer">
               <span>Inloggad som {auth.email}{auth.company ? ` · ${auth.company}` : ''}</span>
               <div style={{ display: 'flex', gap: 12 }}>
-                <button onClick={() => setShowHistory(!showHistory)} style={{ background: 'none', border: 'none', color: '#6366f1', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                <button onClick={() => setShowHistory(!showHistory)} style={{ background: 'none', border: 'none', color: '#a78bfa', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
                   {showHistory ? 'Dölj historik' : 'Visa historik'}
                 </button>
                 <button onClick={onLogout} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 12 }}>Logga ut</button>
@@ -1100,8 +1099,10 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
       <ValidationBanner validation={validation} />
       <DataQualityBannerFull summary={summary} dataQuality={data_quality} />
       {aiSummary && (
-        <div style={{ marginBottom: 18, padding: '14px 18px', background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 10, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-          <span style={{ fontSize: 15, flexShrink: 0, marginTop: 1, color: '#818cf8' }}>✦</span>
+        <div style={{ marginBottom: 18, padding: '14px 18px', background: 'rgba(167,139,250,0.07)', border: '1px solid rgba(167,139,250,0.20)', borderRadius: 8 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#a78bfa', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6, textTransform: 'uppercase' }}>
+            <span>✦</span> AI-SAMMANFATTNING
+          </div>
           <span style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.65 }}>{aiSummary}</span>
         </div>
       )}
@@ -1217,12 +1218,12 @@ function ArticleDetailPanel({ article, onClose }) {
     <div style={{ position: 'fixed', inset: 0, zIndex: 1100, display: 'flex', alignItems: 'stretch' }} onClick={onClose}>
       <div style={{ flex: 1, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(2px)' }} />
       <div onClick={e => e.stopPropagation()} style={{
-        width: 400, maxWidth: '95vw', background: '#0c1420', borderLeft: '1px solid #1e293b',
+        width: 400, maxWidth: '95vw', background: '#141720', borderLeft: '1px solid #1a1f2e',
         display: 'flex', flexDirection: 'column', height: '100vh', overflowY: 'auto',
         boxShadow: '-16px 0 48px rgba(0,0,0,0.6)', animation: 'slideIn 0.18s ease-out',
       }}>
         <style>{`@keyframes slideIn { from { transform: translateX(40px); opacity:0; } to { transform: translateX(0); opacity:1; } }`}</style>
-        <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid #1e293b', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+        <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid #1a1f2e', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <span style={{ background: statusColor(a.status)+'22', color: statusColor(a.status), border: `1px solid ${statusColor(a.status)}44`, borderRadius: 5, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{statusLabel(a.status)}</span>
@@ -1233,9 +1234,9 @@ function ArticleDetailPanel({ article, onClose }) {
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 20, cursor: 'pointer', lineHeight: 1, padding: '0 4px', flexShrink: 0 }}>✕</button>
         </div>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #1a1f2e' }}>
           <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>TÄCKTID VS LEDTID</div>
-          <div style={{ position: 'relative', height: 10, background: '#1e293b', borderRadius: 5, marginBottom: 8 }}>
+          <div style={{ position: 'relative', height: 10, background: '#1a1f2e', borderRadius: 5, marginBottom: 8 }}>
             <div style={{ position: 'absolute', left: `${ltPct}%`, top: -4, bottom: -4, width: 2, background: '#f97316', borderRadius: 1, transform: 'translateX(-50%)', zIndex: 2 }} />
             <div style={{ width: `${covPct}%`, height: '100%', background: gaugeColor, borderRadius: 5, transition: 'width 0.5s', position: 'relative', zIndex: 1 }} />
           </div>
@@ -1245,7 +1246,7 @@ function ArticleDetailPanel({ article, onClose }) {
           </div>
           {cov < lt && <div style={{ marginTop: 8, padding: '6px 10px', background: '#ef444418', border: '1px solid #ef444430', borderRadius: 6, fontSize: 11, color: '#fca5a5' }}>⚠️ Täcktid understiger ledtid med {Math.round(lt - cov)} dagar</div>}
         </div>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #1a1f2e' }}>
           <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>NYCKELDATA</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px' }}>
             {[
@@ -1259,7 +1260,7 @@ function ArticleDetailPanel({ article, onClose }) {
               ...(a.loc && a.loc !== a.abc && a.loc.length > 1 ? [{ label: 'Lagerplats', val: a.loc }] : []),
               ...(a.recommended_zone && a.suggest_move ? [{ label: 'Rekomm. zon', val: `Zon ${a.recommended_zone}`, highlight: true }] : []),
             ].map((row, i) => (
-              <div key={i} style={{ background: row.highlight ? '#3b82f618' : '#1e293b', borderRadius: 6, padding: '8px 10px', border: row.highlight ? '1px solid #3b82f640' : 'none' }}>
+              <div key={i} style={{ background: row.highlight ? '#3b82f618' : '#1a1f2e', borderRadius: 6, padding: '8px 10px', border: row.highlight ? '1px solid #3b82f640' : 'none' }}>
                 <div style={{ fontSize: 10, color: '#64748b', marginBottom: 2 }}>{row.label}</div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: row.highlight ? '#60a5fa' : '#f1f5f9' }}>{row.val}</div>
               </div>
@@ -1267,7 +1268,7 @@ function ArticleDetailPanel({ article, onClose }) {
           </div>
         </div>
         {(a.status === 'CRITICAL' || a.status === 'WATCH' || a.status === 'OVERSTOCK' || a.status === 'DEAD_STOCK') && (
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b' }}>
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid #1a1f2e' }}>
             <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>REKOMMENDERAD ÅTGÄRD</div>
             <div style={{ padding: '10px 14px', background: statusColor(a.status)+'18', border: `1px solid ${statusColor(a.status)}30`, borderRadius: 8, fontSize: 13, color: '#f1f5f9', lineHeight: 1.6 }}>
               {a.status === 'CRITICAL' && `Beställ ${fmt(a.order_qty || Math.ceil((lt * 2 - cov) * (a.demand_per_day || 1)))} st omgående. Täcktiden är under ledtid — risk för lagerbrist.`}
@@ -1280,14 +1281,14 @@ function ArticleDetailPanel({ article, onClose }) {
         <div style={{ padding: '16px 20px', flex: 1 }}>
           <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>✦ AI-ANALYS</div>
           {!explanation && !loadingAI && (
-            <button onClick={fetchAI} style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 8, padding: '9px 16px', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#818cf8', display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.15s' }}
-              onMouseEnter={e => e.currentTarget.style.background='rgba(99,102,241,0.18)'}
+            <button onClick={fetchAI} style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(167,139,250,0.3)', borderRadius: 8, padding: '9px 16px', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#c4b5fd', display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.15s' }}
+              onMouseEnter={e => e.currentTarget.style.background='rgba(167,139,250,0.18)'}
               onMouseLeave={e => e.currentTarget.style.background='rgba(99,102,241,0.1)'}>
               ✦ Analysera med AI
             </button>
           )}
-          {loadingAI && <div style={{ color: '#64748b', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}><div style={{ width: 12, height: 12, border: '2px solid #334155', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />Analyserar artikel…<style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>}
-          {!loadingAI && explanation && <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.7, borderLeft: '3px solid #6366f1', paddingLeft: 12 }}>{explanation}</div>}
+          {loadingAI && <div style={{ color: '#64748b', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}><div style={{ width: 12, height: 12, border: '2px solid #334155', borderTopColor: '#a78bfa', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />Analyserar artikel…<style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>}
+          {!loadingAI && explanation && <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.7, borderLeft: '3px solid #a78bfa', paddingLeft: 12 }}>{explanation}</div>}
         </div>
       </div>
     </div>
@@ -1333,7 +1334,7 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
         <div className="filter-group">{statusFilters.map(f => <button key={f} className={`filter-btn ${filter === f ? 'active' : ''}`} onClick={() => { setFilter(f); setSelectedArticle(null); }}>{f}</button>)}</div>
         <div className="filter-group">{abcFilters.map(f => <button key={f} className={`filter-btn ${abcFilter === f ? 'active' : ''}`} onClick={() => { setAbcFilter(f); setSelectedArticle(null); }}>{f}</button>)}</div>
         {onResetLedtider && (
-          <button onClick={onResetLedtider} style={{ background: 'transparent', border: '1px solid #6366f144', color: '#6366f1', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 600, marginLeft: 'auto', whiteSpace: 'nowrap' }}>
+          <button onClick={onResetLedtider} style={{ background: 'transparent', border: '1px solid #a78bfa44', color: '#a78bfa', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 600, marginLeft: 'auto', whiteSpace: 'nowrap' }}>
             ↺ Återställ ledtider ({Object.keys(ledtidOverrides).length})
           </button>
         )}
@@ -1363,12 +1364,12 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
                           onChange={e => setEditVal(e.target.value)}
                           onBlur={() => commitLedtid(a.article)}
                           onKeyDown={e => { if (e.key === 'Enter') commitLedtid(a.article); if (e.key === 'Escape') setEditingLedtid(null); }}
-                          style={{ width: 54, background: '#1e293b', border: '1px solid #6366f1', borderRadius: 4, color: '#f1f5f9', fontSize: 12, padding: '2px 6px', textAlign: 'center' }} />
+                          style={{ width: 54, background: '#1a1f2e', border: '1px solid #a78bfa', borderRadius: 4, color: '#f1f5f9', fontSize: 12, padding: '2px 6px', textAlign: 'center' }} />
                       ) : (
                         <span onClick={() => handleLedtidClick(a)} title="Klicka för att redigera ledtid"
-                          style={{ cursor: 'pointer', color: ledtidOverrides[a.article] ? '#6366f1' : '#64748b', fontSize: 12, borderBottom: '1px dashed #334155', paddingBottom: 1, fontWeight: ledtidOverrides[a.article] ? 700 : 400 }}>
+                          style={{ cursor: 'pointer', color: ledtidOverrides[a.article] ? '#a78bfa' : '#64748b', fontSize: 12, borderBottom: '1px dashed #334155', paddingBottom: 1, fontWeight: ledtidOverrides[a.article] ? 700 : 400 }}>
                           {Math.round(a.lead_time_days ?? 14)}d
-                          {ledtidOverrides[a.article] && <span style={{ fontSize: 9, marginLeft: 3, color: '#6366f1' }}>✎</span>}
+                          {ledtidOverrides[a.article] && <span style={{ fontSize: 9, marginLeft: 3, color: '#a78bfa' }}>✎</span>}
                         </span>
                       )}
                     </td>
@@ -1834,7 +1835,7 @@ function SlottingTab({ data }) {
         </div>
 
         <div style={{
-          background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12,
+          background: '#141720', border: '1px solid #1a1f2e', borderRadius: 12,
           padding: '20px 24px', width: '100%', textAlign: 'left'
         }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', letterSpacing: '0.1em', marginBottom: 14 }}>
@@ -1850,7 +1851,7 @@ function SlottingTab({ data }) {
                 <div>
                   <div style={{ fontSize: 13, color: '#f1f5f9', fontWeight: 600 }}>{r.field}</div>
                   <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                    T.ex.: <code style={{ background: '#1e293b', padding: '1px 5px', borderRadius: 3 }}>{r.example}</code>
+                    T.ex.: <code style={{ background: '#1a1f2e', padding: '1px 5px', borderRadius: 3 }}>{r.example}</code>
                   </div>
                   <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>{r.why}</div>
                 </div>
@@ -1860,7 +1861,7 @@ function SlottingTab({ data }) {
         </div>
 
         <div style={{
-          background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12,
+          background: '#141720', border: '1px solid #1a1f2e', borderRadius: 12,
           padding: '20px 24px', width: '100%', textAlign: 'left'
         }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', letterSpacing: '0.1em', marginBottom: 14 }}>
@@ -2424,7 +2425,7 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
             <div style={{ fontSize: 10, color: '#64748b', marginTop: 2, lineHeight: 1.4, wordBreak: 'break-word', overflowWrap: 'break-word' }}>
               A-artiklar med täckning ≥ ledtid. Mål: ≥95%.
             </div>
-            <div style={{ fontSize: 10, color: '#475569', marginTop: 6, borderTop: '1px solid #1e293b', paddingTop: 5 }}>
+            <div style={{ fontSize: 10, color: '#475569', marginTop: 6, borderTop: '1px solid #1a1f2e', paddingTop: 5 }}>
               <span style={{ color: '#64748b' }}>Alla artiklar: </span>
               <span style={{
                 fontWeight: 600,
@@ -2447,7 +2448,7 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
             </div>
           )}
           {summary && (
-            <button className="pdf-btn" onClick={() => openPDFReport()} title="Generera månadsrapport som PDF" style={{ marginTop: 8, width: '100%', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 0', cursor: 'pointer', fontWeight: 600, fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <button className="pdf-btn" onClick={() => openPDFReport()} title="Generera månadsrapport som PDF" style={{ marginTop: 8, width: '100%', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 0', cursor: 'pointer', fontWeight: 600, fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <Icon name="download" size={13} /> Månadsrapport PDF
             </button>
           )}
@@ -2535,7 +2536,7 @@ function LoginPage({ onLogin }) {
             value={email}
             onChange={e => setEmail(e.target.value)}
             required
-            style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #334155', background: '#1e293b', color: '#f1f5f9', fontSize: 14 }}
+            style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #334155', background: '#1a1f2e', color: '#f1f5f9', fontSize: 14 }}
           />
           <input
             type="password"
@@ -2543,13 +2544,13 @@ function LoginPage({ onLogin }) {
             value={password}
             onChange={e => setPassword(e.target.value)}
             required
-            style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #334155', background: '#1e293b', color: '#f1f5f9', fontSize: 14 }}
+            style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #334155', background: '#1a1f2e', color: '#f1f5f9', fontSize: 14 }}
           />
           {error && <div style={{ color: '#ef4444', fontSize: 13 }}>⚠️ {error}</div>}
           <button
             type="submit"
             disabled={loading}
-            style={{ padding: '11px 0', borderRadius: 8, background: '#6366f1', color: '#fff', border: 'none', fontWeight: 700, fontSize: 15, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}
+            style={{ padding: '11px 0', borderRadius: 8, background: '#a78bfa', color: '#fff', border: 'none', fontWeight: 700, fontSize: 15, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}
           >
             {loading ? 'Loggar in…' : 'Logga in'}
           </button>
@@ -2560,7 +2561,7 @@ function LoginPage({ onLogin }) {
 }
 
 // ─── SPARKLINE (legacy — used in KapitalTab) ──────────────────────────────
-function SparklineLegacy({ values, color = '#6366f1', width = 120, height = 36, inverted = false }) {
+function SparklineLegacy({ values, color = '#a78bfa', width = 120, height = 36, inverted = false }) {
   if (!values || values.length < 2) return null;
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -2587,7 +2588,7 @@ function ImprovementCards({ cards, totalSaved }) {
     <div style={{ marginBottom: 24 }}>
       <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>VÄRDE SKAPAT SEDAN FÖREGÅENDE ANALYS</div>
       {totalSaved > 0 && (
-        <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #1e293b 100%)', border: '1px solid #3b82f6', borderRadius: 12, padding: '14px 20px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #1a1f2e 100%)', border: '1px solid #3b82f6', borderRadius: 12, padding: '14px 20px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
           <span style={{ fontSize: 28 }}>💰</span>
           <div>
             <div style={{ fontSize: 11, color: '#93c5fd', fontWeight: 600 }}>TOTALT FRIGJORT KAPITAL</div>
@@ -2598,7 +2599,7 @@ function ImprovementCards({ cards, totalSaved }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
         {cards.map((c, i) => (
           <div key={i} style={{
-            background: '#1e293b', borderRadius: 10, padding: '12px 14px',
+            background: '#1a1f2e', borderRadius: 10, padding: '12px 14px',
             borderLeft: `3px solid ${c.improved ? '#22c55e' : '#ef4444'}`
           }}>
             <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, marginBottom: 4 }}>{c.label}</div>
@@ -2683,7 +2684,7 @@ function TrendChart({ history, fmtKr }) {
   const trendLabel = delta === 0 ? 'Oförändrat' : `${trendIcon} ${Math.abs(Math.round(delta * 10) / 10)} ${chart.unit} sedan start`;
 
   return (
-    <div style={{ background: '#111827', borderRadius: 14, padding: '20px 20px 16px', marginBottom: 20, border: '1px solid #1e293b' }}>
+    <div style={{ background: '#111827', borderRadius: 14, padding: '20px 20px 16px', marginBottom: 20, border: '1px solid #1a1f2e' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div>
@@ -2716,7 +2717,7 @@ function TrendChart({ history, fmtKr }) {
         {/* Grid lines */}
         {yTicks.map((t, i) => (
           <line key={i} x1={padL} y1={t.y} x2={W - padR} y2={t.y}
-            stroke="#1e293b" strokeWidth="1" strokeDasharray="4 4" />
+            stroke="#1a1f2e" strokeWidth="1" strokeDasharray="4 4" />
         ))}
         {/* Y axis labels */}
         {yTicks.map((t, i) => (
@@ -2733,7 +2734,7 @@ function TrendChart({ history, fmtKr }) {
         {/* Data points */}
         {values.map((v, i) => (
           <circle key={i} cx={xOf(i)} cy={yOf(v)} r="4"
-            fill="#0a0f1e" stroke={chart.color} strokeWidth="2" />
+            fill="#0c0e11" stroke={chart.color} strokeWidth="2" />
         ))}
         {/* X axis labels */}
         {labels.map((l, i) => {
@@ -2784,7 +2785,7 @@ function HistoryDetailModal({ analysisId, token, onClose }) {
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24
     }} onClick={onClose}>
       <div style={{
-        background: '#0f172a', border: '1px solid #1e293b', borderRadius: 16,
+        background: '#141720', border: '1px solid #1a1f2e', borderRadius: 16,
         width: '100%', maxWidth: 780, maxHeight: '85vh', overflow: 'auto', padding: 28
       }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -2809,7 +2810,7 @@ function HistoryDetailModal({ analysisId, token, onClose }) {
                   { label: 'Överlager', value: s.overstock ?? '—', color: '#a855f7' },
                   { label: 'Bundet kapital', value: fmtKr(s.total_stock_value_sek) || '—', color: '#a78bfa' },
                 ].map((kpi, i) => (
-                  <div key={i} style={{ background: '#1e293b', borderRadius: 8, padding: '10px 12px' }}>
+                  <div key={i} style={{ background: '#1a1f2e', borderRadius: 8, padding: '10px 12px' }}>
                     <div style={{ fontSize: 10, color: '#64748b', marginBottom: 4 }}>{kpi.label}</div>
                     <div style={{ fontSize: 18, fontWeight: 700, color: kpi.color }}>{kpi.value}</div>
                   </div>
@@ -2820,7 +2821,7 @@ function HistoryDetailModal({ analysisId, token, onClose }) {
                   <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>PRIORITERADE ÅTGÄRDER</div>
                   <div style={{ marginBottom: 20 }}>
                     {topActions.slice(0, 5).map((a, i) => (
-                      <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #1e293b' }}>
+                      <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #1a1f2e' }}>
                         <span style={{ fontSize: 16 }}>{a.action === 'ORDER' ? '🛒' : a.action === 'MOVE' ? '📦' : a.action === 'REVIEW_DEAD' ? '🗑️' : '⚠️'}</span>
                         <div>
                           <div style={{ color: '#f1f5f9', fontSize: 13 }}>{a.article} — {a.name}</div>
@@ -2837,7 +2838,7 @@ function HistoryDetailModal({ analysisId, token, onClose }) {
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
-                        <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #1e293b' }}>
+                        <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #1a1f2e' }}>
                           <th style={{ padding: '6px 10px' }}>ART.NR</th>
                           <th style={{ padding: '6px 10px' }}>NAMN</th>
                           <th style={{ padding: '6px 10px' }}>ABC</th>
@@ -2848,7 +2849,7 @@ function HistoryDetailModal({ analysisId, token, onClose }) {
                       </thead>
                       <tbody>
                         {articles.slice(0, 30).map((a, i) => (
-                          <tr key={i} style={{ borderBottom: '1px solid #0f172a' }}>
+                          <tr key={i} style={{ borderBottom: '1px solid #141720' }}>
                             <td style={{ padding: '6px 10px', color: '#94a3b8' }}>{a.article}</td>
                             <td style={{ padding: '6px 10px', color: '#f1f5f9', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</td>
                             <td style={{ padding: '6px 10px', fontWeight: 700, color: abcColor(a.abc) }}>{a.abc}</td>
@@ -2892,7 +2893,7 @@ function ComparePanel({ idA, idB, token, labelA, labelB, onClose }) {
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24
     }} onClick={onClose}>
       <div style={{
-        background: '#0f172a', border: '1px solid #1e293b', borderRadius: 16,
+        background: '#141720', border: '1px solid #1a1f2e', borderRadius: 16,
         width: '100%', maxWidth: 700, maxHeight: '85vh', overflow: 'auto', padding: 28
       }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -3040,7 +3041,7 @@ function HistoryTab({ token }) {
             improved: prev ? (latest.summary?.total_stock_value_sek ?? 0) <= (prev.summary?.total_stock_value_sek ?? 0) : null,
           },
         ].map((card, i) => (
-          <div key={i} style={{ background: '#1e293b', borderRadius: 12, padding: '14px 16px' }}>
+          <div key={i} style={{ background: '#1a1f2e', borderRadius: 12, padding: '14px 16px' }}>
             <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: 0.5, marginBottom: 4 }}>{card.label}</div>
             <div style={{ fontSize: 26, fontWeight: 800, color: card.color, marginBottom: 2 }}>{card.value}</div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -3095,7 +3096,7 @@ function HistoryTab({ token }) {
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
-            <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #1e293b' }}>
+            <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #1a1f2e' }}>
               <th style={{ padding: '8px 12px' }}>DATUM</th>
               <th style={{ padding: '8px 12px' }}>FIL</th>
               <th style={{ padding: '8px 12px' }}>ARTIKLAR</th>
@@ -3112,18 +3113,18 @@ function HistoryTab({ token }) {
                 <tr
                   key={h.id}
                   style={{
-                    borderBottom: '1px solid #0f172a',
-                    background: isSelected ? '#1e3a5f' : i === 0 ? '#1e293b' : 'transparent',
+                    borderBottom: '1px solid #141720',
+                    background: isSelected ? '#1e3a5f' : i === 0 ? '#1a1f2e' : 'transparent',
                     cursor: 'pointer',
                     transition: 'background 0.15s',
                   }}
                   onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = '#162032'; }}
-                  onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = i === 0 ? '#1e293b' : 'transparent'; }}
+                  onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = i === 0 ? '#1a1f2e' : 'transparent'; }}
                   onClick={() => setSelectedId(h.id)}
                 >
                   <td style={{ padding: '10px 12px', color: '#94a3b8' }}>
                     {fmtDate(h.created_at)}
-                    {i === 0 && <span style={{ marginLeft: 6, fontSize: 10, background: '#6366f1', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>SENASTE</span>}
+                    {i === 0 && <span style={{ marginLeft: 6, fontSize: 10, background: '#a78bfa', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>SENASTE</span>}
                   </td>
                   <td style={{ padding: '10px 12px', color: '#f1f5f9', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.filename || '—'}</td>
                   <td style={{ padding: '10px 12px', color: '#f1f5f9' }}>{fmt(h.summary?.total_articles)}</td>
@@ -3132,7 +3133,7 @@ function HistoryTab({ token }) {
                   <td style={{ padding: '10px 12px', color: '#a78bfa' }}>{fmtKr(h.summary?.total_stock_value_sek) || '—'}</td>
                   <td style={{ padding: '10px 12px' }} onClick={e => { e.stopPropagation(); handleCompare(h); }}>
                     <button style={{
-                      background: isSelected ? '#3b82f6' : '#1e293b',
+                      background: isSelected ? '#3b82f6' : '#1a1f2e',
                       border: `1px solid ${isSelected ? '#3b82f6' : '#334155'}`,
                       color: isSelected ? '#fff' : '#94a3b8',
                       borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 600
