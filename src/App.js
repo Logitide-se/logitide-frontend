@@ -23,7 +23,6 @@ function ThemeToggle({ theme, onToggle }) {
     </button>
   );
 }
-
 // ─── ICONS ────────────────────────────────────────────────────────────────
 const Icon = ({ name, size = 20 }) => {
   const icons = {
@@ -42,28 +41,33 @@ const Icon = ({ name, size = 20 }) => {
   };
   return icons[name] || null;
 };
-
 // ─── HELPERS ──────────────────────────────────────────────────────────────
 const fmt = (n) => n?.toLocaleString('sv-SE') ?? '—';
 const fmtKr = (n, hasCostData = true) => {
-  if (!hasCostData) return null;
+  if (!hasCostData) return null; // caller handles missing-data display
   if (n == null || n === undefined) return '—';
   if (n === 0) return '0 kr';
-  if (Math.abs(n) < 1000) return `${Math.round(n).toLocaleString('sv-SE')} kr`;
-  if (Math.abs(n) < 1_000_000) return `${(n / 1000).toFixed(1).replace('.', ',').toLocaleString('sv-SE')} tkr`;
-  return `${Math.round(n / 1000).toLocaleString('sv-SE')} tkr`;
+  return `${Math.round(n).toLocaleString('sv-SE')} kr`;
 };
 const fmtDays = (n) => n === 999 ? '∞' : `${parseFloat(n).toFixed(1)} d`;
-const statusColor = (s) => ({ CRITICAL: '#ef4444', WATCH: '#f97316', OK: '#22c55e', OVERSTOCK: '#a855f7', DEAD_STOCK: '#6b7280' }[s] || '#6b7280');
-const statusLabel = (s) => ({ CRITICAL: 'KRITISK', WATCH: 'BEVAKA', OK: 'OK', OVERSTOCK: 'ÖVERLAGER', DEAD_STOCK: 'DÖTT LAGER' }[s] || s);
+const statusColor = (s) => ({
+  CRITICAL: '#ef4444', WATCH: '#f97316', OK: '#22c55e',
+  OVERSTOCK: '#a855f7', DEAD_STOCK: '#6b7280'
+}[s] || '#6b7280');
+const statusLabel = (s) => ({
+  CRITICAL: 'KRITISK', WATCH: 'BEVAKA', OK: 'OK',
+  OVERSTOCK: 'ÖVERLAGER', DEAD_STOCK: 'DÖTT LAGER'
+}[s] || s);
 const abcColor = (abc) => ({ A: '#22c55e', B: '#f59e0b', C: '#6b7280' }[abc] || '#6b7280');
 
+// ─── LOKAL OMRÄKNING NÄR LEDTID ÄNDRAS ───────────────────────────────────
 function recalcArticle(a, newLeadTime) {
   const lt = newLeadTime;
   const cov = a.coverage_days ?? 0;
   const demand = a.demand_per_day ?? 0;
   const hasDemand = demand > 0;
   const abcFactor = { A: 2.0, B: 1.5, C: 1.2 }[a.abc] ?? 1.5;
+
   let status = a.status;
   if (hasDemand) {
     if (cov < lt) status = 'CRITICAL';
@@ -73,22 +77,62 @@ function recalcArticle(a, newLeadTime) {
   } else {
     status = (a.stock ?? 0) > 0 ? 'DEAD_STOCK' : 'OK';
   }
+
+  // Omräkna rekommenderad orderkvantitet
   let order_qty = 0;
   if (status === 'CRITICAL' || status === 'WATCH') {
-    const targetDays = lt * 2;
+    const targetDays = lt * 2; // fyll upp till 2× ledtid
     const needed = Math.max(0, (targetDays - cov) * demand);
     const minOrd = a.min_order ?? 1;
     order_qty = Math.ceil(needed / minOrd) * minOrd;
   }
+
   return { ...a, lead_time_days: lt, status, order_qty };
 }
 
+// ─── DATA QUALITY BANNER ──────────────────────────────────────────────────
 const API = "https://web-production-2ab93.up.railway.app";
 
-function ActionRow({ a, hasCost, onSelect }) {
+function ActionRow({ a, hasCost, articles }) {
+  const [explanation, setExplanation] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  const fetchExplanation = async () => {
+    if (explanation) { setOpen(!open); return; }
+    setLoading(true);
+    try {
+      // Hitta full artikeldata för att skicka alla fakta till AI
+      const art = articles?.find(r => r.article === a.article) || {};
+      const res = await fetch(`${API}/explain-article`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          article: a.article,
+          name: a.name || art.name || '',
+          abc: a.abc || art.abc || '',
+          xyz: art.xyz || null,
+          status: a.status || art.status || '',
+          stock: art.stock ?? 0,
+          demand_per_day: art.demand_per_day ?? 0,
+          coverage_days: art.coverage_days ?? 0,
+          lead_time_days: art.lead_time_days ?? 14,
+          order_qty: a.qty || 0,
+          cost: art.cost ?? 0,
+          loc: art.loc || '',
+          ordered_qty: art.ordered_qty ?? 0,
+          eta_date: art.eta_date || null,
+          annual_value: art.annual_value ?? 0,
+        })
+      });
+      const data = await res.json();
+      if (data.explanation) { setExplanation(data.explanation); setOpen(true); }
+    } catch(e) { /* tyst fel */ }
+    setLoading(false);
+  };
+
   return (
-    <div className="action-row" onClick={() => onSelect && onSelect(a.article)}
-      style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0, cursor: 'pointer' }}>
+    <div className="action-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span className="action-icon">{a.icon}</span>
         <div className="action-body" style={{ flex: 1 }}>
@@ -96,8 +140,25 @@ function ActionRow({ a, hasCost, onSelect }) {
           <span className="action-text">{a.action}</span>
           <span className="action-reason">{a.reason}</span>
         </div>
-        {hasCost && a.value_sek > 0 && <span className="action-value">{fmtKr(a.value_sek)}</span>}
+        {hasCost && a.value_sek > 0 && <span className="action-value">{Math.round(a.value_sek).toLocaleString('sv-SE')+' kr'}</span>}
+        <button onClick={fetchExplanation} title="AI-förklaring" style={{
+          background: 'none', border: '1px solid var(--color-border)', borderRadius: '6px',
+          padding: '3px 8px', cursor: 'pointer', fontSize: '12px', color: 'var(--color-muted)',
+          whiteSpace: 'nowrap', flexShrink: 0
+        }}>
+          {loading ? '...' : open ? '▲ Dölj' : '✦ Förklara'}
+        </button>
       </div>
+      {open && explanation && (
+        <div style={{
+          marginTop: '8px', marginLeft: '28px', padding: '10px 14px',
+          background: 'var(--color-bg)', border: '1px solid var(--color-border)',
+          borderRadius: '6px', fontSize: '13px', color: 'var(--color-text)',
+          lineHeight: '1.6', borderLeft: '3px solid #2196F3'
+        }}>
+          {explanation}
+        </div>
+      )}
     </div>
   );
 }
@@ -106,41 +167,38 @@ function ValidationBanner({ validation }) {
   if (!validation || !validation.summary) return null;
   const hasWarnings = validation.warnings && validation.warnings.length > 0;
   const [expanded, setExpanded] = useState(false);
-  if (!hasWarnings) return null; // only show if there's something to act on
   return (
-    <div style={{ marginBottom: '12px' }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: '10px',
-        padding: '9px 14px', borderRadius: expanded ? '7px 7px 0 0' : '7px',
-        background: 'var(--bg2)', border: '1px solid var(--border)',
-        borderBottom: expanded ? 'none' : '1px solid var(--border)',
-        cursor: 'pointer',
-      }} onClick={() => setExpanded(!expanded)}>
-        <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#3b82f6', flexShrink: 0, display: 'inline-block' }} />
-        <span style={{ flex: 1, fontSize: '13px', color: 'var(--text2)' }}>
-          <strong style={{ color: 'var(--text)', fontWeight: 500 }}>{validation.warnings.length} valideringsnotering{validation.warnings.length > 1 ? 'ar' : ''}</strong>
-          {' '}— {validation.summary}
-        </span>
-        <span style={{ fontSize: '11px', color: 'var(--text3)', flexShrink: 0 }}>{expanded ? 'Dölj ▲' : 'Visa ▼'}</span>
+    <div style={{
+      background: 'var(--color-surface)',
+      border: '1px solid var(--color-border)',
+      borderLeft: '4px solid #2196F3',
+      borderRadius: '8px',
+      padding: '12px 16px',
+      marginBottom: '12px',
+      fontSize: '14px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <span style={{ fontSize: '16px' }}>✅</span>
+        <span style={{ color: 'var(--color-text)', flex: 1 }}>{validation.summary}</span>
+        {hasWarnings && (
+          <button onClick={() => setExpanded(!expanded)} style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: 'var(--color-muted)', fontSize: '12px', padding: '2px 6px'
+          }}>
+            {validation.warnings.length} varning{validation.warnings.length > 1 ? 'ar' : ''} {expanded ? '▲' : '▼'}
+          </button>
+        )}
       </div>
-      {expanded && (
-        <div style={{
-          background: 'var(--bg2)', border: '1px solid var(--border)', borderTop: 'none',
-          borderRadius: '0 0 7px 7px', padding: '10px 14px',
-        }}>
-          {validation.warnings.map((w, i) => (
-            <div key={i} style={{ fontSize: '12px', color: 'var(--text2)', padding: '4px 0', borderBottom: i < validation.warnings.length - 1 ? '1px solid var(--border)' : 'none' }}>
-              {w}
-            </div>
-          ))}
-        </div>
+      {expanded && hasWarnings && (
+        <ul style={{ marginTop: '8px', paddingLeft: '24px', color: 'var(--color-muted)', fontSize: '13px' }}>
+          {validation.warnings.map((w, i) => <li key={i} style={{ marginBottom: '4px' }}>⚠️ {w}</li>)}
+        </ul>
       )}
     </div>
   );
 }
 
-
-function DataQualityBannerFull({ summary, dataQuality }) {
+function DataQualityBanner({ summary, dataQuality }) {
   const [expanded, setExpanded] = useState(false);
   const missing = [];
   if (!summary.has_cost_data) missing.push({ field: 'Inköpspris (cost)', impact: 'Kapitalanalys och ordervärde kan inte beräknas' });
@@ -148,72 +206,74 @@ function DataQualityBannerFull({ summary, dataQuality }) {
   if (!summary.has_lead_time_data) missing.push({ field: 'Ledtid (lead_time_days)', impact: 'Standardvärde 14 dagar används — justera för er verklighet' });
   if (missing.length === 0) return null;
   return (
-    <div style={{ marginBottom: '12px' }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: '10px',
-        padding: '9px 14px', borderRadius: expanded ? '7px 7px 0 0' : '7px',
-        background: 'var(--bg2)', border: '1px solid var(--border)',
-        borderBottom: expanded ? 'none' : '1px solid var(--border)',
-        cursor: 'pointer',
-      }} onClick={() => setExpanded(!expanded)}>
-        <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#f59e0b', flexShrink: 0, display: 'inline-block' }} />
-        <span style={{ flex: 1, fontSize: '13px', color: 'var(--text2)' }}>
-          <strong style={{ color: 'var(--text)', fontWeight: 500 }}>{missing.length} datakvalitetsnoteringar</strong>
-          {' '}— analysen körs men precisionen förbättras när dessa kolumner läggs till.
+    <div className="data-quality-banner">
+      <div className="dq-header" onClick={() => setExpanded(!expanded)}>
+        <span className="dq-icon"><Icon name="info" size={16} /></span>
+        <span className="dq-title">
+          {missing.length} kolumn{missing.length > 1 ? 'er' : ''} saknas i filen — analysen är delvis begränsad
         </span>
-        <span style={{ fontSize: '11px', color: 'var(--text3)', flexShrink: 0 }}>{expanded ? 'Dölj ▲' : 'Visa detaljer ▼'}</span>
+        <span className="dq-toggle">{expanded ? '▲' : '▼'}</span>
       </div>
       {expanded && (
-        <div style={{
-          background: 'var(--bg2)', border: '1px solid var(--border)', borderTop: 'none',
-          borderRadius: '0 0 7px 7px', padding: '12px 14px',
-        }}>
+        <div className="dq-body">
           {missing.map((m, i) => (
-            <div key={i} style={{ display: 'flex', gap: '12px', padding: '6px 0', borderBottom: i < missing.length - 1 ? '1px solid var(--border)' : 'none' }}>
-              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', minWidth: 180 }}>{m.field}</span>
-              <span style={{ fontSize: '12px', color: 'var(--text2)' }}>{m.impact}</span>
+            <div key={i} className="dq-row">
+              <span className="dq-field">{m.field}</span>
+              <span className="dq-impact">{m.impact}</span>
             </div>
           ))}
-          <p style={{ marginTop: '10px', fontSize: '12px', color: 'var(--text3)', fontStyle: 'italic' }}>Lägg till dessa kolumner i er exportfil från WMS/ERP för en komplett analys.</p>
+          <p className="dq-tip">Lägg till dessa kolumner i er exportfil från WMS/ERP för en komplett analys.</p>
         </div>
       )}
     </div>
   );
 }
 
+// ─── INFO TOOLTIP ─────────────────────────────────────────────────────────
 function InfoTooltip({ text }) {
   const [visible, setVisible] = useState(false);
   const ref = React.useRef(null);
-  const [tooltipPos, setTooltipPos] = React.useState({ top: 0, left: 0 });
+  const [pos, setPos] = React.useState({ vertical: 'above', align: 'center' });
   const hideTimer = React.useRef(null);
 
   const handleEnter = () => {
     clearTimeout(hideTimer.current);
     if (ref.current) {
       const rect = ref.current.getBoundingClientRect();
-      const above = rect.top > 220;
-      const top = above ? rect.top - 8 : rect.bottom + 8;
-      let left = rect.left + rect.width / 2 - 140;
-      if (left < 8) left = 8;
-      if (left + 280 > window.innerWidth - 8) left = window.innerWidth - 288;
-      setTooltipPos({ top, left, above });
+      const spaceAbove = rect.top;
+      const spaceRight = window.innerWidth - rect.right;
+      const spaceLeft = rect.left;
+      const vertical = spaceAbove < 220 ? 'below' : 'above';
+      const align = spaceRight < 140 ? 'right' : spaceLeft < 140 ? 'left' : 'center';
+      setPos({ vertical, align });
     }
     setVisible(true);
   };
-  const handleLeave = () => { hideTimer.current = setTimeout(() => setVisible(false), 120); };
+
+  const handleLeave = () => {
+    hideTimer.current = setTimeout(() => setVisible(false), 120);
+  };
+
+  const { vertical, align } = pos;
   const popupStyle = {
-    position: 'fixed',
-    top: tooltipPos.above ? 'auto' : tooltipPos.top,
-    bottom: tooltipPos.above ? `calc(100vh - ${tooltipPos.top}px)` : 'auto',
-    left: tooltipPos.left,
-    background: '#141720',
-    border: '1px solid #475569',
-    color: '#e2e8f0',
-    borderRadius: 8, padding: '10px 14px', fontSize: 12, lineHeight: 1.7,
-    width: 280, zIndex: 99999, boxShadow: '0 8px 32px rgba(0,0,0,0.8)',
+    position: 'absolute',
+    ...(vertical === 'above' ? { bottom: '130%' } : { top: '130%' }),
+    background: '#0f172a', border: '1px solid #334155', color: '#cbd5e1',
+    borderRadius: 8, padding: '10px 14px', fontSize: 11, lineHeight: 1.6,
+    width: 260, zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
     whiteSpace: 'pre-line', textAlign: 'left', fontWeight: 400,
     pointerEvents: 'auto', cursor: 'text', userSelect: 'text',
+    ...(align === 'center' ? { left: '50%', transform: 'translateX(-50%)' } :
+        align === 'right'  ? { right: 0, transform: 'none' } :
+                             { left: 0, transform: 'none' }),
   };
+
+  // Pil: pekar mot ikonen
+  const arrowLeft = align === 'center' ? '50%' : align === 'right' ? 'auto' : '10px';
+  const arrowRight = align === 'right' ? '10px' : 'auto';
+  const arrowStyle = vertical === 'above'
+    ? { top: '100%', borderColor: '#334155 transparent transparent transparent' }
+    : { bottom: '100%', borderColor: 'transparent transparent #334155 transparent' };
 
   return (
     <span ref={ref} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', marginLeft: 4, cursor: 'help', verticalAlign: 'middle' }}
@@ -222,12 +282,17 @@ function InfoTooltip({ text }) {
       {visible && (
         <span style={popupStyle} onMouseEnter={() => clearTimeout(hideTimer.current)} onMouseLeave={handleLeave}>
           {text}
+          <span style={{ position: 'absolute', left: arrowLeft, right: arrowRight,
+            transform: align === 'center' ? 'translateX(-50%)' : 'none',
+            borderWidth: 5, borderStyle: 'solid', pointerEvents: 'none', ...arrowStyle }} />
         </span>
       )}
     </span>
   );
 }
 
+// ─── KPI CARD ─────────────────────────────────────────────────────────────
+// Mini sparkline — generates a smooth SVG path from 8 data points
 function Sparkline({ points, color, fill = true }) {
   if (!points || points.length < 2) return null;
   const w = 80, h = 28;
@@ -235,6 +300,7 @@ function Sparkline({ points, color, fill = true }) {
   const range = max - min || 1;
   const xs = points.map((_, i) => (i / (points.length - 1)) * w);
   const ys = points.map(p => h - ((p - min) / range) * (h - 4) - 2);
+  // Catmull-Rom smooth path
   let d = `M ${xs[0]} ${ys[0]}`;
   for (let i = 0; i < xs.length - 1; i++) {
     const cpx = (xs[i] + xs[i + 1]) / 2;
@@ -245,17 +311,24 @@ function Sparkline({ points, color, fill = true }) {
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: 'block', overflow: 'visible' }}>
       {fill && <path d={areaPath} fill={color} fillOpacity="0.12" />}
       <path d={d} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      {/* endpoint dot */}
       <circle cx={xs[xs.length - 1]} cy={ys[ys.length - 1]} r="2.5" fill={color} />
     </svg>
   );
 }
 
+// Trend arrow + % change
 function TrendBadge({ direction, pct, color }) {
   if (!direction) return null;
   const up = direction === 'up';
+  const arrow = up ? '↑' : '↓';
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 11, fontWeight: 600, color, background: `${color}18`, borderRadius: 4, padding: '1px 5px' }}>
-      {up ? '↑' : '↓'} {pct}%
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 2,
+      fontSize: 11, fontWeight: 600, color,
+      background: `${color}18`, borderRadius: 4, padding: '1px 5px'
+    }}>
+      {arrow} {pct}%
     </span>
   );
 }
@@ -271,8 +344,13 @@ function KpiCard({ label, value, sub, color, missingReason, tooltip, sparkPoints
     );
   }
   return (
-    <div className="kpi-card" style={{ position: 'relative', overflow: 'hidden', borderTop: `2px solid ${color}` }}>
-      <div style={{ paddingLeft: 0 }}>
+    <div className="kpi-card" style={{ position: 'relative', overflow: 'hidden' }}>
+      {/* accent left bar */}
+      <div style={{
+        position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
+        background: color, borderRadius: '8px 0 0 8px'
+      }} />
+      <div style={{ paddingLeft: 8 }}>
         <div className="kpi-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
           <span>{label}</span>
           {tooltip && <InfoTooltip text={tooltip} />}
@@ -281,15 +359,20 @@ function KpiCard({ label, value, sub, color, missingReason, tooltip, sparkPoints
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8 }}>
           <div>
             <div className="kpi-value" style={{ color, lineHeight: 1.1 }}>{value}</div>
-            {sub && <div className="kpi-sub">{sub}</div>}
+            {sub && <div className="kpi-sub" style={{ whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'break-word', marginTop: 2 }}>{sub}</div>}
           </div>
-          {sparkPoints && <div style={{ flexShrink: 0, opacity: 0.85 }}><Sparkline points={sparkPoints} color={color} /></div>}
+          {sparkPoints && (
+            <div style={{ flexShrink: 0, opacity: 0.85 }}>
+              <Sparkline points={sparkPoints} color={color} />
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
+// ─── CONFIDENCE WIDGET ────────────────────────────────────────────────────
 function ConfidenceWidget({ summary, dataQuality }) {
   if (!summary) return null;
   const checks = [
@@ -305,12 +388,12 @@ function ConfidenceWidget({ summary, dataQuality }) {
   const color = score === 100 ? '#22c55e' : score >= 67 ? '#f59e0b' : '#ef4444';
   const label = score === 100 ? 'Analys helt tillförlitlig' : score >= 67 ? 'Analys med varningar' : 'Kontrollera datakvalitet';
   return (
-    <div style={{ marginTop: 10, padding: '10px 12px', background: '#141720', borderRadius: 8, border: `1px solid ${color}44` }}>
+    <div style={{ marginTop: 10, padding: '10px 12px', background: '#0f172a', borderRadius: 8, border: `1px solid ${color}44` }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
         <span style={{ color, fontSize: 8 }}>●</span>
         <span style={{ fontSize: 11, fontWeight: 700, color }}>{label}</span>
       </div>
-      <div style={{ height: 5, borderRadius: 3, background: '#1a1f2e', marginBottom: 8 }}>
+      <div style={{ height: 5, borderRadius: 3, background: '#1e293b', marginBottom: 8 }}>
         <div style={{ height: '100%', width: `${score}%`, background: color, borderRadius: 3, transition: 'width 0.5s' }} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 6px' }}>
@@ -324,11 +407,17 @@ function ConfidenceWidget({ summary, dataQuality }) {
   );
 }
 
+// ─── UPLOAD PAGE ──────────────────────────────────────────────────────────
 // ─── ONBOARDING GUIDE MODAL ───────────────────────────────────────────────
 function OnboardingGuide({ onClose }) {
   const tiers = [
     {
-      level: '1', label: 'Obligatoriskt', color: '#ef4444', bg: 'rgba(239,68,68,0.08)', border: 'rgba(239,68,68,0.25)',
+      level: '1',
+      label: 'Obligatoriskt',
+      color: '#ef4444',
+      bg: 'rgba(239,68,68,0.08)',
+      border: 'rgba(239,68,68,0.25)',
+      icon: '🔴',
       desc: 'Utan dessa kolumner kan vi inte köra analysen.',
       fields: [
         { name: 'Artikelnummer', note: 'Unikt ID per artikel', ex: 'ART-1001' },
@@ -337,7 +426,12 @@ function OnboardingGuide({ onClose }) {
       ]
     },
     {
-      level: '2', label: 'Rekommenderat', color: '#f97316', bg: 'rgba(249,115,22,0.08)', border: 'rgba(249,115,22,0.25)',
+      level: '2',
+      label: 'Rekommenderat',
+      color: '#f97316',
+      bg: 'rgba(249,115,22,0.08)',
+      border: 'rgba(249,115,22,0.25)',
+      icon: '🟠',
       desc: 'Med dessa kolumner får du inköpsförslag och kapitalanalys.',
       fields: [
         { name: 'Ledtid', note: 'Leveranstid i dagar', ex: '14 dagar' },
@@ -347,7 +441,12 @@ function OnboardingGuide({ onClose }) {
       ]
     },
     {
-      level: '3', label: 'Ger full analys', color: '#22c55e', bg: 'rgba(34,197,94,0.08)', border: 'rgba(34,197,94,0.25)',
+      level: '3',
+      label: 'Ger full analys',
+      color: '#22c55e',
+      bg: 'rgba(34,197,94,0.08)',
+      border: 'rgba(34,197,94,0.25)',
+      icon: '🟢',
       desc: 'Dessa kolumner låser upp XYZ-analys, slottning och leveransbevak.',
       fields: [
         { name: 'Historisk förbrukning', note: 'Månadsvis, minst 6 månader → XYZ', ex: 'Jan: 120, Feb: 98…' },
@@ -359,28 +458,50 @@ function OnboardingGuide({ onClose }) {
   ];
 
   return (
-    <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)',
-      zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        background: '#141720', border: '1px solid #1a1f2e', borderRadius: 20,
-        padding: '36px 40px', maxWidth: 640, width: '100%', maxHeight: '90vh',
-        overflowY: 'auto', position: 'relative', boxShadow: '0 24px 80px rgba(0,0,0,0.6)'
-      }}>
-        <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 20, background: 'none', border: 'none', color: '#64748b', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)',
+        zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: '#0f172a', border: '1px solid #1e293b', borderRadius: 20,
+          padding: '36px 40px', maxWidth: 640, width: '100%', maxHeight: '90vh',
+          overflowY: 'auto', position: 'relative', boxShadow: '0 24px 80px rgba(0,0,0,0.6)'
+        }}
+      >
+        <button
+          onClick={onClose}
+          style={{
+            position: 'absolute', top: 16, right: 20, background: 'none', border: 'none',
+            color: '#64748b', fontSize: 22, cursor: 'pointer', lineHeight: 1
+          }}
+        >×</button>
+
         <div style={{ marginBottom: 28, textAlign: 'center' }}>
           <div style={{ fontSize: 36, marginBottom: 10 }}>📋</div>
           <h2 style={{ fontSize: 22, fontWeight: 800, color: '#f1f5f9', margin: 0 }}>Vad behöver jag ta med?</h2>
           <p style={{ fontSize: 13, color: '#64748b', marginTop: 8, lineHeight: 1.6 }}>
-            Exportera en fil från ert affärssystem med kolumnerna nedan.<br />Ju mer data, desto bättre rekommendationer.
+            Exportera en fil från ert affärssystem (ERP) med kolumnerna nedan.<br />
+            Ju mer data, desto bättre rekommendationer.
           </p>
         </div>
+
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {tiers.map(tier => (
-            <div key={tier.level} style={{ background: tier.bg, border: `1px solid ${tier.border}`, borderRadius: 14, padding: '20px 24px' }}>
+            <div key={tier.level} style={{
+              background: tier.bg, border: `1px solid ${tier.border}`,
+              borderRadius: 14, padding: '20px 24px'
+            }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                <span style={{ background: tier.color, color: '#fff', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, flexShrink: 0 }}>{tier.level}</span>
+                <span style={{
+                  background: tier.color, color: '#fff', borderRadius: '50%',
+                  width: 24, height: 24, display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', fontSize: 12, fontWeight: 800, flexShrink: 0
+                }}>{tier.level}</span>
                 <span style={{ fontSize: 15, fontWeight: 700, color: '#f1f5f9' }}>{tier.label}</span>
               </div>
               <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 14px 34px', lineHeight: 1.5 }}>{tier.desc}</p>
@@ -391,147 +512,39 @@ function OnboardingGuide({ onClose }) {
                       <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>{f.name}</span>
                       <span style={{ fontSize: 12, color: '#64748b', marginLeft: 8 }}>— {f.note}</span>
                     </div>
-                    <span style={{ fontSize: 11, color: '#94a3b8', background: '#1a1f2e', borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap', flexShrink: 0, fontFamily: 'monospace' }}>{f.ex}</span>
+                    <span style={{
+                      fontSize: 11, color: '#94a3b8', background: '#1e293b', borderRadius: 6,
+                      padding: '2px 8px', whiteSpace: 'nowrap', flexShrink: 0, fontFamily: 'monospace'
+                    }}>{f.ex}</span>
                   </div>
                 ))}
               </div>
             </div>
           ))}
         </div>
-        <div style={{ marginTop: 24, padding: '14px 18px', background: '#1a1f2e', borderRadius: 10, fontSize: 12, color: '#94a3b8', lineHeight: 1.7 }}>
-          💡 <strong style={{ color: '#cbd5e1' }}>Tips:</strong> De flesta affärssystem kan exportera dessa kolumner direkt till Excel. Kolumnnamnen behöver inte vara exakta — Logitide känner automatiskt igen svenska och engelska varianter.
+
+        <div style={{
+          marginTop: 24, padding: '14px 18px', background: '#1e293b',
+          borderRadius: 10, fontSize: 12, color: '#94a3b8', lineHeight: 1.7
+        }}>
+          💡 <strong style={{ color: '#cbd5e1' }}>Tips:</strong> De flesta affärssystem kan exportera dessa kolumner direkt till Excel.
+          Kolumnnamnen behöver inte vara exakta — Logitide känner automatiskt igen svenska och engelska varianter.
+          Saknar ni viss data? Ingen fara — systemet ger rekommendationer <em>bara</em> på det ni har.
         </div>
-        <button onClick={onClose} style={{ width: '100%', marginTop: 20, padding: '12px 0', borderRadius: 10, background: '#3b82f6', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
-          Förstått — ladda upp fil →
-        </button>
+
+        <button
+          onClick={onClose}
+          style={{
+            width: '100%', marginTop: 20, padding: '12px 0', borderRadius: 10,
+            background: '#6366f1', color: '#fff', border: 'none', fontWeight: 700,
+            fontSize: 14, cursor: 'pointer'
+          }}
+        >Förstått — ladda upp fil →</button>
       </div>
     </div>
   );
 }
 
-// ─── DATA SANITY MODAL ────────────────────────────────────────────────────
-function DataSanityModal({ warnings, onContinue, onCancel }) {
-  const categories = {
-    missing_leadtime:    { label: 'Saknar ledtid',        icon: '⏱', color: '#f97316' },
-    missing_demand:      { label: 'Saknar efterfrågan',   icon: '📉', color: '#f97316' },
-    missing_cost:        { label: 'Saknar kostnad',       icon: '💰', color: '#a78bfa' },
-    missing_location:    { label: 'Saknar lagerplats',    icon: '📍', color: '#a78bfa' },
-    zero_stock:          { label: 'Nollsaldo',            icon: '📦', color: '#64748b' },
-    duplicate_article:   { label: 'Dubbletter',           icon: '⚠️', color: '#ef4444' },
-    negative_stock:      { label: 'Negativt saldo',       icon: '❗', color: '#ef4444' },
-  };
-
-  // Gruppera warnings per typ
-  const grouped = {};
-  warnings.forEach(w => {
-    // Försök matcha känd kategori, annars "other"
-    const key = Object.keys(categories).find(k => w.toLowerCase().includes(k.replace('_', ' ')) || w.toLowerCase().includes(k.split('_')[1])) || 'other';
-    if (!grouped[key]) grouped[key] = [];
-    grouped[key].push(w);
-  });
-
-  const hasBlocker = warnings.some(w =>
-    w.toLowerCase().includes('dubblett') || w.toLowerCase().includes('negativt')
-  );
-
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      zIndex: 9999, padding: 24,
-    }}>
-      <div style={{
-        background: 'var(--bg, #0c0e11)', border: '1px solid rgba(255,255,255,0.1)',
-        borderRadius: 16, maxWidth: 520, width: '100%',
-        boxShadow: '0 24px 64px rgba(0,0,0,0.6)',
-        maxHeight: '90vh', overflow: 'auto',
-      }}>
-        {/* Header */}
-        <div style={{
-          padding: '22px 24px 18px',
-          borderBottom: '1px solid rgba(255,255,255,0.07)',
-          display: 'flex', gap: 14, alignItems: 'flex-start',
-        }}>
-          <div style={{
-            width: 40, height: 40, borderRadius: 10, flexShrink: 0,
-            background: hasBlocker ? 'rgba(239,68,68,0.15)' : 'rgba(249,115,22,0.15)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
-          }}>
-            {hasBlocker ? '🚫' : '⚠️'}
-          </div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text, #e2e8f0)', marginBottom: 4 }}>
-              {hasBlocker ? 'Dataproblem hittades' : 'Datakvalitet — kontrollera innan du fortsätter'}
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--muted, #64748b)', lineHeight: 1.5 }}>
-              {hasBlocker
-                ? 'Vi hittade problem som kan påverka analysens tillförlitlighet. Granska listan nedan.'
-                : `Vi hittade ${warnings.length} varning${warnings.length !== 1 ? 'ar' : ''} i din fil. Analysen kan köras men resultaten kan vara ofullständiga för berörda artiklar.`
-              }
-            </div>
-          </div>
-        </div>
-
-        {/* Warnings list */}
-        <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {warnings.map((w, i) => {
-            const isBlocker = w.toLowerCase().includes('dubblett') || w.toLowerCase().includes('negativt');
-            return (
-              <div key={i} style={{
-                background: isBlocker ? 'rgba(239,68,68,0.08)' : 'rgba(249,115,22,0.07)',
-                border: `1px solid ${isBlocker ? 'rgba(239,68,68,0.2)' : 'rgba(249,115,22,0.15)'}`,
-                borderRadius: 8, padding: '10px 14px',
-                display: 'flex', gap: 10, alignItems: 'flex-start',
-              }}>
-                <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>{isBlocker ? '❗' : '⚠️'}</span>
-                <span style={{ fontSize: 13, color: 'var(--text, #e2e8f0)', lineHeight: 1.55, opacity: 0.9 }}>{w}</span>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Tips */}
-        <div style={{
-          margin: '0 24px 16px',
-          background: 'rgba(96,165,250,0.07)',
-          border: '1px solid rgba(96,165,250,0.15)',
-          borderRadius: 8, padding: '12px 14px',
-        }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#60a5fa', marginBottom: 6 }}>Tips</div>
-          <div style={{ fontSize: 12.5, color: 'var(--text, #e2e8f0)', opacity: 0.85, lineHeight: 1.6 }}>
-            Artiklar med saknad ledtid eller efterfrågan analyseras ej fullt ut. För bästa resultat: komplettera data i din Excel och ladda upp igen. Du kan ändå fortsätta om du vill se en preliminär analys.
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div style={{
-          padding: '16px 24px 22px',
-          borderTop: '1px solid rgba(255,255,255,0.07)',
-          display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap',
-        }}>
-          <button onClick={onCancel} style={{
-            padding: '9px 18px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)',
-            background: 'transparent', color: 'var(--muted, #64748b)', cursor: 'pointer',
-            fontSize: 13, fontWeight: 600,
-          }}>
-            Avbryt — förbättra data
-          </button>
-          {!hasBlocker && (
-            <button onClick={onContinue} style={{
-              padding: '9px 20px', borderRadius: 8, border: 'none',
-              background: '#60a5fa', color: '#fff', cursor: 'pointer',
-              fontSize: 13, fontWeight: 700,
-            }}>
-              Fortsätt ändå →
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── UPLOAD PAGE (NY DESIGN) ──────────────────────────────────────────────
 function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -539,25 +552,14 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
   const [loadingMsg, setLoadingMsg] = useState('');
   const [showHistory, setShowHistory] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
-  const [tickerIndex, setTickerIndex] = useState(0);
-  const [sanityWarnings, setSanityWarnings] = useState(null);
-  const [pendingFile, setPendingFile] = useState(null);
-
-  const tickers = [
-    { value: '5', label: 'affärssystem stöds' },
-    { value: '50 000', label: 'artiklar per analys' },
-    { value: '100%', label: 'data stannar hos dig' },
-  ];
-
+  // Väck Railway så servern är redo när användaren laddar upp filen
   useEffect(() => {
     fetch(`${API_URL}/health`).catch(() => {});
-    const id = setInterval(() => setTickerIndex(i => (i + 1) % 3), 2800);
-    return () => clearInterval(id);
   }, []);
-
   const loadingMessages = ['Läser er fil…', 'Matchar kolumner…', 'Beräknar täcktid…', 'Analyserar ABC/XYZ…', 'Skapar rekommendationer…'];
-
-  const runAnalysis = async (file) => {
+  const handleFile = async (file) => {
+    if (!file) return;
+    window._lastUploadedFile = file; // Spara för export
     setLoading(true);
     setError(null);
     let msgIndex = 0;
@@ -567,6 +569,28 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
       setLoadingMsg(loadingMessages[msgIndex]);
     }, 1200);
     try {
+      // ── Steg 1: Validera filen innan analys ────────────────────────────────
+      setLoadingMsg('Kontrollerar filen…');
+      const valForm = new FormData();
+      valForm.append('file', file);
+      let valRes;
+      try {
+        valRes = await fetch(`${API_URL}/validate`, { method: 'POST', body: valForm });
+      } catch (networkErr) {
+        throw new Error('Kunde inte nå servern. Kontrollera din internetanslutning och försök igen.');
+      }
+      if (valRes.ok) {
+        const val = await valRes.json();
+        if (!val.valid && val.errors?.length) {
+          throw new Error(val.errors.join('\n'));
+        }
+        // Varningar: visa men stoppa inte analysen (sparas för senare)
+        if (val.warnings?.length) {
+          window._lastValidationWarnings = val.warnings;
+        }
+      }
+      // ── Steg 2: Kör analysen ───────────────────────────────────────────────
+      setLoadingMsg(loadingMessages[0]);
       const formData = new FormData();
       formData.append('file', file);
       let res;
@@ -574,12 +598,15 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
         const headers = {};
         if (auth?.token) headers['Authorization'] = `Bearer ${auth.token}`;
         res = await fetch(`${API_URL}/analyze`, { method: 'POST', body: formData, headers });
-      } catch { throw new Error('Kunde inte nå servern. Kontrollera din internetanslutning och försök igen.'); }
+      } catch (networkErr) {
+        throw new Error('Kunde inte nå servern. Kontrollera din internetanslutning och försök igen.');
+      }
       if (!res.ok) {
         let errMsg = 'Analysen misslyckades.';
         try {
           const err = await res.json();
           if (err.detail) {
+            // Rensa bort Python-traceback men behåll det faktiska felmeddelandet
             const detail = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail);
             errMsg = detail.includes('Traceback') ? 'Serverfel — kontakta support.' : detail;
           }
@@ -595,349 +622,124 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
       setLoading(false);
     }
   };
-
-  const handleFile = async (file) => {
-    if (!file) return;
-    window._lastUploadedFile = file;
-    setError(null);
-
-    // Steg 1: validera filen och visa sanity-check om det finns warnings
-    try {
-      setLoading(true);
-      setLoadingMsg('Kontrollerar filen…');
-      const valForm = new FormData();
-      valForm.append('file', file);
-      let valRes;
-      try {
-        valRes = await fetch(`${API_URL}/validate`, { method: 'POST', body: valForm });
-      } catch { throw new Error('Kunde inte nå servern. Kontrollera din internetanslutning och försök igen.'); }
-
-      if (valRes.ok) {
-        const val = await valRes.json();
-        // Hårda fel — stoppa direkt
-        if (!val.valid && val.errors?.length) {
-          setLoading(false);
-          throw new Error(val.errors.join('\n'));
-        }
-        // Warnings — visa modal, låt kunden bestämma
-        if (val.warnings?.length) {
-          setLoading(false);
-          setPendingFile(file);
-          setSanityWarnings(val.warnings);
-          return; // Vänta på kunden
-        }
-      }
-      setLoading(false);
-    } catch(e) {
-      setLoading(false);
-      setError(e.message);
-      return;
-    }
-
-    // Inga warnings — kör direkt
-    await runAnalysis(file);
-  };
-
   const onDrop = useCallback((e) => {
     e.preventDefault();
     setDragging(false);
     const file = e.dataTransfer.files[0];
     if (file) handleFile(file);
   }, []);
-
   return (
-    <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap');
+    <div className="upload-page">
+      <div style={{ position: 'absolute', top: 16, right: 16 }}>
+        <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+      </div>
+      <div className="upload-content">
+        <div className="logo-area">
+          <div className="logo-icon">📦</div>
+          <div>
+            <h1 className="logo-text">Logitide</h1>
+            <p className="logo-sub">OPTIMIZER</p>
+          </div>
+        </div>
 
-        .up-page {
-          min-height: 100vh;
-          display: flex;
-          flex-direction: column;
-          background: #0c0e11;
-          color: #f8faff;
-          position: relative;
-          overflow-x: hidden;
-        }
-        .up-glow {
-          position: fixed; inset: 0; pointer-events: none; z-index: 0;
-          background:
-            radial-gradient(ellipse 80% 55% at 50% -5%, rgba(37,99,235,0.22) 0%, transparent 70%),
-            radial-gradient(ellipse 40% 40% at 90% 85%, rgba(37,99,235,0.09) 0%, transparent 60%);
-        }
-        .up-nav {
-          position: relative; z-index: 2;
-          display: flex; align-items: center; justify-content: space-between;
-          padding: 20px 48px;
-          border-bottom: 1px solid rgba(255,255,255,0.08);
-        }
-        .up-logo { display: flex; align-items: center; gap: 10px; }
-        .up-logo-icon {
-          width: 36px; height: 36px;
-          background: linear-gradient(135deg, #2563eb, #1d4ed8);
-          border-radius: 9px; display: flex; align-items: center; justify-content: center;
-          font-size: 18px; flex-shrink: 0;
-        }
-        .up-logo-name { font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 1.1rem; color: #f8faff; line-height: 1.1; }
-        .up-logo-sub { font-size: 0.58rem; letter-spacing: 0.18em; color: #60a5fa; font-weight: 600; line-height: 1; }
-        .up-nav-right { display: flex; align-items: center; gap: 16px; }
-        .up-nav-link { font-size: 0.82rem; color: #94a3b8; background: none; border: none; cursor: pointer; padding: 4px 0; transition: color .18s; font-family: inherit; }
-        .up-nav-link:hover { color: #f8faff; }
+        {/* ── Tagline ── */}
+        <h2 className="upload-headline">Förvandla din lagerfil till<br /><span className="highlight">handlingsbara beslut på 30 sekunder.</span></h2>
 
-        .up-hero {
-          position: relative; z-index: 1;
-          max-width: 620px; width: 100%;
-          margin: 0 auto;
-          padding: 56px 24px 72px;
-          display: flex; flex-direction: column; align-items: center; text-align: center;
-        }
-        .up-ticker {
-          display: inline-flex; align-items: center; gap: 8px;
-          background: rgba(37,99,235,0.12); border: 1px solid rgba(37,99,235,0.3);
-          border-radius: 40px; padding: 6px 16px; margin-bottom: 28px;
-          font-size: 0.82rem; color: #60a5fa; font-weight: 500; min-height: 34px;
-        }
-        .up-ticker-dot {
-          width: 7px; height: 7px; border-radius: 50%; background: #60a5fa; flex-shrink: 0;
-          animation: upPulse 2s ease-in-out infinite;
-        }
-        @keyframes upPulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-        .up-ticker-value { font-family: 'Outfit', sans-serif; font-weight: 700; color: #f8faff; font-size: 0.9rem; }
-        .up-ticker-label { color: #94a3b8; }
-
-        .up-headline {
-          font-family: 'Outfit', sans-serif;
-          font-size: clamp(2rem, 5vw, 2.85rem);
-          font-weight: 800; line-height: 1.12; color: #f8faff;
-          margin-bottom: 16px; text-wrap: balance;
-        }
-        .up-headline-accent { color: #60a5fa; }
-        .up-desc { color: #94a3b8; font-size: 1rem; line-height: 1.65; max-width: 480px; margin-bottom: 36px; }
-
-        .up-features { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; width: 100%; margin-bottom: 28px; }
-        .up-feature-card {
-          background: rgba(26,34,53,0.7); border: 1px solid rgba(255,255,255,0.08);
-          border-radius: 14px; padding: 18px 16px; text-align: center;
-          backdrop-filter: blur(8px); transition: border-color .2s, transform .2s;
-        }
-        .up-feature-card:hover { border-color: rgba(37,99,235,0.4); transform: translateY(-2px); }
-        .up-feature-icon { font-size: 1.5rem; margin-bottom: 8px; }
-        .up-feature-title { font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 0.85rem; color: #f8faff; margin-bottom: 5px; }
-        .up-feature-desc { font-size: 0.75rem; color: #94a3b8; line-height: 1.5; }
-
-        .up-guide-btn {
-          display: inline-flex; align-items: center; gap: 7px;
-          background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
-          color: #94a3b8; font-size: 0.82rem; font-weight: 500;
-          padding: 8px 18px; border-radius: 8px; cursor: pointer; font-family: inherit;
-          transition: all .18s; margin-bottom: 24px;
-        }
-        .up-guide-btn:hover { background: rgba(255,255,255,0.09); color: #f8faff; border-color: rgba(255,255,255,0.18); }
-
-        .up-dropzone {
-          width: 100%; border: 2px dashed rgba(255,255,255,0.14);
-          border-radius: 18px; padding: 44px 24px; cursor: pointer;
-          display: flex; flex-direction: column; align-items: center; gap: 10px;
-          transition: border-color .2s, background .2s; margin-bottom: 16px;
-        }
-        .up-dropzone:hover, .up-dropzone--active { border-color: #2563eb; background: rgba(37,99,235,0.07); }
-        .up-drop-icon {
-          color: #94a3b8; width: 52px; height: 52px;
-          background: rgba(37,99,235,0.1); border-radius: 14px;
-          display: flex; align-items: center; justify-content: center; margin-bottom: 4px;
-        }
-        .up-drop-text { font-family: 'Outfit', sans-serif; font-size: 1.05rem; font-weight: 700; color: #f8faff; }
-        .up-drop-sub { font-size: 0.8rem; color: #94a3b8; }
-
-        .up-loading {
-          width: 100%; display: flex; flex-direction: column; align-items: center; gap: 16px;
-          padding: 52px 24px; border: 1px solid rgba(255,255,255,0.08);
-          border-radius: 18px; margin-bottom: 16px;
-        }
-        .up-spinner {
-          width: 40px; height: 40px;
-          border: 3px solid rgba(255,255,255,0.1); border-top-color: #60a5fa;
-          border-radius: 50%; animation: upSpin .75s linear infinite;
-        }
-        @keyframes upSpin { to { transform: rotate(360deg); } }
-        .up-loading-msg { color: #94a3b8; font-size: 0.9rem; }
-
-        .up-error {
-          width: 100%; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3);
-          color: #fca5a5; border-radius: 10px; padding: 12px 16px;
-          font-size: 0.87rem; margin-bottom: 12px; text-align: center;
-        }
-        .up-security { display: flex; align-items: center; gap: 6px; color: #94a3b8; font-size: 0.75rem; margin-bottom: 20px; }
-        .up-security svg { color: #22c55e; flex-shrink: 0; }
-        .up-systems { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; }
-        .up-systems-label { font-size: 0.75rem; color: #94a3b8; }
-        .up-system-tag { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 3px 10px; font-size: 0.73rem; color: #94a3b8; }
-        .up-auth-footer { margin-top: 24px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #475569; width: 100%; }
-
-        @media (max-width: 640px) {
-          .up-nav { padding: 16px 20px; }
-          .up-hero { padding: 40px 16px 56px; }
-          .up-features { grid-template-columns: 1fr; }
-          .up-headline { font-size: 1.9rem; }
-        }
-      `}</style>
-
-      <div className="up-page">
-        <div className="up-glow" aria-hidden="true" />
-
-        {/* Nav */}
-        <nav className="up-nav">
-          <div className="up-logo">
-            <div className="up-logo-icon">📦</div>
-            <div>
-              <div className="up-logo-name">Logitide</div>
-              <div className="up-logo-sub">OPTIMIZER</div>
+        {/* ── Value promises ── */}
+        <div style={{ display: 'flex', gap: 16, margin: '24px 0', justifyContent: 'center', flexWrap: 'wrap' }}>
+          {[
+            { icon: '📊', title: 'ABC-analys', desc: 'Se vilka artiklar som driver 80 % av kapitalet' },
+            { icon: '🛒', title: 'Inköpsförslag', desc: 'Rekommendationer baserade på ledtid och förbrukning' },
+            { icon: '⚠️', title: 'Kapital & risk', desc: 'Identifiera kritiska artiklar och överlager direkt' },
+          ].map(({ icon, title, desc }) => (
+            <div key={title} style={{
+              background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12,
+              padding: '16px 20px', flex: '1 1 160px', maxWidth: 200, textAlign: 'center'
+            }}>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>{icon}</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9', marginBottom: 4 }}>{title}</div>
+              <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.4 }}>{desc}</div>
             </div>
-          </div>
-          <div className="up-nav-right">
-            {auth && (
-              <>
-                <button className="up-nav-link" onClick={() => setShowHistory(!showHistory)}>Historik</button>
-                <button className="up-nav-link" onClick={onLogout}>Logga ut</button>
-              </>
-            )}
-            <ThemeToggle theme={theme} onToggle={onToggleTheme} />
-          </div>
-        </nav>
+          ))}
+        </div>
 
-        {/* Hero */}
-        <div className="up-hero">
-          {/* Ticker */}
-          <div className="up-ticker">
-            <span className="up-ticker-dot" />
-            <span className="up-ticker-value">{tickers[tickerIndex].value}</span>
-            <span className="up-ticker-label">{tickers[tickerIndex].label}</span>
-          </div>
-
-          <h1 className="up-headline">
-            Förvandla er lagerfil till<br />
-            <span className="up-headline-accent">handlingsbara beslut</span>
-          </h1>
-
-          <p className="up-desc">
-            Ladda upp er lagerexport och få ABC/XYZ-analys, inköpsförslag och
-            kapitalbindningsrapport — direkt i webbläsaren.
-          </p>
-
-          {/* Feature cards */}
-          <div className="up-features">
-            {[
-              { icon: '📊', title: 'ABC/XYZ-analys', desc: 'Klassificerar alla artiklar efter värde och efterfrågevariabilitet' },
-              { icon: '🛒', title: 'Inköpsförslag', desc: 'Beräknar optimala beställningspunkter och säkerhetslager' },
-              { icon: '💰', title: 'Kapital & risk', desc: 'Identifierar kapital bundet i felklassade och döda artiklar' },
-            ].map(f => (
-              <div className="up-feature-card" key={f.title}>
-                <div className="up-feature-icon">{f.icon}</div>
-                <div className="up-feature-title">{f.title}</div>
-                <div className="up-feature-desc">{f.desc}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Guide button */}
-          <button className="up-guide-btn" onClick={() => setShowGuide(true)}>
-            <span>📋</span> Vad behöver jag ta med?
+        {/* ── Guide button ── */}
+        <div style={{ textAlign: 'center', marginBottom: 8 }}>
+          <button
+            onClick={() => setShowGuide(true)}
+            style={{
+              background: 'none', border: '1px solid #334155', borderRadius: 8,
+              color: '#94a3b8', fontSize: 13, padding: '8px 20px', cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 7, transition: 'border-color 0.15s, color 0.15s'
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.color = '#a5b4fc'; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = '#334155'; e.currentTarget.style.color = '#94a3b8'; }}
+          >
+            <span style={{ fontSize: 15 }}>📋</span> Vad behöver jag ta med?
           </button>
+        </div>
 
-          {/* Drop zone / loading */}
-          {loading ? (
-            <div className="up-loading">
-              <div className="up-spinner" />
-              <div className="up-loading-msg">{loadingMsg}</div>
-            </div>
-          ) : (
+        {showGuide && <OnboardingGuide onClose={() => setShowGuide(false)} />}
+
+        {!loading ? (
+          <>
             <div
-              className={`up-dropzone${dragging ? ' up-dropzone--active' : ''}`}
-              onClick={() => document.getElementById('file-input-new').click()}
-              onDragOver={e => { e.preventDefault(); setDragging(true); }}
+              className={`drop-zone ${dragging ? 'dragging' : ''}`}
+              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
               onDragLeave={() => setDragging(false)}
               onDrop={onDrop}
-              role="button" tabIndex={0}
-              onKeyDown={e => e.key === 'Enter' && document.getElementById('file-input-new').click()}
+              onClick={() => document.getElementById('file-input').click()}
             >
+              <Icon name="upload" size={40} />
+              <p className="drop-text">Släpp filen här</p>
+              <p className="drop-sub">Excel (.xlsx, .xls) eller CSV · Max 20 MB</p>
               <input
-                id="file-input-new"
+                id="file-input"
                 type="file"
                 accept=".xlsx,.xls,.csv"
                 style={{ display: 'none' }}
-                onChange={e => handleFile(e.target.files[0])}
+                onChange={(e) => handleFile(e.target.files[0])}
               />
-              <div className="up-drop-icon">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                  <polyline points="17 8 12 3 7 8"/>
-                  <line x1="12" y1="3" x2="12" y2="15"/>
-                </svg>
+            </div>
+            {error && (
+              <div className="error-box">
+                <b>⚠️ Kunde inte analysera filen</b>
+                {error.includes('\n')
+                  ? error.split('\n').map((line, i) => <p key={i} style={{ margin: '4px 0' }}>{line}</p>)
+                  : <p>{error}</p>
+                }
               </div>
-              <div className="up-drop-text">Dra och släpp filen här</div>
-              <div className="up-drop-sub">Excel (.xlsx, .xls) eller CSV · Max 20 MB</div>
-            </div>
-          )}
-
-          {error && (
-            <div className="up-error">
-              <b>⚠️ Kunde inte analysera filen</b>
-              {error.includes('\n')
-                ? error.split('\n').map((line, i) => <p key={i} style={{ margin: '4px 0' }}>{line}</p>)
-                : <p>{error}</p>
-              }
-            </div>
-          )}
-
-          {/* Security */}
-          <div className="up-security">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            </svg>
-            Filen analyseras i systemet — inga data skickas vidare till tredje part
+            )}
+          </>
+        ) : (
+          <div className="loading-box">
+            <div className="spinner" />
+            <p className="loading-msg">{loadingMsg}</p>
           </div>
-
-          {/* Supported systems */}
-          <div className="up-systems">
-            <span className="up-systems-label">Stöder:</span>
-            {['Jeeves', 'SAP', 'Visma', 'Pyramid', 'Monitor', 'Excel-exporter'].map(s => (
-              <span className="up-system-tag" key={s}>{s}</span>
-            ))}
-          </div>
-
-          {/* Auth footer */}
-          {auth && (
-            <div className="up-auth-footer">
-              <span>Inloggad som {auth.email}{auth.company ? ` · ${auth.company}` : ''}</span>
-              <div style={{ display: 'flex', gap: 12 }}>
-                <button onClick={() => setShowHistory(!showHistory)} style={{ background: 'none', border: 'none', color: '#a78bfa', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-                  {showHistory ? 'Dölj historik' : 'Visa historik'}
-                </button>
-                <button onClick={onLogout} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 12 }}>Logga ut</button>
-              </div>
-            </div>
-          )}
-          {showHistory && auth && <div style={{ marginTop: 16, width: '100%' }}><HistoryTab token={auth.token} /></div>}
+        )}
+        <div style={{ textAlign: 'center', marginTop: 10, fontSize: 11, color: '#475569' }}>
+          🔒 Din fil analyseras i systemet — inga data skickas vidare till tredje part.
         </div>
+        <div className="supported" style={{ marginTop: 20 }}>
+          <span>Stöder:</span>
+          {['Jeeves', 'SAP', 'Visma', 'Pyramid', 'Monitor', 'Excel-exporter'].map(erp => (
+            <span key={erp} className="erp-tag">{erp}</span>
+          ))}
+        </div>
+        {auth && (
+          <div style={{ marginTop: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#475569' }}>
+            <span>Inloggad som {auth.email}{auth.company ? ` · ${auth.company}` : ''}</span>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button onClick={() => setShowHistory(!showHistory)} style={{ background: 'none', border: 'none', color: '#6366f1', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                {showHistory ? 'Dölj historik' : 'Visa historik'}
+              </button>
+              <button onClick={onLogout} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 12 }}>Logga ut</button>
+            </div>
+          </div>
+        )}
+        {showHistory && auth && <div style={{ marginTop: 16 }}><HistoryTab token={auth.token} /></div>}
       </div>
-
-      {showGuide && <OnboardingGuide onClose={() => setShowGuide(false)} />}
-      {sanityWarnings && (
-        <DataSanityModal
-          warnings={sanityWarnings}
-          onContinue={async () => {
-            setSanityWarnings(null);
-            const file = pendingFile;
-            setPendingFile(null);
-            await runAnalysis(file);
-          }}
-          onCancel={() => {
-            setSanityWarnings(null);
-            setPendingFile(null);
-          }}
-        />
-      )}
-    </>
+    </div>
   );
 }
 
@@ -946,69 +748,38 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
   const { summary, top_actions, abc_distribution, articles, data_quality, validation } = data;
   const hasCost = summary.has_cost_data;
   const hasLoc = summary.has_location_data;
-  const [selectedArticle, setSelectedArticle] = useState(null);
-  const handleSelectArticle = (articleId) => {
-    const art = articles?.find(a => a.article === articleId);
-    if (art) setSelectedArticle(art);
-  };
 
-  const aiSummary = React.useMemo(() => {
-    if (!summary || !articles?.length) return null;
-    const critical = articles.filter(a => a.status === 'CRITICAL');
-    const watch = articles.filter(a => a.status === 'WATCH');
-    const aClass = articles.filter(a => a.abc === 'A' && (a.status === 'CRITICAL' || a.status === 'WATCH'));
-    const overstock = articles.filter(a => a.status === 'OVERSTOCK');
-    const dead = articles.filter(a => a.status === 'DEAD_STOCK');
-    const toOrder = summary.articles_to_order || 0;
-
-    const parts = [];
-
-    if (critical.length === 0 && watch.length === 0) {
-      parts.push(`Lagerstatus ser bra ut — inga kritiska brister just nu bland ${summary.total_articles} artiklar.`);
-    } else {
-      const urgency = critical.length > 10 ? 'Akut läge:' : critical.length > 0 ? 'Åtgärd krävs:' : 'Notering:';
-      parts.push(`${urgency} ${critical.length} artiklar är kritiska och ${watch.length} bevakas.`);
-    }
-
-    if (aClass.length > 0) {
-      parts.push(`${aClass.length} A-klass artikel${aClass.length > 1 ? 'ar' : ''} kräver omedelbar uppmärksamhet — dessa driver störst påverkan på servicenivå.`);
-    }
-
-    if (toOrder > 0) {
-      const orderVal = hasCost && summary.total_order_value_sek > 0 ? ` (ca ${fmtKr(summary.total_order_value_sek)})` : '';
-      parts.push(`${toOrder} inköpsorder behöver läggas${orderVal}.`);
-    }
-
-    if (overstock.length > 5) {
-      parts.push(`${overstock.length} artiklar är överlagerda — överväg att pausa inköp eller se över lagernivåer.`);
-    }
-
-    if (dead.length > 0) {
-      parts.push(`${dead.length} artikel${dead.length > 1 ? 'ar' : ''} saknar förbrukning och bör utvärderas för utrangering.`);
-    }
-
-    return parts.join(' ');
-  }, [summary?.total_articles, summary?.critical, summary?.watch, articles?.length]);
-
+  // Derive sparkline shapes from article coverage distribution — gives real data-based curves
+  // We bucket articles by coverage bucket and use counts as sparkline points
   const sparkCritical = React.useMemo(() => {
     if (!articles?.length) return null;
+    // Distribution of coverage_days bucketed into 8 bins for "critical trend" shape
     const critical = articles.filter(a => a.status === 'CRITICAL' || a.status === 'WATCH');
+    // Simulate a 8-week trend using article coverage spread (lower = more urgent)
     const buckets = [0,0,0,0,0,0,0,0];
-    critical.forEach(a => { const idx = Math.min(7, Math.floor((a.coverage_days || 0) / 7)); buckets[idx]++; });
-    return buckets.reverse();
+    critical.forEach(a => {
+      const idx = Math.min(7, Math.floor((a.coverage_days || 0) / 7));
+      buckets[idx]++;
+    });
+    return buckets.reverse(); // ascending = improving trend shape
   }, [articles]);
 
   const sparkOrder = React.useMemo(() => {
     if (!articles?.length) return null;
     const watchOrCrit = articles.filter(a => a.order_qty > 0);
     const buckets = [0,0,0,0,0,0,0,0];
-    watchOrCrit.forEach(a => { const idx = Math.min(7, Math.floor(((a.cost || 0) * (a.order_qty || 0)) / 5000)); buckets[idx]++; });
+    watchOrCrit.forEach(a => {
+      const idx = Math.min(7, Math.floor(((a.cost || 0) * (a.order_qty || 0)) / 5000));
+      buckets[idx]++;
+    });
     return buckets;
   }, [articles]);
 
   const sparkCapital = React.useMemo(() => {
     if (!articles?.length || !hasCost) return null;
-    const vals = articles.filter(a => (a.stock_value || (a.stock || 0) * (a.cost || 0)) > 0).map(a => a.stock_value || (a.stock || 0) * (a.cost || 0));
+    // Bins of stock value: shows capital distribution
+    const vals = articles.filter(a => (a.stock_value || (a.stock || 0) * (a.cost || 0)) > 0)
+      .map(a => a.stock_value || (a.stock || 0) * (a.cost || 0));
     if (!vals.length) return null;
     const maxV = Math.max(...vals);
     const step = maxV / 8;
@@ -1022,47 +793,52 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
     const dead = articles.filter(a => a.status === 'DEAD_STOCK' || (a.stock > 0 && (a.demand_per_day || 0) === 0));
     const buckets = [0,0,0,0,0,0,0,0];
     dead.forEach((a, i) => { buckets[i % 8]++; });
+    // Downward slope = good (decreasing dead stock)
     return buckets.map((v, i) => Math.max(0, v - i * 0.5));
   }, [articles]);
 
   return (
     <div className="tab-content">
       <ValidationBanner validation={validation} />
-      <DataQualityBannerFull summary={summary} dataQuality={data_quality} />
-      {aiSummary && (
-        <div style={{ marginBottom: 18, padding: '14px 18px', background: 'rgba(167,139,250,0.07)', border: '1px solid rgba(167,139,250,0.20)', borderRadius: 8 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#a78bfa', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6, textTransform: 'uppercase' }}>
-            <span>✦</span> AI-SAMMANFATTNING
-          </div>
-          <span style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.65 }}>{aiSummary}</span>
+      <DataQualityBanner summary={summary} dataQuality={data_quality} />
+      {summary.critical > 0 && (
+        <div className="alert-banner">
+          <Icon name="alert" size={18} />
+          {summary.critical} artiklar kräver omedelbar handling — lagret kan stanna.
         </div>
       )}
       <div className="kpi-grid">
-        <KpiCard label="KRITISKA BRISTER" value={fmt(summary.critical)} sub={`${summary.watch} bevakas`} color={summary.critical > 0 ? "#ef4444" : "var(--text3)"}
+        <KpiCard label="KRITISKA BRISTER" value={fmt(summary.critical)} sub={`${summary.watch} bevakas`} color="#ef4444"
           sparkPoints={sparkCritical}
           trend={summary.critical > 0 ? { direction: 'up', pct: Math.round((summary.critical / Math.max(1, summary.total_articles)) * 100) } : null}
-          tooltip={"Kritisk = täcktid ≤ ledtid OCH ingen inköpsorder är lagd.\nBevaka = brist men order är redan på väg.\n\nBevaka-tröskel per ABC-klass:\nA-artiklar: täcktid < 2× ledtid\nB-artiklar: täcktid < 1.5× ledtid\nC-artiklar: täcktid < 1.2× ledtid"} />
+          tooltip={"Kritisk = täcktid ≤ ledtid OCH ingen inköpsorder är lagd.\nBevaka = brist men order är redan på väg.\n\nBevaka-tröskel per ABC-klass:\nA-artiklar: täcktid < 2× ledtid (hög buffer)\nB-artiklar: täcktid < 1.5× ledtid (standard)\nC-artiklar: täcktid < 1.2× ledtid (lägre marginal)"} />
         <KpiCard label="ATT BESTÄLLA" value={fmt(summary.articles_to_order)}
           sub={hasCost ? fmtKr(summary.total_order_value_sek) : 'Lägg till inköpspris för ordervärde'}
-          color="#f97316" sparkPoints={sparkOrder}
-          tooltip={"Antal artiklar där systemet rekommenderar inköp.\nOrderkvantitet beräknas som: (2× ledtid − täcktid) × daglig förbrukning, avrundat till minsta orderenhet."} />
-        <KpiCard label="BUNDET KAPITAL" value={hasCost ? fmtKr(summary.total_stock_value_sek) : null}
-          sub={hasCost ? `varav ${fmtKr(summary.overstock_value_sek)} överlager` : null} color="#a855f7"
-          sparkPoints={sparkCapital} missingReason={!hasCost ? 'Kräver inköpspris (cost) i filen' : null}
-          tooltip={"Totalt lagervärde = saldo × inköpspris.\nÖverlager = artiklar med täcktid > 365 dagar."} />
-        <KpiCard label="ATT FLYTTA" value={hasLoc ? fmt(summary.articles_to_move) : null}
-          sub={hasLoc ? 'snabbare plock' : null} color="#3b82f6"
+          color="#f97316"
+          sparkPoints={sparkOrder}
+          tooltip={"Antal artiklar där systemet rekommenderar inköp — dvs. täcktid understiger bevaka-tröskeln.\n\nInkluderar både kritiska artiklar (brist inom ledtid) och bevaka-artiklar (brist inom bufferttid).\n\nOrderkvantitet beräknas som: (2× ledtid − täcktid) × daglig förbrukning, avrundat till minsta orderenhet."} />
+        <KpiCard
+          label="BUNDET KAPITAL"
+          value={hasCost ? fmtKr(summary.total_stock_value_sek) : null}
+          sub={hasCost ? `varav ${fmtKr(summary.overstock_value_sek)} överlager` : null}
+          color="#a855f7"
+          sparkPoints={sparkCapital}
+          missingReason={!hasCost ? 'Kräver inköpspris (cost) i filen' : null}
+          tooltip={"Totalt lagervärde = saldo × inköpspris för alla artiklar.\n\nÖverlager = artiklar med täcktid > 365 dagar (mer än ett års förbrukning i lager).\n\nHögt bundet kapital i överlager är en signal om att köpa stopp bör läggas tills lagret normaliserats."}
+        />
+        <KpiCard
+          label="ATT FLYTTA"
+          value={hasLoc ? fmt(summary.articles_to_move) : null}
+          sub={hasLoc ? 'snabbare plock' : null}
+          color="#3b82f6"
           missingReason={!hasLoc ? 'Kräver lagerposition (loc) i filen' : null}
-          tooltip={"Antal artiklar vars lagerposition inte stämmer med ABC-klassen."} />
+          tooltip={"Antal artiklar vars lagerposition inte stämmer med ABC-klassen.\n\nA-artiklar bör stå närmast plockzonen (guldzon).\nC-artiklar kan placeras längre bort.\n\nKorrekt slotting minskar plocket-id och höjer produktiviteten."}
+        />
         <KpiCard label="DÖTT LAGER" value={fmt(summary.dead_stock)}
           sub={hasCost ? fmtKr(summary.dead_stock_value_sek) : `${summary.dead_stock} artiklar utan förbrukning`}
-          color="#6b7280" sparkPoints={sparkDead}
-          tooltip={"Artiklar med saldo > 0 men registrerad förbrukning = 0."} />
-        <KpiCard label="I BALANS"
-          value={fmt(Math.max(0, (summary.total_articles || 0) - (summary.critical || 0) - (summary.watch || 0) - (summary.dead_stock || 0)))}
-          sub={`av ${fmt(summary.total_articles)} artiklar`}
-          color="#10b981"
-          tooltip={"Artiklar med tillräcklig täcktid och aktiv förbrukning — inga åtgärder krävs."} />
+          color="#6b7280"
+          sparkPoints={sparkDead}
+          tooltip={"Artiklar med saldo > 0 men registrerad förbrukning = 0.\n\nKan bero på felregistrering, utgångna produkter eller kassationer som ej bokförts.\n\nDött lager binder kapital utan att bidra till servicenivån — överväg utförsäljning eller skrotning."} />
       </div>
       {top_actions?.length > 0 && (
         <div className="section">
@@ -1071,7 +847,9 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
             <span className="badge">{top_actions.length} prioriterade</span>
           </div>
           <div className="actions-list">
-            {top_actions.map((a, i) => <ActionRow key={i} a={a} hasCost={hasCost} onSelect={handleSelectArticle} />)}
+            {top_actions.map((a, i) => (
+              <ActionRow key={i} a={a} hasCost={hasCost} articles={articles} />
+            ))}
           </div>
         </div>
       )}
@@ -1079,25 +857,21 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
         <div className="section">
           <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             ABC-fördelning {!hasCost && <span className="section-note">(baserad på förbrukning)</span>}
-            <InfoTooltip text="A = topp 80 % av årsvolymsvärdet. B = 80–95 %. C = 95–100 %." />
+            <InfoTooltip text="A = topp 80 % av årsvolymsvärdet. B = 80–95 %. C = 95–100 %. Klassificering baseras på förbrukning × inköpspris × 365 dagar." />
           </h3>
-          {['A', 'B', 'C'].map(cls => {
-            const count = abc_distribution?.[cls]?.count ?? 0;
-            const countPct = summary.total_articles > 0 ? Math.round((count / summary.total_articles) * 100) : 0;
-            const barPct = hasCost ? (abc_distribution?.[cls]?.pct || 0) : countPct;
-            return (
-              <div key={cls} className="abc-row">
-                <span className="abc-badge" style={{ background: abcColor(cls) }}>{cls}</span>
-                <span className="abc-count">{fmt(count)} art.</span>
-                <div className="abc-bar-wrap">
-                  <div className="abc-bar" style={{ width: `${barPct}%`, background: abcColor(cls) }} />
-                </div>
-                {hasCost
-                  ? <span className="abc-val">{fmtKr(abc_distribution?.[cls]?.value_sek)}</span>
-                  : <span className="abc-val abc-dim">{countPct}% av artiklar</span>}
+          {['A', 'B', 'C'].map(cls => (
+            <div key={cls} className="abc-row">
+              <span className="abc-badge" style={{ background: abcColor(cls) }}>{cls}</span>
+              <span className="abc-count">{fmt(abc_distribution?.[cls]?.count)} art.</span>
+              <div className="abc-bar-wrap">
+                <div className="abc-bar" style={{ width: `${abc_distribution?.[cls]?.pct || 0}%`, background: abcColor(cls) }} />
               </div>
-            );
-          })}
+              {hasCost
+                ? <span className="abc-val">{fmtKr(abc_distribution?.[cls]?.value_sek)}</span>
+                : <span className="abc-val abc-dim">{abc_distribution?.[cls]?.pct}% av artiklar</span>
+              }
+            </div>
+          ))}
         </div>
         <div className="section">
           <h3>Snabbåtgärder</h3>
@@ -1116,7 +890,6 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
         </div>
         <ArticleTable articles={articles} hasCost={hasCost} hasLoc={hasLoc} onLedtidChange={onLedtidChange} ledtidOverrides={ledtidOverrides} onResetLedtider={onResetLedtider} />
       </div>
-      {selectedArticle && <ArticleDetailPanel article={selectedArticle} onClose={() => setSelectedArticle(null)} />}
     </div>
   );
 }
@@ -1132,18 +905,35 @@ function ArticleDetailPanel({ article, onClose }) {
     setExplanation(null);
     setLoadingAI(true);
     fetch(`${API}/explain-article`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        article: a.article, name: a.name || '', abc: a.abc || '', xyz: a.xyz || null,
-        status: a.status || '', stock: a.stock ?? 0, demand_per_day: a.demand_per_day ?? 0,
-        coverage_days: a.coverage_days ?? 0, lead_time_days: a.lead_time_days ?? 14,
-        order_qty: a.order_qty ?? 0, cost: a.cost ?? 0, loc: a.loc || '',
-        ordered_qty: a.ordered_qty ?? 0, eta_date: a.eta_date || null, annual_value: a.annual_value ?? 0,
+        article: a.article,
+        name: a.name || '',
+        abc: a.abc || '',
+        xyz: a.xyz || null,
+        status: a.status || '',
+        stock: a.stock ?? 0,
+        demand_per_day: a.demand_per_day ?? 0,
+        coverage_days: a.coverage_days ?? 0,
+        lead_time_days: a.lead_time_days ?? 14,
+        order_qty: a.order_qty ?? 0,
+        cost: a.cost ?? 0,
+        loc: a.loc || '',
+        ordered_qty: a.ordered_qty ?? 0,
+        eta_date: a.eta_date || null,
+        annual_value: a.annual_value ?? 0,
       })
-    }).then(r => r.json()).then(d => setExplanation(d.explanation || null)).catch(() => setExplanation(null)).finally(() => setLoadingAI(false));
+    })
+      .then(r => r.json())
+      .then(d => setExplanation(d.explanation || null))
+      .catch(() => setExplanation(null))
+      .finally(() => setLoadingAI(false));
   }, [a?.article]);
 
   if (!a) return null;
+
+  // Gauge: coverage vs lead_time
   const cov = a.coverage_days ?? 0;
   const lt = a.lead_time_days ?? 14;
   const maxDays = Math.max(cov, lt * 3, 60);
@@ -1152,38 +942,67 @@ function ArticleDetailPanel({ article, onClose }) {
   const gaugeColor = a.status === 'CRITICAL' ? '#ef4444' : a.status === 'WATCH' ? '#f97316' : a.status === 'OVERSTOCK' ? '#a855f7' : '#22c55e';
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1100, display: 'flex', alignItems: 'stretch' }} onClick={onClose}>
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 1100, display: 'flex', alignItems: 'stretch' }}
+      onClick={onClose}
+    >
+      {/* Backdrop */}
       <div style={{ flex: 1, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(2px)' }} />
-      <div onClick={e => e.stopPropagation()} style={{
-        width: 400, maxWidth: '95vw', background: '#141720', borderLeft: '1px solid #1a1f2e',
-        display: 'flex', flexDirection: 'column', height: '100vh', overflowY: 'auto',
-        boxShadow: '-16px 0 48px rgba(0,0,0,0.6)', animation: 'slideIn 0.18s ease-out',
-      }}>
+      {/* Panel */}
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: 400, maxWidth: '95vw', background: '#0c1420',
+          borderLeft: '1px solid #1e293b', display: 'flex', flexDirection: 'column',
+          height: '100vh', overflowY: 'auto', boxShadow: '-16px 0 48px rgba(0,0,0,0.6)',
+          animation: 'slideIn 0.18s ease-out',
+        }}
+      >
         <style>{`@keyframes slideIn { from { transform: translateX(40px); opacity:0; } to { transform: translateX(0); opacity:1; } }`}</style>
-        <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid #1a1f2e', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+        {/* Header */}
+        <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid #1e293b', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <span style={{ background: statusColor(a.status)+'22', color: statusColor(a.status), border: `1px solid ${statusColor(a.status)}44`, borderRadius: 5, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{statusLabel(a.status)}</span>
-              <span style={{ background: abcColor(a.abc)+'22', color: abcColor(a.abc), borderRadius: 5, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{a.abc}{a.xyz ? `/${a.xyz}` : ''}</span>
+              <span style={{
+                background: statusColor(a.status) + '22', color: statusColor(a.status),
+                border: `1px solid ${statusColor(a.status)}44`,
+                borderRadius: 5, padding: '2px 8px', fontSize: 11, fontWeight: 700
+              }}>{statusLabel(a.status)}</span>
+              <span style={{ background: abcColor(a.abc) + '22', color: abcColor(a.abc), borderRadius: 5, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
+                {a.abc}{a.xyz ? `/${a.xyz}` : ''}
+              </span>
             </div>
             <div style={{ fontSize: 14, fontWeight: 700, color: '#f1f5f9', lineHeight: 1.3 }}>{a.name || '—'}</div>
             <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{a.article}</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 20, cursor: 'pointer', lineHeight: 1, padding: '0 4px', flexShrink: 0 }}>✕</button>
         </div>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #1a1f2e' }}>
+
+        {/* Coverage gauge */}
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b' }}>
           <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>TÄCKTID VS LEDTID</div>
-          <div style={{ position: 'relative', height: 10, background: '#1a1f2e', borderRadius: 5, marginBottom: 8 }}>
-            <div style={{ position: 'absolute', left: `${ltPct}%`, top: -4, bottom: -4, width: 2, background: '#f97316', borderRadius: 1, transform: 'translateX(-50%)', zIndex: 2 }} />
+          <div style={{ position: 'relative', height: 10, background: '#1e293b', borderRadius: 5, marginBottom: 8 }}>
+            {/* Lead time marker */}
+            <div style={{
+              position: 'absolute', left: `${ltPct}%`, top: -4, bottom: -4,
+              width: 2, background: '#f97316', borderRadius: 1, transform: 'translateX(-50%)', zIndex: 2
+            }} />
+            {/* Coverage bar */}
             <div style={{ width: `${covPct}%`, height: '100%', background: gaugeColor, borderRadius: 5, transition: 'width 0.5s', position: 'relative', zIndex: 1 }} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
             <span style={{ color: gaugeColor, fontWeight: 700 }}>Täcktid: {fmtDays(cov)}</span>
             <span style={{ color: '#f97316' }}>Ledtid: {Math.round(lt)} d</span>
           </div>
-          {cov < lt && <div style={{ marginTop: 8, padding: '6px 10px', background: '#ef444418', border: '1px solid #ef444430', borderRadius: 6, fontSize: 11, color: '#fca5a5' }}>⚠️ Täcktid understiger ledtid med {Math.round(lt - cov)} dagar</div>}
+          {cov < lt && (
+            <div style={{ marginTop: 8, padding: '6px 10px', background: '#ef444418', border: '1px solid #ef444430', borderRadius: 6, fontSize: 11, color: '#fca5a5' }}>
+              ⚠️ Täcktid understiger ledtid med {Math.round(lt - cov)} dagar
+            </div>
+          )}
         </div>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #1a1f2e' }}>
+
+        {/* Key metrics */}
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b' }}>
           <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>NYCKELDATA</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px' }}>
             {[
@@ -1193,21 +1012,23 @@ function ArticleDetailPanel({ article, onClose }) {
               { label: 'Lagervärde', val: a.cost > 0 ? fmtKr(a.stock * a.cost) : '—' },
               ...(a.order_qty > 0 ? [{ label: 'Rekommenderad order', val: `${fmt(a.order_qty)} st`, highlight: true }] : []),
               ...(a.ordered_qty > 0 ? [{ label: 'Beställt (på väg)', val: `${fmt(a.ordered_qty)} st` }] : []),
-              ...(a.eta_date && !['NaT','nat','null','None','undefined',''].includes(String(a.eta_date).trim()) ? [{ label: 'Förväntat leverans', val: String(a.eta_date).slice(0, 10) }] : []),
+              ...(a.eta_date && !['NaT', 'nat', 'null', 'None', 'undefined', ''].includes(String(a.eta_date).trim()) ? [{ label: 'Förväntat leverans', val: String(a.eta_date).slice(0, 10) }] : []),
               ...(a.loc && a.loc !== a.abc && a.loc.length > 1 ? [{ label: 'Lagerplats', val: a.loc }] : []),
               ...(a.recommended_zone && a.suggest_move ? [{ label: 'Rekomm. zon', val: `Zon ${a.recommended_zone}`, highlight: true }] : []),
             ].map((row, i) => (
-              <div key={i} style={{ background: row.highlight ? '#3b82f618' : '#1a1f2e', borderRadius: 6, padding: '8px 10px', border: row.highlight ? '1px solid #3b82f640' : 'none' }}>
+              <div key={i} style={{ background: row.highlight ? '#3b82f618' : '#1e293b', borderRadius: 6, padding: '8px 10px', border: row.highlight ? '1px solid #3b82f640' : 'none' }}>
                 <div style={{ fontSize: 10, color: '#64748b', marginBottom: 2 }}>{row.label}</div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: row.highlight ? '#60a5fa' : '#f1f5f9' }}>{row.val}</div>
               </div>
             ))}
           </div>
         </div>
+
+        {/* Action recommendation */}
         {(a.status === 'CRITICAL' || a.status === 'WATCH' || a.status === 'OVERSTOCK' || a.status === 'DEAD_STOCK') && (
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid #1a1f2e' }}>
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b' }}>
             <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>REKOMMENDERAD ÅTGÄRD</div>
-            <div style={{ padding: '10px 14px', background: statusColor(a.status)+'18', border: `1px solid ${statusColor(a.status)}30`, borderRadius: 8, fontSize: 13, color: '#f1f5f9', lineHeight: 1.6 }}>
+            <div style={{ padding: '10px 14px', background: statusColor(a.status) + '18', border: `1px solid ${statusColor(a.status)}30`, borderRadius: 8, fontSize: 13, color: '#f1f5f9', lineHeight: 1.6 }}>
               {a.status === 'CRITICAL' && `Beställ ${fmt(a.order_qty || Math.ceil((lt * 2 - cov) * (a.demand_per_day || 1)))} st omgående. Täcktiden är under ledtid — risk för lagerbrist.`}
               {a.status === 'WATCH' && `Planera inköp inom kort. ${a.order_qty > 0 ? `Föreslaget antal: ${fmt(a.order_qty)} st.` : 'Täcktiden närmar sig kritisk gräns.'}`}
               {a.status === 'OVERSTOCK' && `Pausa inköp. Täcktiden är ${fmtDays(cov)} — överväg utförsäljning eller omfördelning.`}
@@ -1215,15 +1036,25 @@ function ArticleDetailPanel({ article, onClose }) {
             </div>
           </div>
         )}
-        <div style={{ padding: '16px 20px', flex: 1 }}>
-          <div style={{ fontSize: 10, color: '#a78bfa', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>✦</span> AI-ANALYS
-            {loadingAI && <div style={{ width: 10, height: 10, border: '2px solid #334155', borderTopColor: '#a78bfa', borderRadius: '50%', animation: 'spin 0.8s linear infinite', marginLeft: 4 }} />}
-            <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-          </div>
-          {loadingAI && <div style={{ color: '#475569', fontSize: 13, fontStyle: 'italic' }}>Analyserar…</div>}
-          {!loadingAI && explanation && <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.7, borderLeft: '3px solid #a78bfa', paddingLeft: 12 }}>{explanation}</div>}
-          {!loadingAI && !explanation && <div style={{ color: '#475569', fontSize: 12 }}>Ingen AI-analys tillgänglig.</div>}
+
+        {/* AI explanation */}
+        <div style={{ padding: '16px 20px', flex: 1, minHeight: 0 }}>
+          <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>✦ AI-ANALYS</div>
+          {loadingAI && (
+            <div style={{ color: '#64748b', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 12, height: 12, border: '2px solid #334155', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+              Analyserar artikel…
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          )}
+          {!loadingAI && explanation && (
+            <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.7, borderLeft: '3px solid #6366f1', paddingLeft: 12 }}>
+              {explanation}
+            </div>
+          )}
+          {!loadingAI && !explanation && (
+            <div style={{ fontSize: 12, color: '#475569' }}>Ingen AI-analys tillgänglig.</div>
+          )}
         </div>
       </div>
     </div>
@@ -1235,7 +1066,7 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
   const [filter, setFilter] = useState('Alla');
   const [abcFilter, setAbcFilter] = useState('Alla');
   const [search, setSearch] = useState('');
-  const [editingLedtid, setEditingLedtid] = useState(null);
+  const [editingLedtid, setEditingLedtid] = useState(null); // article id
   const [editVal, setEditVal] = useState('');
   const [selectedArticle, setSelectedArticle] = useState(null);
 
@@ -1244,88 +1075,132 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
     setEditingLedtid(a.article);
     setEditVal(String(Math.round(a.lead_time_days ?? 14)));
   };
+
   const commitLedtid = (articleId) => {
     const days = parseInt(editVal, 10);
-    if (!isNaN(days) && days > 0 && days <= 730) onLedtidChange(articleId, days);
+    if (!isNaN(days) && days > 0 && days <= 730) {
+      onLedtidChange(articleId, days);
+    }
     setEditingLedtid(null);
   };
-
   const statusFilters = ['Alla', 'KRITISK', 'BEVAKA', 'OK', 'ÖVERLAGER'];
   const abcFilters = ['Alla', 'A', 'B', 'C'];
   const filtered = articles?.filter(a => {
     const matchStatus = filter === 'Alla' ||
-      (filter === 'KRITISK' && a.status === 'CRITICAL') || (filter === 'BEVAKA' && a.status === 'WATCH') ||
-      (filter === 'OK' && a.status === 'OK') || (filter === 'ÖVERLAGER' && a.status === 'OVERSTOCK');
+      (filter === 'KRITISK' && a.status === 'CRITICAL') ||
+      (filter === 'BEVAKA' && a.status === 'WATCH') ||
+      (filter === 'OK' && a.status === 'OK') ||
+      (filter === 'ÖVERLAGER' && a.status === 'OVERSTOCK');
     const matchAbc = abcFilter === 'Alla' || a.abc === abcFilter;
     const matchSearch = !search || a.name?.toLowerCase().includes(search.toLowerCase()) || a.article?.toLowerCase().includes(search.toLowerCase());
     return matchStatus && matchAbc && matchSearch;
   }) || [];
-
   return (
     <div>
       {selectedArticle && <ArticleDetailPanel article={selectedArticle} onClose={() => setSelectedArticle(null)} />}
       <div className="table-filters">
         <input className="search-input" placeholder="Sök på artikelnamn eller ID..." value={search} onChange={e => setSearch(e.target.value)} />
-        <div className="filter-group">{statusFilters.map(f => <button key={f} className={`filter-btn ${filter === f ? 'active' : ''}`} onClick={() => { setFilter(f); setSelectedArticle(null); }}>{f}</button>)}</div>
-        <div className="filter-group">{abcFilters.map(f => <button key={f} className={`filter-btn ${abcFilter === f ? 'active' : ''}`} onClick={() => { setAbcFilter(f); setSelectedArticle(null); }}>{f}</button>)}</div>
+        <div className="filter-group">
+          {statusFilters.map(f => (
+            <button key={f} className={`filter-btn ${filter === f ? 'active' : ''}`} onClick={() => { setFilter(f); setSelectedArticle(null); }}>{f}</button>
+          ))}
+        </div>
+        <div className="filter-group">
+          {abcFilters.map(f => (
+            <button key={f} className={`filter-btn ${abcFilter === f ? 'active' : ''}`} onClick={() => { setAbcFilter(f); setSelectedArticle(null); }}>{f}</button>
+          ))}
+        </div>
         {onResetLedtider && (
-          <button onClick={onResetLedtider} style={{ background: 'transparent', border: '1px solid #a78bfa44', color: '#a78bfa', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 600, marginLeft: 'auto', whiteSpace: 'nowrap' }}>
+          <button onClick={onResetLedtider} style={{
+            background: 'transparent', border: '1px solid #6366f144', color: '#6366f1',
+            borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 600,
+            marginLeft: 'auto', whiteSpace: 'nowrap'
+          }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#6366f118'; e.currentTarget.style.borderColor = '#6366f1'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = '#6366f144'; }}
+          >
             ↺ Återställ ledtider ({Object.keys(ledtidOverrides).length})
           </button>
         )}
       </div>
-      {filtered.length === 0 && search && <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text2)', fontSize: 14 }}>Ingen artikel matchar "{search}"</div>}
-      {filtered.length > 0 && (
-        <table className="article-table">
-          <thead>
-            <tr>
-              <th>ARTIKEL</th><th>KLASS</th><th>SALDO</th><th>TÄCKTID</th>
-              {onLedtidChange && <th>LEDTID <span style={{fontSize:9,color:'#475569'}}>✎</span></th>}
-              <th>STATUS</th><th>ÅTGÄRD</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(search ? filtered : filtered.slice(0, 100)).map((a, i) => (
-              <React.Fragment key={i}>
-                <tr style={{ cursor: 'pointer' }} onClick={() => setSelectedArticle(a)} title="Klicka för detaljer">
-                  <td><div className="art-name">{a.name}</div><div className="art-id">{a.article}</div></td>
-                  <td><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}{a.xyz ? `/${a.xyz}` : ''}</span></td>
-                  <td>{fmt(a.stock)}</td>
-                  <td style={{ color: a.status === 'CRITICAL' ? '#ef4444' : a.status === 'WATCH' ? '#f97316' : '#94a3b8' }}>{fmtDays(a.coverage_days)}</td>
-                  {onLedtidChange && (
-                    <td onClick={e => e.stopPropagation()}>
-                      {editingLedtid === a.article ? (
-                        <input autoFocus type="number" min="1" max="730" value={editVal}
-                          onChange={e => setEditVal(e.target.value)}
-                          onBlur={() => commitLedtid(a.article)}
-                          onKeyDown={e => { if (e.key === 'Enter') commitLedtid(a.article); if (e.key === 'Escape') setEditingLedtid(null); }}
-                          style={{ width: 54, background: '#1a1f2e', border: '1px solid #a78bfa', borderRadius: 4, color: '#f1f5f9', fontSize: 12, padding: '2px 6px', textAlign: 'center' }} />
-                      ) : (
-                        <span onClick={() => handleLedtidClick(a)} title="Klicka för att redigera ledtid"
-                          style={{ cursor: 'pointer', color: ledtidOverrides[a.article] ? '#a78bfa' : '#64748b', fontSize: 12, borderBottom: '1px dashed #334155', paddingBottom: 1, fontWeight: ledtidOverrides[a.article] ? 700 : 400 }}>
-                          {Math.round(a.lead_time_days ?? 14)}d
-                          {ledtidOverrides[a.article] && <span style={{ fontSize: 9, marginLeft: 3, color: '#a78bfa' }}>✎</span>}
-                        </span>
-                      )}
-                    </td>
-                  )}
-                  <td><span className="status-chip" style={{ background: statusColor(a.status)+'22', color: statusColor(a.status), border: `1px solid ${statusColor(a.status)}44` }}>{statusLabel(a.status)}</span></td>
-                  <td className="action-cell">
-                    {a.order_qty > 0 && <span className="action-pill order">Beställ {fmt(a.order_qty)} st</span>}
-                    {hasLoc && a.suggest_move && <span className="action-pill move">Flytta → Zon {a.recommended_zone}</span>}
-                    {a.status === 'OK' && !a.order_qty && !a.suggest_move && <span className="action-pill ok">OK</span>}
-                  </td>
-                </tr>
-                {showExplanation && a.explanation && (
-                  <tr className="explanation-row"><td colSpan={6}><span className="explanation">{a.explanation}</span></td></tr>
-                )}
-              </React.Fragment>
-            ))}
-          </tbody>
-        </table>
+      {filtered.length === 0 && search && (
+        <div style={{ padding: '32px', textAlign: 'center', color: 'var(--color-muted)', fontSize: 14 }}>
+          Ingen artikel matchar "<strong>{search}</strong>" — prova artikelnummer eller delar av namnet.
+        </div>
       )}
-      {!search && filtered.length > 100 && <p className="table-more">Visar 100 av {filtered.length} artiklar — sök för att hitta specifik artikel</p>}
-      {search && filtered.length > 0 && <p className="table-more">Visar {filtered.length} träff{filtered.length !== 1 ? 'ar' : ''} på "{search}"</p>}
+      {filtered.length > 0 && (
+      <table className="article-table">
+        <thead>
+          <tr>
+            <th>ARTIKEL</th><th>KLASS</th><th>SALDO</th><th>TÄCKTID</th>
+            {onLedtidChange && <th title="Klicka på ledtid för att redigera">LEDTID <span style={{fontSize:9,color:'#475569'}}>✎</span></th>}
+            <th>STATUS</th><th>ÅTGÄRD</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(search ? filtered : filtered.slice(0, 100)).map((a, i) => (
+            <React.Fragment key={i}>
+              <tr
+                style={{ cursor: 'pointer' }}
+                onClick={() => setSelectedArticle(a)}
+                onMouseEnter={e => { e.currentTarget.style.background = '#1a2235'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = ''; }}
+                title="Klicka för detaljer"
+              >
+                <td><div className="art-name">{a.name}</div><div className="art-id">{a.article}</div></td>
+                <td><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}{a.xyz ? `/${a.xyz}` : ''}</span></td>
+                <td>{fmt(a.stock)}</td>
+                <td style={{ color: a.status === 'CRITICAL' ? '#ef4444' : a.status === 'WATCH' ? '#f97316' : '#94a3b8' }}>{fmtDays(a.coverage_days)}</td>
+                {onLedtidChange && (
+                  <td onClick={e => e.stopPropagation()}>
+                    {editingLedtid === a.article ? (
+                      <input
+                        autoFocus
+                        type="number"
+                        min="1" max="730"
+                        value={editVal}
+                        onChange={e => setEditVal(e.target.value)}
+                        onBlur={() => commitLedtid(a.article)}
+                        onKeyDown={e => { if (e.key === 'Enter') commitLedtid(a.article); if (e.key === 'Escape') setEditingLedtid(null); }}
+                        style={{ width: 54, background: '#1e293b', border: '1px solid #6366f1', borderRadius: 4, color: '#f1f5f9', fontSize: 12, padding: '2px 6px', textAlign: 'center' }}
+                      />
+                    ) : (
+                      <span
+                        onClick={() => handleLedtidClick(a)}
+                        title="Klicka för att redigera ledtid"
+                        style={{
+                          cursor: 'pointer', color: ledtidOverrides[a.article] ? '#6366f1' : '#64748b',
+                          fontSize: 12, borderBottom: '1px dashed #334155', paddingBottom: 1,
+                          fontWeight: ledtidOverrides[a.article] ? 700 : 400,
+                        }}
+                      >
+                        {Math.round(a.lead_time_days ?? 14)}d
+                        {ledtidOverrides[a.article] && <span style={{ fontSize: 9, marginLeft: 3, color: '#6366f1' }}>✎</span>}
+                      </span>
+                    )}
+                  </td>
+                )}
+                <td><span className="status-chip" style={{ background: statusColor(a.status) + '22', color: statusColor(a.status), border: `1px solid ${statusColor(a.status)}44` }}>{statusLabel(a.status)}</span></td>
+                <td className="action-cell">
+                  {a.order_qty > 0 && <span className="action-pill order">Beställ {fmt(a.order_qty)} st</span>}
+                  {hasLoc && a.suggest_move && <span className="action-pill move">Flytta → Zon {a.recommended_zone}</span>}
+                  {a.status === 'OK' && !a.order_qty && !a.suggest_move && <span className="action-pill ok">OK</span>}
+                </td>
+              </tr>
+              {showExplanation && a.explanation && (
+                <tr className="explanation-row"><td colSpan={6}><span className="explanation">{a.explanation}</span></td></tr>
+              )}
+            </React.Fragment>
+          ))}
+        </tbody>
+      </table>
+      )}
+      {!search && filtered.length > 100 && (
+        <p className="table-more">Visar 100 av {filtered.length} artiklar — sök på artikelnummer eller namn för att hitta en specifik artikel</p>
+      )}
+      {search && filtered.length > 0 && (
+        <p className="table-more">Visar {filtered.length} träff{filtered.length !== 1 ? 'ar' : ''} på "{search}"</p>
+      )}
     </div>
   );
 }
@@ -1335,6 +1210,7 @@ function PurchasingTab({ data }) {
   const { summary, articles } = data;
   const hasCost = summary.has_cost_data;
   const toOrder = articles?.filter(a => a.order_qty > 0).sort((a, b) => {
+    // Sort: CRITICAL first, then by days_until_reorder asc, then value desc
     const statusPriority = { CRITICAL: 0, WATCH: 1 };
     const sp = (statusPriority[a.status] ?? 2) - (statusPriority[b.status] ?? 2);
     if (sp !== 0) return sp;
@@ -1366,97 +1242,204 @@ function PurchasingTab({ data }) {
 
   const critical = toOrder.filter(a => a.status === 'CRITICAL');
   const watch = toOrder.filter(a => a.status === 'WATCH');
-  const urgColor = (daysLeft) => daysLeft <= 0 ? '#ef4444' : daysLeft <= 3 ? '#f97316' : daysLeft <= 7 ? '#eab308' : '#22c55e';
+  const criticalNoOrder = articles?.filter(a => a.status === 'CRITICAL' && !(a.order_qty > 0)).sort((a, b) =>
+    (a.coverage_days ?? 999) - (b.coverage_days ?? 999)
+  ) || [];
+  const filtered = toOrder.filter(a =>
+    (abcFilter === 'Alla' || a.abc === abcFilter) &&
+    (!search || a.article?.toLowerCase().includes(search.toLowerCase()) || a.name?.toLowerCase().includes(search.toLowerCase()))
+  );
 
-  const filterRow = (a) => (abcFilter === 'Alla' || a.abc === abcFilter) && (!search || a.article?.toLowerCase().includes(search.toLowerCase()) || a.name?.toLowerCase().includes(search.toLowerCase()));
+  const urgColor = (daysLeft) => daysLeft <= 0 ? '#ef4444' : daysLeft <= 3 ? '#f97316' : daysLeft <= 7 ? '#eab308' : '#22c55e';
 
   return (
     <div className="tab-content">
       <style>{`
         .purch-kpi { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 16px; }
         .purch-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
-        .purch-search { flex: 1; min-width: 160px; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; color: var(--text); font-size: 13px; outline: none; }
-        .purch-search:focus { border-color: var(--blue); }
+        .purch-search { flex: 1; min-width: 160px; background: var(--color-surface); border: 1px solid var(--color-border);
+          border-radius: 6px; padding: 6px 10px; color: var(--color-text); font-size: 13px; outline: none; }
+        .purch-search:focus { border-color: #3b82f6; }
         .purch-filters { display: flex; gap: 4px; }
-        .purch-filter-btn { padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg2); color: var(--text2); font-size: 12px; font-weight: 600; cursor: pointer; }
-        .purch-filter-btn.active { background: var(--text); color: var(--bg); border-color: var(--text); }
-        .purch-section-label { font-size: 11px; font-weight: 700; letter-spacing: .07em; color: var(--text2); text-transform: uppercase; padding: 10px 0 6px; display: flex; align-items: center; gap: 8px; }
+        .purch-filter-btn { padding: 5px 12px; border-radius: 6px; border: 1px solid var(--color-border);
+          background: var(--color-surface); color: var(--color-muted); font-size: 12px; font-weight: 600;
+          cursor: pointer; letter-spacing: .04em; }
+        .purch-filter-btn.active { background: var(--color-text); color: var(--color-bg); border-color: var(--color-text); }
+        .purch-section-label { font-size: 11px; font-weight: 700; letter-spacing: .07em; color: var(--color-muted);
+          text-transform: uppercase; padding: 10px 0 6px; display: flex; align-items: center; gap: 8px; }
         .purch-section-label span { padding: 1px 7px; border-radius: 10px; font-size: 10px; }
-        .purch-row { display: grid; grid-template-columns: 36px 1fr 44px 70px 70px 80px 80px ${hasCost ? '80px ' : ''}90px; align-items: center; gap: 0 8px; padding: 7px 10px; border-radius: 7px; border-bottom: 1px solid var(--border); transition: background 0.1s; font-size: 13px; }
-        .purch-row:hover { background: var(--bg3); }
-        .purch-col-hdr { display: grid; grid-template-columns: 36px 1fr 44px 70px 70px 80px 80px ${hasCost ? '80px ' : ''}90px; gap: 0 8px; padding: 0 10px 6px; font-size: 10px; font-weight: 700; letter-spacing: .06em; color: var(--text2); text-transform: uppercase; }
+        .purch-row { display: grid; grid-template-columns: 36px 1fr 44px 70px 70px 80px 80px ${hasCost ? '80px ' : ''}90px;
+          align-items: center; gap: 0 8px; padding: 7px 10px; border-radius: 7px;
+          border-bottom: 1px solid var(--color-border); transition: background 0.1s; font-size: 13px; }
+        .purch-row:hover { background: var(--color-surface); }
+        .purch-row:last-child { border-bottom: none; }
         .purch-urgency-bar { width: 4px; height: 28px; border-radius: 2px; flex-shrink: 0; }
+        .purch-col-hdr { display: grid; grid-template-columns: 36px 1fr 44px 70px 70px 80px 80px ${hasCost ? '80px ' : ''}90px;
+          gap: 0 8px; padding: 0 10px 6px; font-size: 10px; font-weight: 700; letter-spacing: .06em;
+          color: var(--color-muted); text-transform: uppercase; }
+        .purch-art-id { font-size: 11px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+        .purch-art-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .purch-qty { font-weight: 700; color: var(--color-text); font-variant-numeric: tabular-nums; }
+        .purch-val { font-variant-numeric: tabular-nums; color: var(--color-muted); }
+        .purch-days { font-variant-numeric: tabular-nums; font-weight: 600; }
         .purch-status-chip { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; letter-spacing: .04em; white-space: nowrap; }
+        @media (max-width: 900px) {
+          .purch-row, .purch-col-hdr { grid-template-columns: 8px 1fr 44px 70px 80px; }
+          .purch-row > *:nth-child(5), .purch-row > *:nth-child(6), .purch-row > *:nth-child(7),
+          .purch-col-hdr > *:nth-child(5), .purch-col-hdr > *:nth-child(6), .purch-col-hdr > *:nth-child(7) { display: none; }
+        }
       `}</style>
 
-      {!hasCost && <div className="info-banner"><Icon name="info" size={16} />Inköpspris saknas — ordervärden kan inte beräknas.</div>}
+      {!hasCost && (
+        <div className="info-banner">
+          <Icon name="info" size={16} />
+          Inköpspris saknas — ordervärden kan inte beräknas. Lägg till kolumnen <code>cost</code> för fullständig analys.
+        </div>
+      )}
 
       <div className="purch-kpi">
-        <KpiCard label="ATT BESTÄLLA" value={fmt(summary.articles_to_order)} sub={`${summary.critical} kritiska · ${summary.watch} bevakas`} color="#f97316" />
-        <KpiCard label="TOTALT ORDERVÄRDE" value={hasCost ? fmtKr(summary.total_order_value_sek) : null} missingReason={!hasCost ? 'Kräver inköpspris i filen' : null} color="#3b82f6" />
-        <KpiCard label="SNITT PER ORDER" value={hasCost ? fmtKr(Math.round(summary.total_order_value_sek / Math.max(summary.articles_to_order, 1))) : null} missingReason={!hasCost ? 'Kräver inköpspris i filen' : null} color="#8b5cf6" />
+        <KpiCard label="ATT BESTÄLLA" value={fmt(summary.articles_to_order)}
+          sub={`${summary.critical} kritiska · ${summary.watch} bevakas`} color="#f97316" />
+        <KpiCard label="TOTALT ORDERVÄRDE"
+          value={hasCost ? fmtKr(summary.total_order_value_sek) : null}
+          missingReason={!hasCost ? 'Kräver inköpspris i filen' : null} color="#3b82f6" />
+        <KpiCard label="SNITT PER ORDER"
+          value={hasCost ? fmtKr(Math.round(summary.total_order_value_sek / Math.max(summary.articles_to_order, 1))) : null}
+          missingReason={!hasCost ? 'Kräver inköpspris i filen' : null} color="#8b5cf6" />
       </div>
 
+      {/* Toolbar */}
       <div className="purch-toolbar">
         <input className="purch-search" placeholder="Sök artikel..." value={search} onChange={e => setSearch(e.target.value)} />
-        <div className="purch-filters">{['Alla','A','B','C'].map(f => <button key={f} className={`purch-filter-btn${abcFilter===f?' active':''}`} onClick={() => setAbcFilter(f)}>{f}</button>)}</div>
-        <button className="export-btn" onClick={handleExport} disabled={exporting} style={{ background: '#3b82f6', color: '#fff', borderColor: '#3b82f6', fontWeight: 600, marginLeft: 'auto' }}>
-          <Icon name="download" size={14} />{exporting ? 'Exporterar...' : 'Exportera .xlsx'}
+        <div className="purch-filters">
+          {['Alla','A','B','C'].map(f => (
+            <button key={f} className={`purch-filter-btn${abcFilter===f?' active':''}`} onClick={() => setAbcFilter(f)}>{f}</button>
+          ))}
+        </div>
+        <button className="export-btn" onClick={handleExport} disabled={exporting}
+          style={{ background: '#3b82f6', color: '#fff', borderColor: '#3b82f6', fontWeight: 600, marginLeft: 'auto' }}>
+          <Icon name="download" size={14} />
+          {exporting ? 'Exporterar...' : 'Exportera .xlsx'}
         </button>
       </div>
 
+      {/* Column headers */}
       <div className="purch-col-hdr">
-        <div /><div>Artikel</div><div>ABC</div><div>Täcktid</div><div>Beställ om</div><div>Senast</div><div>Antal</div>{hasCost && <div>Värde</div>}<div>Status</div>
+        <div /> <div>Artikel</div> <div>ABC</div> <div>Täcktid</div> <div>Beställ om</div>
+        <div>Senast</div> <div>Antal</div> {hasCost && <div>Värde</div>} <div>Status</div>
       </div>
 
-      {critical.filter(filterRow).length > 0 && (
+      {/* CRITICAL group */}
+      {critical.filter(a => abcFilter === 'Alla' || a.abc === abcFilter).filter(a => !search || a.article?.toLowerCase().includes(search.toLowerCase()) || a.name?.toLowerCase().includes(search.toLowerCase())).length > 0 && (
         <>
-          <div className="purch-section-label">🔴 Kritiska brister <span style={{ background:'#ef444422',color:'#ef4444' }}>{critical.filter(filterRow).length} artiklar</span></div>
-          {critical.filter(filterRow).map((a, i) => {
+          <div className="purch-section-label">
+            🔴 Kritiska brister
+            <span style={{ background: '#ef444422', color: '#ef4444' }}>
+              {critical.filter(a => abcFilter==='Alla'||a.abc===abcFilter).length} artiklar
+            </span>
+          </div>
+          {critical.filter(a => (abcFilter==='Alla'||a.abc===abcFilter) && (!search||a.article?.toLowerCase().includes(search.toLowerCase())||a.name?.toLowerCase().includes(search.toLowerCase()))).map((a, i) => {
             const daysLeft = a.days_until_reorder ?? 0;
             const uc = urgColor(daysLeft);
             return (
               <div className="purch-row" key={`c${i}`}>
-                <div style={{display:'flex',alignItems:'center'}}><div className="purch-urgency-bar" style={{background:uc}}/></div>
-                <div><div style={{fontSize:13,fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.name||a.article}</div><div style={{fontSize:11,color:'var(--text2)'}}>{a.article}</div></div>
-                <div><span className="abc-chip" style={{background:abcColor(a.abc)}}>{a.abc}</span></div>
-                <div style={{fontSize:13,color:'#ef4444',fontWeight:600}}>{fmtDays(a.coverage_days)}</div>
-                <div style={{fontSize:13,color:uc,fontWeight:600}}>{daysLeft<=0?'Nu':`${daysLeft} d`}</div>
-                <div style={{fontSize:12,color:uc,fontWeight:600}}>{a.reorder_date||'Idag'}</div>
-                <div style={{fontWeight:700}}>{fmt(a.order_qty)} st</div>
-                {hasCost && <div style={{color:'var(--text2)'}}>{fmtKr(a.order_value)}</div>}
-                <div><span className="purch-status-chip" style={{background:'#ef444420',color:'#ef4444'}}>KRITISK</span></div>
+                <div style={{ display:'flex', alignItems:'center' }}>
+                  <div className="purch-urgency-bar" style={{ background: uc }} />
+                </div>
+                <div>
+                  <div className="purch-art-name">{a.name || a.article}</div>
+                  <div className="purch-art-id">{a.article}</div>
+                </div>
+                <div><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}</span></div>
+                <div className="purch-days" style={{ color: '#ef4444' }}>{fmtDays(a.coverage_days)}</div>
+                <div className="purch-days" style={{ color: uc }}>{daysLeft <= 0 ? 'Nu' : `${daysLeft} d`}</div>
+                <div style={{ fontSize: 12, color: uc, fontWeight: 600 }}>{a.reorder_date || 'Idag'}</div>
+                <div className="purch-qty">{fmt(a.order_qty)} st</div>
+                {hasCost && <div className="purch-val">{fmtKr(a.order_value)}</div>}
+                <div><span className="purch-status-chip" style={{ background:'#ef444420', color:'#ef4444' }}>KRITISK</span></div>
               </div>
             );
           })}
         </>
       )}
-      {watch.filter(filterRow).length > 0 && (
+
+      {/* WATCH group */}
+      {watch.filter(a => abcFilter === 'Alla' || a.abc === abcFilter).filter(a => !search || a.article?.toLowerCase().includes(search.toLowerCase()) || a.name?.toLowerCase().includes(search.toLowerCase())).length > 0 && (
         <>
-          <div className="purch-section-label" style={{marginTop:12}}>🟡 Bevaka <span style={{background:'#f9731620',color:'#f97316'}}>{watch.filter(filterRow).length} artiklar</span></div>
-          {watch.filter(filterRow).map((a, i) => {
+          <div className="purch-section-label" style={{ marginTop: 12 }}>
+            🟡 Bevaka — beställ inom kort
+            <span style={{ background: '#f9731620', color: '#f97316' }}>
+              {watch.filter(a => abcFilter==='Alla'||a.abc===abcFilter).length} artiklar
+            </span>
+          </div>
+          {watch.filter(a => (abcFilter==='Alla'||a.abc===abcFilter) && (!search||a.article?.toLowerCase().includes(search.toLowerCase())||a.name?.toLowerCase().includes(search.toLowerCase()))).map((a, i) => {
             const daysLeft = a.days_until_reorder ?? 0;
             const uc = urgColor(daysLeft);
             return (
               <div className="purch-row" key={`w${i}`}>
-                <div style={{display:'flex',alignItems:'center'}}><div className="purch-urgency-bar" style={{background:uc}}/></div>
-                <div><div style={{fontSize:13,fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.name||a.article}</div><div style={{fontSize:11,color:'var(--text2)'}}>{a.article}</div></div>
-                <div><span className="abc-chip" style={{background:abcColor(a.abc)}}>{a.abc}</span></div>
-                <div style={{fontSize:13,color:'#f97316',fontWeight:600}}>{fmtDays(a.coverage_days)}</div>
-                <div style={{fontSize:13,color:uc,fontWeight:600}}>{daysLeft<=0?'Nu':`${daysLeft} d`}</div>
-                <div style={{fontSize:12,color:uc,fontWeight:600}}>{a.reorder_date||'—'}</div>
-                <div style={{fontWeight:700}}>{fmt(a.order_qty)} st</div>
-                {hasCost && <div style={{color:'var(--text2)'}}>{fmtKr(a.order_value)}</div>}
-                <div><span className="purch-status-chip" style={{background:'#f9731620',color:'#f97316'}}>BEVAKA</span></div>
+                <div style={{ display:'flex', alignItems:'center' }}>
+                  <div className="purch-urgency-bar" style={{ background: uc }} />
+                </div>
+                <div>
+                  <div className="purch-art-name">{a.name || a.article}</div>
+                  <div className="purch-art-id">{a.article}</div>
+                </div>
+                <div><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}</span></div>
+                <div className="purch-days" style={{ color: '#f97316' }}>{fmtDays(a.coverage_days)}</div>
+                <div className="purch-days" style={{ color: uc }}>{daysLeft <= 0 ? 'Nu' : `${daysLeft} d`}</div>
+                <div style={{ fontSize: 12, color: uc, fontWeight: 600 }}>{a.reorder_date || '—'}</div>
+                <div className="purch-qty">{fmt(a.order_qty)} st</div>
+                {hasCost && <div className="purch-val">{fmtKr(a.order_value)}</div>}
+                <div><span className="purch-status-chip" style={{ background:'#f9731620', color:'#f97316' }}>BEVAKA</span></div>
               </div>
             );
           })}
         </>
       )}
-      {toOrder.filter(filterRow).length === 0 && <div style={{textAlign:'center',padding:'32px',color:'var(--text2)',fontSize:14}}>Inga artiklar matchar filtret</div>}
+
+      {/* CRITICAL with sufficient stock — monitor section */}
+      {criticalNoOrder.filter(a => abcFilter === 'Alla' || a.abc === abcFilter).filter(a => !search || a.article?.toLowerCase().includes(search.toLowerCase()) || a.name?.toLowerCase().includes(search.toLowerCase())).length > 0 && (
+        <>
+          <div className="purch-section-label" style={{ marginTop: 12 }}>
+            🔴 Kritiska — bevaka manuellt
+            <span style={{ background: '#ef444415', color: '#ef4444' }}>
+              {criticalNoOrder.filter(a => abcFilter==='Alla'||a.abc===abcFilter).length} artiklar
+            </span>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 8, paddingLeft: 4 }}>
+            Kritisk status men lager täcker t.o.m. ledtiden — inget automatiskt orderförslag. Kontrollera manuellt.
+          </div>
+          {criticalNoOrder.filter(a => (abcFilter==='Alla'||a.abc===abcFilter) && (!search||a.article?.toLowerCase().includes(search.toLowerCase())||a.name?.toLowerCase().includes(search.toLowerCase()))).map((a, i) => (
+            <div className="purch-row" key={`cn${i}`} style={{ opacity: 0.75 }}>
+              <div style={{ display:'flex', alignItems:'center' }}>
+                <div className="purch-urgency-bar" style={{ background: '#ef4444', opacity: 0.4 }} />
+              </div>
+              <div>
+                <div className="purch-art-name">{a.name || a.article}</div>
+                <div className="purch-art-id">{a.article}</div>
+              </div>
+              <div><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}</span></div>
+              <div className="purch-days" style={{ color: 'var(--color-muted)' }}>{fmtDays(a.coverage_days)}</div>
+              <div className="purch-days" style={{ color: 'var(--color-muted)' }}>—</div>
+              <div style={{ fontSize: 12, color: 'var(--color-muted)' }}>—</div>
+              <div className="purch-qty" style={{ color: 'var(--color-muted)' }}>—</div>
+              {hasCost && <div className="purch-val">—</div>}
+              <div><span className="purch-status-chip" style={{ background:'#ef444415', color:'#ef4444' }}>BEVAKA</span></div>
+            </div>
+          ))}
+        </>
+      )}
+
+      {filtered.length === 0 && criticalNoOrder.filter(a => abcFilter === 'Alla' || a.abc === abcFilter).length === 0 && (
+        <div style={{ textAlign: 'center', padding: '32px', color: 'var(--color-muted)', fontSize: 14 }}>
+          Inga artiklar matchar filtret
+        </div>
+      )}
     </div>
   );
 }
+
+// ─── SLOTTING TAB ────────────────────────────────────────────────────────
 function SlottingTab({ data }) {
   const { summary, articles } = data;
   const hasLoc = summary.has_location_data;
@@ -1473,6 +1456,11 @@ function SlottingTab({ data }) {
   if (hasLoc) {
     // ── Zonkarta-data ──
     const zones = ['A', 'B', 'C'];
+    const zoneConfig = {
+      A: { label: 'Zon A — Guldzon', sub: 'Nära plockytan', color: '#22c55e', dimColor: '#14532d', textColor: '#bbf7d0', icon: '⚡' },
+      B: { label: 'Zon B — Silverzon', sub: 'Mittenlagret', color: '#f59e0b', dimColor: '#451a03', textColor: '#fde68a', icon: '📦' },
+      C: { label: 'Zon C — Bronszon', sub: 'Bakre lagret', color: '#6b7280', dimColor: '#1c1917', textColor: '#d1d5db', icon: '🗄️' },
+    };
     const zoneStats = {};
     zones.forEach(z => {
       const inZone = articles?.filter(a => String(a.loc || '').toUpperCase().startsWith(z)) || [];
@@ -1765,7 +1753,7 @@ function SlottingTab({ data }) {
         </div>
 
         <div style={{
-          background: '#141720', border: '1px solid #1a1f2e', borderRadius: 12,
+          background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12,
           padding: '20px 24px', width: '100%', textAlign: 'left'
         }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', letterSpacing: '0.1em', marginBottom: 14 }}>
@@ -1781,7 +1769,7 @@ function SlottingTab({ data }) {
                 <div>
                   <div style={{ fontSize: 13, color: '#f1f5f9', fontWeight: 600 }}>{r.field}</div>
                   <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                    T.ex.: <code style={{ background: '#1a1f2e', padding: '1px 5px', borderRadius: 3 }}>{r.example}</code>
+                    T.ex.: <code style={{ background: '#1e293b', padding: '1px 5px', borderRadius: 3 }}>{r.example}</code>
                   </div>
                   <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>{r.why}</div>
                 </div>
@@ -1791,7 +1779,7 @@ function SlottingTab({ data }) {
         </div>
 
         <div style={{
-          background: '#141720', border: '1px solid #1a1f2e', borderRadius: 12,
+          background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12,
           padding: '20px 24px', width: '100%', textAlign: 'left'
         }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', letterSpacing: '0.1em', marginBottom: 14 }}>
@@ -1916,35 +1904,59 @@ function CapitalTab({ data }) {
 }
 
 // ─── ABC/XYZ TAB — KOMPAKT NETSTOCK-STIL ─────────────────────────────────
+
+// Estimerar XYZ lokalt när månadsdata saknas:
+// X = stabil efterfrågan (OK, jämn demand)
+// Y = varierande (WATCH eller demand men låg täckt)
+// Z = oregelbunden (DEAD_STOCK, OVERSTOCK, noll demand med lager, CRITICAL med hög variation)
+function estimateXyz(a) {
+  if (!a) return 'Z';
+  const s = a.status;
+  if (s === 'DEAD_STOCK' || s === 'OVERSTOCK') return 'Z';
+  if (s === 'CRITICAL') {
+    // CRITICAL A-artiklar är troligtvis Y (viktiga men riskerar slut), C är Z
+    return a.abc === 'C' ? 'Z' : 'Y';
+  }
+  if (s === 'WATCH') return 'Y';
+  if (s === 'OK' && (a.demand_per_day ?? 0) > 0) return 'X';
+  return 'Z'; // okänd/noll demand
+}
+
 function AbcXyzTab({ data }) {
   const { articles, summary } = data;
   const hasCost = summary.has_cost_data;
   const xyzAvailable = summary.xyz_available === true;
   const [selectedCell, setSelectedCell] = React.useState(null);
 
+  // ── Artiklar berikade med estimerad xyz om backend-xyz saknas ──
+  const enrichedArticles = React.useMemo(() => {
+    if (xyzAvailable) return articles || [];
+    return (articles || []).map(a => ({ ...a, xyz: a.xyz || estimateXyz(a) }));
+  }, [articles, xyzAvailable]);
+
   // ── Matrisdata ──
   const matrix = {};
   ['A','B','C'].forEach(abc => {
     ['X','Y','Z'].forEach(xyz => {
       const key = abc + xyz;
-      const arts = articles?.filter(a => a.abc === abc && a.xyz === xyz) || [];
+      const arts = enrichedArticles.filter(a => a.abc === abc && a.xyz === xyz);
       const value = arts.reduce((s, a) => s + (a.stock_value || a.annual_value || 0), 0);
       const critical = arts.filter(a => a.status === 'CRITICAL').length;
       matrix[key] = { arts, count: arts.length, value, critical };
     });
   });
 
-  // ── ABC-only ──
+  // ── ABC summering ──
   const abcGroups = {};
   ['A','B','C'].forEach(abc => {
-    const arts = articles?.filter(a => a.abc === abc) || [];
+    const arts = enrichedArticles.filter(a => a.abc === abc);
     const value = arts.reduce((s, a) => s + (a.stock_value || a.annual_value || 0), 0);
     const critical = arts.filter(a => a.status === 'CRITICAL').length;
     abcGroups[abc] = { arts, count: arts.length, value, critical };
   });
 
-  const totalArticles = articles?.length || 1;
-  const totalValue = articles?.reduce((s, a) => s + (a.stock_value || a.annual_value || 0), 0) || 1;
+  const totalArticles = enrichedArticles.length || 1;
+  const totalValue = enrichedArticles.reduce((s, a) => s + (a.stock_value || a.annual_value || 0), 0) || 1;
 
   const abcColor2 = { A: '#22c55e', B: '#f59e0b', C: '#6b7280' };
   const xyzColor  = { X: '#22c55e', Y: '#f59e0b', Z: '#ef4444' };
@@ -1957,27 +1969,19 @@ function AbcXyzTab({ data }) {
     CX: 'Massbeställ',         CY: 'Årlig granskning',       CZ: 'Avveckla',
   };
 
-  // Artiklar för vald cell/klass
-  const selectedArts = selectedCell
-    ? (xyzAvailable ? (matrix[selectedCell]?.arts || []) : (abcGroups[selectedCell]?.arts || []))
-    : [];
+  // Artiklar för vald cell
+  const selectedArts = selectedCell ? (matrix[selectedCell]?.arts || []) : [];
 
   // Insights
   const insights = [];
-  if (xyzAvailable) {
-    const ax = matrix['AX'] || {};
-    const az = matrix['AZ'] || {};
-    const cz = matrix['CZ'] || {};
-    if (ax.count > 0) insights.push({ color: '#22c55e', icon: '⭐', text: `${ax.count} AX — automatisera inköpen, stabila A-artiklar` });
-    if (az.count > 0) insights.push({ color: '#f97316', icon: '⚠️', text: `${az.count} AZ — högt värde men oregelbunden, manuell styrning krävs` });
-    if (cz.count > 0) insights.push({ color: '#6b7280', icon: '🗑️', text: `${cz.count} CZ — avvecklingskandidater, lågt värde och oregelbunden` });
-  } else {
-    const a = abcGroups['A'] || {};
-    const pctVal = totalValue > 0 ? Math.round((a.value / totalValue) * 100) : 0;
-    if (a.count > 0) insights.push({ color: '#22c55e', icon: '⭐', text: `${a.count} A-artiklar binder ${pctVal}% av kapitalet — ${a.critical || 0} kritiska` });
-    const c = abcGroups['C'] || {};
-    if (c.count > 0) insights.push({ color: '#6b7280', icon: '📦', text: `${c.count} C-artiklar — ${Math.round((c.count/totalArticles)*100)}% av sortimentet, låg prioritet` });
-  }
+  const ax = matrix['AX'] || {};
+  const az = matrix['AZ'] || {};
+  const cz = matrix['CZ'] || {};
+  const bz = matrix['BZ'] || {};
+  if (ax.count > 0) insights.push({ color: '#22c55e', icon: '⭐', text: `${ax.count} AX — automatisera inköpen, stabila A-artiklar` });
+  if (az.count > 0) insights.push({ color: '#f97316', icon: '⚠️', text: `${az.count} AZ — högt värde men oregelbunden, manuell styrning krävs` });
+  if (bz.count > 0) insights.push({ color: '#f59e0b', icon: '📊', text: `${bz.count} BZ — behovsstyrd inköpsstrategi rekommenderas` });
+  if (cz.count > 0) insights.push({ color: '#6b7280', icon: '🗑️', text: `${cz.count} CZ — avvecklingskandidater, lågt värde och oregelbunden` });
 
   return (
     <div className="tab-content" style={{ paddingTop: 0 }}>
@@ -2002,117 +2006,75 @@ function AbcXyzTab({ data }) {
       `}</style>
 
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '12px 0 16px' }}>
-        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: 'var(--color-text)' }}>
-          {xyzAvailable ? 'ABC/XYZ-matris' : 'ABC-klassificering'}
-        </h3>
-        <span style={{ fontSize: 12, color: 'var(--color-muted)' }}>
-          {xyzAvailable ? 'Klicka cell för artiklar och strategi' : 'Lägg till månadsdata för XYZ-analys'}
-        </span>
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: 'var(--color-text)' }}>ABC/XYZ-matris</h3>
+        <span style={{ fontSize: 12, color: 'var(--color-muted)' }}>Klicka cell för artiklar och strategi</span>
+        {!xyzAvailable && (
+          <span style={{ fontSize: 11, background: '#f59e0b22', color: '#f59e0b', border: '1px solid #f59e0b44', borderRadius: 5, padding: '1px 7px', fontWeight: 600 }}>Estimerad</span>
+        )}
       </div>
 
       <div className="abcxyz-grid">
         {/* ── VÄNSTER: Matris + artikellista ── */}
         <div>
-          {/* XYZ saknas-banner */}
+          {/* Estimerad-banner */}
           {!xyzAvailable && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderLeft: '3px solid #3b82f6', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: 'var(--color-muted)' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: '#f59e0b0a', border: '1px solid #f59e0b33', borderLeft: '3px solid #f59e0b', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: 'var(--color-muted)' }}>
               <Icon name="info" size={14} />
-              <span>Lägg till månadskolumner (jan…dec) för XYZ-analys och komplett 9-cellsmatris.</span>
+              <span>XYZ estimeras från lagerstatus (OK→X, Bevaka→Y, Dött/Överlager→Z). Lägg till <b style={{ color: 'var(--color-text)' }}>månadskolumner jan–dec</b> i filen för exakt variabilitetsanalys.</span>
             </div>
           )}
 
           {/* ── MATRIS ── */}
-          {xyzAvailable ? (
-            <table className="abc-matrix-table">
-              <thead>
-                <tr>
-                  <th style={{ color: 'var(--color-muted)', textAlign: 'left', width: 32 }}></th>
-                  {['X','Y','Z'].map(xyz => (
-                    <th key={xyz} style={{ color: xyzColor[xyz] }}>
-                      {xyz} <span style={{ color: 'var(--color-muted)', fontWeight: 400 }}>— {xyzLabel[xyz]}</span>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {['A','B','C'].map(abc => (
-                  <tr key={abc}>
-                    <td style={{ fontSize: 13, fontWeight: 800, color: abcColor2[abc], padding: '4px 8px 4px 0', verticalAlign: 'middle' }}>{abc}</td>
-                    {['X','Y','Z'].map(xyz => {
-                      const key = abc + xyz;
-                      const cell = matrix[key] || { count: 0, value: 0, critical: 0 };
-                      const isSelected = selectedCell === key;
-                      const hasData = cell.count > 0;
-                      const bg = abc === 'A' ? `${abcColor2.A}` : abc === 'B' ? `${abcColor2.B}` : `${abcColor2.C}`;
-                      return (
-                        <td key={xyz}>
-                          <div
-                            className={`abc-matrix-cell${isSelected ? ' selected' : ''}${!hasData ? ' empty' : ''}`}
-                            style={{
-                              background: `${bg}${isSelected ? '22' : '11'}`,
-                              color: abcColor2[abc],
-                              borderColor: isSelected ? abcColor2[abc] : 'transparent',
-                            }}
-                            onClick={() => hasData && setSelectedCell(isSelected ? null : key)}
-                          >
-                            <div style={{ fontSize: 22, fontWeight: 900, lineHeight: 1 }}>{cell.count}</div>
-                            <div style={{ fontSize: 10, color: 'var(--color-muted)', marginTop: 2 }}>
-                              {hasData ? `${Math.round((cell.count/totalArticles)*100)}% av art.` : '—'}
-                            </div>
-                            {hasCost && cell.value > 0 && (
-                              <div style={{ fontSize: 11, fontWeight: 600, marginTop: 3 }}>{fmtKr(cell.value)}</div>
-                            )}
-                            {cell.critical > 0 && (
-                              <div style={{ fontSize: 10, color: '#ef4444', marginTop: 2, fontWeight: 700 }}>⚠ {cell.critical} krit.</div>
-                            )}
-                          </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
+          <table className="abc-matrix-table">
+            <thead>
+              <tr>
+                <th style={{ color: 'var(--color-muted)', textAlign: 'left', width: 32 }}></th>
+                {['X','Y','Z'].map(xyz => (
+                  <th key={xyz} style={{ color: xyzColor[xyz] }}>
+                    {xyz} <span style={{ color: 'var(--color-muted)', fontWeight: 400 }}>— {xyzLabel[xyz]}</span>
+                  </th>
                 ))}
-              </tbody>
-            </table>
-          ) : (
-            /* ABC-only — kompakta rader */
-            <div>
-              {['A','B','C'].map(abc => {
-                const g = abcGroups[abc] || { count: 0, value: 0, critical: 0 };
-                const pct = Math.round((g.count / totalArticles) * 100);
-                const valPct = totalValue > 0 ? Math.round((g.value / totalValue) * 100) : 0;
-                const isSelected = selectedCell === abc;
-                return (
-                  <div
-                    key={abc}
-                    className={`abc-only-card${isSelected ? ' selected' : ''}`}
-                    style={{ background: `${abcColor2[abc]}11`, color: abcColor2[abc] }}
-                    onClick={() => setSelectedCell(isSelected ? null : abc)}
-                  >
-                    <div style={{ fontSize: 28, fontWeight: 900, width: 32, flexShrink: 0 }}>{abc}</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                        <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--color-text)' }}>{g.count}</span>
-                        <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>artiklar · {pct}% av sortiment</span>
-                      </div>
-                      {hasCost && g.value > 0 && (
-                        <div style={{ fontSize: 12, fontWeight: 600, marginTop: 1 }}>
-                          {fmtKr(g.value)} <span style={{ color: 'var(--color-muted)', fontWeight: 400 }}>({valPct}% av totalt)</span>
+              </tr>
+            </thead>
+            <tbody>
+              {['A','B','C'].map(abc => (
+                <tr key={abc}>
+                  <td style={{ fontSize: 13, fontWeight: 800, color: abcColor2[abc], padding: '4px 8px 4px 0', verticalAlign: 'middle' }}>{abc}</td>
+                  {['X','Y','Z'].map(xyz => {
+                    const key = abc + xyz;
+                    const cell = matrix[key] || { count: 0, value: 0, critical: 0 };
+                    const isSelected = selectedCell === key;
+                    const hasData = cell.count > 0;
+                    const bg = abcColor2[abc];
+                    return (
+                      <td key={xyz}>
+                        <div
+                          className={`abc-matrix-cell${isSelected ? ' selected' : ''}${!hasData ? ' empty' : ''}`}
+                          style={{
+                            background: `${bg}${isSelected ? '22' : '11'}`,
+                            color: abcColor2[abc],
+                            borderColor: isSelected ? abcColor2[abc] : 'transparent',
+                          }}
+                          onClick={() => hasData && setSelectedCell(isSelected ? null : key)}
+                        >
+                          <div style={{ fontSize: 22, fontWeight: 900, lineHeight: 1 }}>{cell.count}</div>
+                          <div style={{ fontSize: 10, color: 'var(--color-muted)', marginTop: 2 }}>
+                            {hasData ? `${Math.round((cell.count/totalArticles)*100)}% av art.` : '—'}
+                          </div>
+                          {hasCost && cell.value > 0 && (
+                            <div style={{ fontSize: 11, fontWeight: 600, marginTop: 3 }}>{fmtKr(cell.value)}</div>
+                          )}
+                          {cell.critical > 0 && (
+                            <div style={{ fontSize: 10, color: '#ef4444', marginTop: 2, fontWeight: 700 }}>⚠ {cell.critical} krit.</div>
+                          )}
                         </div>
-                      )}
-                      {/* Mini progress */}
-                      <div style={{ height: 3, background: 'var(--color-border)', borderRadius: 2, marginTop: 6, overflow: 'hidden' }}>
-                        <div style={{ width: `${pct}%`, height: '100%', background: abcColor2[abc], borderRadius: 2 }} />
-                      </div>
-                    </div>
-                    {g.critical > 0 && (
-                      <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 700, flexShrink: 0 }}>⚠ {g.critical}</div>
-                    )}
-                    <div style={{ fontSize: 11, color: abcColor2[abc], flexShrink: 0 }}>{isSelected ? '▼' : '▶'}</div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
 
           {/* ── ARTIKELLISTA (inline, direkt under matrisen) ── */}
           {selectedCell && selectedArts.length > 0 && (
@@ -2176,10 +2138,8 @@ function AbcXyzTab({ data }) {
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--color-muted)', marginBottom: 10 }}>SAMMANFATTNING</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {['A','B','C'].map(abc => {
-                const g = xyzAvailable
-                  ? { count: ['X','Y','Z'].reduce((s,xyz) => s + (matrix[abc+xyz]?.count||0), 0),
-                      value: ['X','Y','Z'].reduce((s,xyz) => s + (matrix[abc+xyz]?.value||0), 0) }
-                  : abcGroups[abc] || { count: 0, value: 0 };
+                const g = { count: ['X','Y','Z'].reduce((s,xyz) => s + (matrix[abc+xyz]?.count||0), 0),
+                            value: ['X','Y','Z'].reduce((s,xyz) => s + (matrix[abc+xyz]?.value||0), 0) };
                 const pct = Math.round((g.count / totalArticles) * 100);
                 return (
                   <div key={abc} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -2215,7 +2175,7 @@ function AbcXyzTab({ data }) {
           )}
 
           {/* XYZ-förklaring (kompakt) */}
-          {xyzAvailable && (
+          {(
             <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 10, padding: '14px 16px' }}>
               <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--color-muted)', marginBottom: 8 }}>KLASSIFICERING</div>
               {[
@@ -2311,7 +2271,7 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
   const { summary } = effectiveData;
   const tabs = [
     { id: 'overview', label: 'Översikt', icon: 'home' },
-    { id: 'abcxyz', label: summary?.xyz_available ? 'ABC/XYZ' : 'ABC', icon: 'grid' },
+    { id: 'abcxyz', label: 'ABC/XYZ', icon: 'grid' },
     { id: 'purchasing', label: 'Inköp', icon: 'trending', badge: summary?.articles_to_order },
     { id: 'slotting', label: 'Slotting', icon: 'move', badge: summary?.has_location_data ? summary?.articles_to_move : null },
     { id: 'capital', label: 'Kapital', icon: 'money', badge: summary?.has_cost_data ? (summary?.dead_stock + (summary?.overstock || 0)) : null },
@@ -2355,7 +2315,7 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
             <div style={{ fontSize: 10, color: '#64748b', marginTop: 2, lineHeight: 1.4, wordBreak: 'break-word', overflowWrap: 'break-word' }}>
               A-artiklar med täckning ≥ ledtid. Mål: ≥95%.
             </div>
-            <div style={{ fontSize: 10, color: '#475569', marginTop: 6, borderTop: '1px solid #1a1f2e', paddingTop: 5 }}>
+            <div style={{ fontSize: 10, color: '#475569', marginTop: 6, borderTop: '1px solid #1e293b', paddingTop: 5 }}>
               <span style={{ color: '#64748b' }}>Alla artiklar: </span>
               <span style={{
                 fontWeight: 600,
@@ -2378,7 +2338,7 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
             </div>
           )}
           {summary && (
-            <button className="pdf-btn" onClick={() => openPDFReport()} title="Generera månadsrapport som PDF" style={{ marginTop: 8, width: '100%', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 0', cursor: 'pointer', fontWeight: 600, fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <button className="pdf-btn" onClick={() => openPDFReport()} title="Generera månadsrapport som PDF" style={{ marginTop: 8, width: '100%', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 0', cursor: 'pointer', fontWeight: 600, fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <Icon name="download" size={13} /> Månadsrapport PDF
             </button>
           )}
@@ -2466,7 +2426,7 @@ function LoginPage({ onLogin }) {
             value={email}
             onChange={e => setEmail(e.target.value)}
             required
-            style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #334155', background: '#1a1f2e', color: '#f1f5f9', fontSize: 14 }}
+            style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #334155', background: '#1e293b', color: '#f1f5f9', fontSize: 14 }}
           />
           <input
             type="password"
@@ -2474,13 +2434,13 @@ function LoginPage({ onLogin }) {
             value={password}
             onChange={e => setPassword(e.target.value)}
             required
-            style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #334155', background: '#1a1f2e', color: '#f1f5f9', fontSize: 14 }}
+            style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #334155', background: '#1e293b', color: '#f1f5f9', fontSize: 14 }}
           />
           {error && <div style={{ color: '#ef4444', fontSize: 13 }}>⚠️ {error}</div>}
           <button
             type="submit"
             disabled={loading}
-            style={{ padding: '11px 0', borderRadius: 8, background: '#a78bfa', color: '#fff', border: 'none', fontWeight: 700, fontSize: 15, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}
+            style={{ padding: '11px 0', borderRadius: 8, background: '#6366f1', color: '#fff', border: 'none', fontWeight: 700, fontSize: 15, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}
           >
             {loading ? 'Loggar in…' : 'Logga in'}
           </button>
@@ -2491,7 +2451,7 @@ function LoginPage({ onLogin }) {
 }
 
 // ─── SPARKLINE (legacy — used in KapitalTab) ──────────────────────────────
-function SparklineLegacy({ values, color = '#a78bfa', width = 120, height = 36, inverted = false }) {
+function SparklineLegacy({ values, color = '#6366f1', width = 120, height = 36, inverted = false }) {
   if (!values || values.length < 2) return null;
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -2518,18 +2478,18 @@ function ImprovementCards({ cards, totalSaved }) {
     <div style={{ marginBottom: 24 }}>
       <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, letterSpacing: 1, marginBottom: 12 }}>VÄRDE SKAPAT SEDAN FÖREGÅENDE ANALYS</div>
       {totalSaved > 0 && (
-        <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #1a1f2e 100%)', border: '1px solid #3b82f6', borderRadius: 12, padding: '14px 20px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #1e293b 100%)', border: '1px solid #3b82f6', borderRadius: 12, padding: '14px 20px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
           <span style={{ fontSize: 28 }}>💰</span>
           <div>
             <div style={{ fontSize: 11, color: '#93c5fd', fontWeight: 600 }}>TOTALT FRIGJORT KAPITAL</div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: '#60a5fa' }}>{fmtKr(totalSaved)}</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: '#60a5fa' }}>{fmt(Math.round(totalSaved / 1000))} tkr</div>
           </div>
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
         {cards.map((c, i) => (
           <div key={i} style={{
-            background: '#1a1f2e', borderRadius: 10, padding: '12px 14px',
+            background: '#1e293b', borderRadius: 10, padding: '12px 14px',
             borderLeft: `3px solid ${c.improved ? '#22c55e' : '#ef4444'}`
           }}>
             <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, marginBottom: 4 }}>{c.label}</div>
@@ -2537,158 +2497,6 @@ function ImprovementCards({ cards, totalSaved }) {
             {c.description && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{c.description}</div>}
           </div>
         ))}
-      </div>
-    </div>
-  );
-}
-
-// ─── TREND CHART ──────────────────────────────────────────────────────────
-function TrendChart({ history, fmtKr }) {
-  const [activeChart, setActiveChart] = useState('critical');
-  if (!history || history.length < 2) return null;
-
-  const sorted = [...history].reverse(); // oldest first
-  const labels = sorted.map(h => {
-    const dt = new Date(h.created_at);
-    return dt.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
-  });
-
-  const charts = {
-    critical: {
-      label: 'Kritiska artiklar',
-      color: '#ef4444',
-      fillColor: 'rgba(239,68,68,0.12)',
-      values: sorted.map(h => h.summary?.critical ?? 0),
-      unit: 'st',
-      lowerIsBetter: true,
-    },
-    capital: {
-      label: 'Bundet kapital (tkr)',
-      color: '#a78bfa',
-      fillColor: 'rgba(167,139,250,0.12)',
-      values: sorted.map(h => Math.round((h.summary?.total_stock_value_sek ?? 0) / 1000)),
-      unit: 'tkr',
-      lowerIsBetter: true,
-    },
-    service: {
-      label: 'Servicenivå A-artiklar',
-      color: '#22c55e',
-      fillColor: 'rgba(34,197,94,0.12)',
-      values: sorted.map(h => h.summary?.a_service_level_pct ?? 0),
-      unit: '%',
-      lowerIsBetter: false,
-    },
-  };
-
-  const chart = charts[activeChart];
-  const values = chart.values;
-  const W = 600, H = 160, padL = 52, padR = 16, padT = 16, padB = 32;
-  const plotW = W - padL - padR;
-  const plotH = H - padT - padB;
-  const minVal = Math.min(...values);
-  const maxVal = Math.max(...values);
-  const range = maxVal - minVal || 1;
-  const n = values.length;
-
-  const xOf = (i) => padL + (i / (n - 1)) * plotW;
-  const yOf = (v) => padT + plotH - ((v - minVal) / range) * plotH;
-
-  // Line path
-  const linePts = values.map((v, i) => `${xOf(i)},${yOf(v)}`).join(' ');
-  const areaPath = `M${xOf(0)},${yOf(values[0])} ` +
-    values.map((v, i) => `L${xOf(i)},${yOf(v)}`).join(' ') +
-    ` L${xOf(n - 1)},${padT + plotH} L${xOf(0)},${padT + plotH} Z`;
-
-  // Y axis ticks (3)
-  const yTicks = [minVal, minVal + range / 2, maxVal].map(v => ({
-    v: Math.round(v * 10) / 10,
-    y: yOf(v),
-  }));
-
-  // Trend direction
-  const first = values[0], last = values[values.length - 1];
-  const delta = last - first;
-  const improved = chart.lowerIsBetter ? delta < 0 : delta > 0;
-  const trendColor = delta === 0 ? '#64748b' : improved ? '#22c55e' : '#ef4444';
-  const trendIcon = delta === 0 ? '→' : delta > 0 ? '▲' : '▼';
-  const trendLabel = delta === 0 ? 'Oförändrat' : `${trendIcon} ${Math.abs(Math.round(delta * 10) / 10)} ${chart.unit} sedan start`;
-
-  return (
-    <div style={{ background: '#111827', borderRadius: 14, padding: '20px 20px 16px', marginBottom: 20, border: '1px solid #1a1f2e' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9' }}>Trend över tid</div>
-          <div style={{ fontSize: 11, color: trendColor, fontWeight: 600, marginTop: 2 }}>{trendLabel}</div>
-        </div>
-        {/* Selector */}
-        <div style={{ display: 'flex', gap: 6 }}>
-          {Object.entries(charts).map(([key, c]) => (
-            <button
-              key={key}
-              onClick={() => setActiveChart(key)}
-              style={{
-                background: activeChart === key ? c.color + '22' : 'transparent',
-                border: `1px solid ${activeChart === key ? c.color : '#334155'}`,
-                color: activeChart === key ? c.color : '#64748b',
-                borderRadius: 20, padding: '4px 12px', fontSize: 11,
-                fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s',
-                letterSpacing: '0.03em',
-              }}
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* SVG chart */}
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
-        {/* Grid lines */}
-        {yTicks.map((t, i) => (
-          <line key={i} x1={padL} y1={t.y} x2={W - padR} y2={t.y}
-            stroke="#1a1f2e" strokeWidth="1" strokeDasharray="4 4" />
-        ))}
-        {/* Y axis labels */}
-        {yTicks.map((t, i) => (
-          <text key={i} x={padL - 6} y={t.y + 4} textAnchor="end"
-            fontSize="10" fill="#475569" fontFamily="Inter,system-ui,sans-serif">
-            {t.v}{chart.unit === '%' ? '%' : ''}
-          </text>
-        ))}
-        {/* Area fill */}
-        <path d={areaPath} fill={chart.fillColor} />
-        {/* Line */}
-        <polyline points={linePts} fill="none" stroke={chart.color} strokeWidth="2"
-          strokeLinejoin="round" strokeLinecap="round" />
-        {/* Data points */}
-        {values.map((v, i) => (
-          <circle key={i} cx={xOf(i)} cy={yOf(v)} r="4"
-            fill="#0c0e11" stroke={chart.color} strokeWidth="2" />
-        ))}
-        {/* X axis labels */}
-        {labels.map((l, i) => {
-          // Show max 6 labels evenly
-          const step = Math.max(1, Math.floor(n / 6));
-          if (i % step !== 0 && i !== n - 1) return null;
-          return (
-            <text key={i} x={xOf(i)} y={H - 4} textAnchor="middle"
-              fontSize="10" fill="#475569" fontFamily="Inter,system-ui,sans-serif">
-              {l}
-            </text>
-          );
-        })}
-      </svg>
-
-      {/* Latest value callout */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-        <div style={{ fontSize: 11, color: '#64748b' }}>
-          Senaste: <span style={{ color: chart.color, fontWeight: 700 }}>
-            {activeChart === 'capital'
-              ? `${values[values.length - 1].toLocaleString('sv-SE')} tkr`
-              : `${values[values.length - 1]}${chart.unit === '%' ? '%' : ' st'}`}
-          </span>
-        </div>
       </div>
     </div>
   );
@@ -2715,7 +2523,7 @@ function HistoryDetailModal({ analysisId, token, onClose }) {
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24
     }} onClick={onClose}>
       <div style={{
-        background: '#141720', border: '1px solid #1a1f2e', borderRadius: 16,
+        background: '#0f172a', border: '1px solid #1e293b', borderRadius: 16,
         width: '100%', maxWidth: 780, maxHeight: '85vh', overflow: 'auto', padding: 28
       }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -2740,7 +2548,7 @@ function HistoryDetailModal({ analysisId, token, onClose }) {
                   { label: 'Överlager', value: s.overstock ?? '—', color: '#a855f7' },
                   { label: 'Bundet kapital', value: fmtKr(s.total_stock_value_sek) || '—', color: '#a78bfa' },
                 ].map((kpi, i) => (
-                  <div key={i} style={{ background: '#1a1f2e', borderRadius: 8, padding: '10px 12px' }}>
+                  <div key={i} style={{ background: '#1e293b', borderRadius: 8, padding: '10px 12px' }}>
                     <div style={{ fontSize: 10, color: '#64748b', marginBottom: 4 }}>{kpi.label}</div>
                     <div style={{ fontSize: 18, fontWeight: 700, color: kpi.color }}>{kpi.value}</div>
                   </div>
@@ -2751,7 +2559,7 @@ function HistoryDetailModal({ analysisId, token, onClose }) {
                   <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>PRIORITERADE ÅTGÄRDER</div>
                   <div style={{ marginBottom: 20 }}>
                     {topActions.slice(0, 5).map((a, i) => (
-                      <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #1a1f2e' }}>
+                      <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #1e293b' }}>
                         <span style={{ fontSize: 16 }}>{a.action === 'ORDER' ? '🛒' : a.action === 'MOVE' ? '📦' : a.action === 'REVIEW_DEAD' ? '🗑️' : '⚠️'}</span>
                         <div>
                           <div style={{ color: '#f1f5f9', fontSize: 13 }}>{a.article} — {a.name}</div>
@@ -2768,7 +2576,7 @@ function HistoryDetailModal({ analysisId, token, onClose }) {
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
-                        <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #1a1f2e' }}>
+                        <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #1e293b' }}>
                           <th style={{ padding: '6px 10px' }}>ART.NR</th>
                           <th style={{ padding: '6px 10px' }}>NAMN</th>
                           <th style={{ padding: '6px 10px' }}>ABC</th>
@@ -2779,7 +2587,7 @@ function HistoryDetailModal({ analysisId, token, onClose }) {
                       </thead>
                       <tbody>
                         {articles.slice(0, 30).map((a, i) => (
-                          <tr key={i} style={{ borderBottom: '1px solid #141720' }}>
+                          <tr key={i} style={{ borderBottom: '1px solid #0f172a' }}>
                             <td style={{ padding: '6px 10px', color: '#94a3b8' }}>{a.article}</td>
                             <td style={{ padding: '6px 10px', color: '#f1f5f9', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</td>
                             <td style={{ padding: '6px 10px', fontWeight: 700, color: abcColor(a.abc) }}>{a.abc}</td>
@@ -2823,7 +2631,7 @@ function ComparePanel({ idA, idB, token, labelA, labelB, onClose }) {
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24
     }} onClick={onClose}>
       <div style={{
-        background: '#141720', border: '1px solid #1a1f2e', borderRadius: 16,
+        background: '#0f172a', border: '1px solid #1e293b', borderRadius: 16,
         width: '100%', maxWidth: 700, maxHeight: '85vh', overflow: 'auto', padding: 28
       }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -2931,9 +2739,6 @@ function HistoryTab({ token }) {
         <ComparePanel {...compareIds} token={token} onClose={() => setCompareIds(null)} />
       )}
 
-      {/* Trend chart — only shown with 2+ history entries */}
-      {history.length >= 2 && <TrendChart history={history} fmtKr={fmtKr} />}
-
       {/* Trend summary */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
         {[
@@ -2966,12 +2771,12 @@ function HistoryTab({ token }) {
             inverted: true, // lower capital = better
             diff: prev && prev.summary?.total_stock_value_sek != null ? (() => {
               const d = Math.round(((latest.summary?.total_stock_value_sek ?? 0) - (prev.summary?.total_stock_value_sek ?? 0)) / 1000);
-              return `${d >= 0 ? '▲' : '▼'} ${fmtKr(Math.abs(d))}`;
+              return `${d >= 0 ? '▲' : '▼'} ${fmt(Math.abs(d))} tkr`;
             })() : null,
             improved: prev ? (latest.summary?.total_stock_value_sek ?? 0) <= (prev.summary?.total_stock_value_sek ?? 0) : null,
           },
         ].map((card, i) => (
-          <div key={i} style={{ background: '#1a1f2e', borderRadius: 12, padding: '14px 16px' }}>
+          <div key={i} style={{ background: '#1e293b', borderRadius: 12, padding: '14px 16px' }}>
             <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: 0.5, marginBottom: 4 }}>{card.label}</div>
             <div style={{ fontSize: 26, fontWeight: 800, color: card.color, marginBottom: 2 }}>{card.value}</div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -3026,7 +2831,7 @@ function HistoryTab({ token }) {
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
-            <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #1a1f2e' }}>
+            <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #1e293b' }}>
               <th style={{ padding: '8px 12px' }}>DATUM</th>
               <th style={{ padding: '8px 12px' }}>FIL</th>
               <th style={{ padding: '8px 12px' }}>ARTIKLAR</th>
@@ -3043,18 +2848,18 @@ function HistoryTab({ token }) {
                 <tr
                   key={h.id}
                   style={{
-                    borderBottom: '1px solid #141720',
-                    background: isSelected ? '#1e3a5f' : i === 0 ? '#1a1f2e' : 'transparent',
+                    borderBottom: '1px solid #0f172a',
+                    background: isSelected ? '#1e3a5f' : i === 0 ? '#1e293b' : 'transparent',
                     cursor: 'pointer',
                     transition: 'background 0.15s',
                   }}
                   onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = '#162032'; }}
-                  onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = i === 0 ? '#1a1f2e' : 'transparent'; }}
+                  onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = i === 0 ? '#1e293b' : 'transparent'; }}
                   onClick={() => setSelectedId(h.id)}
                 >
                   <td style={{ padding: '10px 12px', color: '#94a3b8' }}>
                     {fmtDate(h.created_at)}
-                    {i === 0 && <span style={{ marginLeft: 6, fontSize: 10, background: '#a78bfa', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>SENASTE</span>}
+                    {i === 0 && <span style={{ marginLeft: 6, fontSize: 10, background: '#6366f1', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>SENASTE</span>}
                   </td>
                   <td style={{ padding: '10px 12px', color: '#f1f5f9', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.filename || '—'}</td>
                   <td style={{ padding: '10px 12px', color: '#f1f5f9' }}>{fmt(h.summary?.total_articles)}</td>
@@ -3063,7 +2868,7 @@ function HistoryTab({ token }) {
                   <td style={{ padding: '10px 12px', color: '#a78bfa' }}>{fmtKr(h.summary?.total_stock_value_sek) || '—'}</td>
                   <td style={{ padding: '10px 12px' }} onClick={e => { e.stopPropagation(); handleCompare(h); }}>
                     <button style={{
-                      background: isSelected ? '#3b82f6' : '#1a1f2e',
+                      background: isSelected ? '#3b82f6' : '#1e293b',
                       border: `1px solid ${isSelected ? '#3b82f6' : '#334155'}`,
                       color: isSelected ? '#fff' : '#94a3b8',
                       borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 600
