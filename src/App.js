@@ -233,19 +233,46 @@ function DataQualityBanner({ summary, dataQuality }) {
 function InfoTooltip({ text }) {
   const [visible, setVisible] = useState(false);
   const ref = React.useRef(null);
-  const [pos, setPos] = React.useState({ vertical: 'above', align: 'center' });
+  const [tooltipStyle, setTooltipStyle] = React.useState({});
+  const [arrowInfo, setArrowInfo] = React.useState({ left: '50%', right: 'auto', style: {} });
   const hideTimer = React.useRef(null);
 
   const handleEnter = () => {
     clearTimeout(hideTimer.current);
     if (ref.current) {
       const rect = ref.current.getBoundingClientRect();
+      const popupW = 260;
+      const gap = 10;
       const spaceAbove = rect.top;
-      const spaceRight = window.innerWidth - rect.right;
-      const spaceLeft = rect.left;
-      const vertical = spaceAbove < 220 ? 'below' : 'above';
-      const align = spaceRight < 140 ? 'right' : spaceLeft < 140 ? 'left' : 'center';
-      setPos({ vertical, align });
+      const vertical = spaceAbove < 240 ? 'below' : 'above';
+
+      // Horizontal: centre on icon, clamp to viewport
+      let left = rect.left + rect.width / 2 - popupW / 2;
+      if (left < 8) left = 8;
+      if (left + popupW > window.innerWidth - 8) left = window.innerWidth - 8 - popupW;
+
+      const top = vertical === 'above'
+        ? rect.top - gap           // popup bottom will sit gap px above icon
+        : rect.bottom + gap;       // popup top will sit gap px below icon
+
+      // Arrow x relative to popup
+      const iconCenterInPopup = (rect.left + rect.width / 2) - left;
+      const arrowLeft = Math.max(10, Math.min(popupW - 10, iconCenterInPopup));
+
+      setTooltipStyle({
+        position: 'fixed',
+        left,
+        ...(vertical === 'above' ? { top: 'auto', bottom: window.innerHeight - rect.top + gap } : { top }),
+        background: '#0f172a', border: '1px solid #334155', color: '#cbd5e1',
+        borderRadius: 8, padding: '10px 14px', fontSize: 11, lineHeight: 1.6,
+        width: popupW, zIndex: 9999, boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+        whiteSpace: 'pre-line', textAlign: 'left', fontWeight: 400,
+        pointerEvents: 'auto', cursor: 'text', userSelect: 'text',
+      });
+      setArrowInfo({
+        arrowLeft,
+        vertical,
+      });
     }
     setVisible(true);
   };
@@ -254,36 +281,19 @@ function InfoTooltip({ text }) {
     hideTimer.current = setTimeout(() => setVisible(false), 120);
   };
 
-  const { vertical, align } = pos;
-  const popupStyle = {
-    position: 'absolute',
-    ...(vertical === 'above' ? { bottom: '130%' } : { top: '130%' }),
-    background: '#0f172a', border: '1px solid #334155', color: '#cbd5e1',
-    borderRadius: 8, padding: '10px 14px', fontSize: 11, lineHeight: 1.6,
-    width: 260, zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
-    whiteSpace: 'pre-line', textAlign: 'left', fontWeight: 400,
-    pointerEvents: 'auto', cursor: 'text', userSelect: 'text',
-    ...(align === 'center' ? { left: '50%', transform: 'translateX(-50%)' } :
-        align === 'right'  ? { right: 0, transform: 'none' } :
-                             { left: 0, transform: 'none' }),
-  };
-
-  // Pil: pekar mot ikonen
-  const arrowLeft = align === 'center' ? '50%' : align === 'right' ? 'auto' : '10px';
-  const arrowRight = align === 'right' ? '10px' : 'auto';
+  const { arrowLeft, vertical } = arrowInfo;
   const arrowStyle = vertical === 'above'
     ? { top: '100%', borderColor: '#334155 transparent transparent transparent' }
     : { bottom: '100%', borderColor: 'transparent transparent #334155 transparent' };
 
   return (
-    <span ref={ref} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', marginLeft: 4, cursor: 'help', verticalAlign: 'middle' }}
+    <span ref={ref} style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 4, cursor: 'help', verticalAlign: 'middle' }}
       onMouseEnter={handleEnter} onMouseLeave={handleLeave}>
       <span style={{ color: '#64748b', display: 'flex' }}><Icon name="info" size={13} /></span>
       {visible && (
-        <span style={popupStyle} onMouseEnter={() => clearTimeout(hideTimer.current)} onMouseLeave={handleLeave}>
+        <span style={tooltipStyle} onMouseEnter={() => clearTimeout(hideTimer.current)} onMouseLeave={handleLeave}>
           {text}
-          <span style={{ position: 'absolute', left: arrowLeft, right: arrowRight,
-            transform: align === 'center' ? 'translateX(-50%)' : 'none',
+          <span style={{ position: 'absolute', left: arrowLeft, transform: 'translateX(-50%)',
             borderWidth: 5, borderStyle: 'solid', pointerEvents: 'none', ...arrowStyle }} />
         </span>
       )}
