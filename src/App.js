@@ -632,6 +632,7 @@ function ImportWizard({ onAnalysis, onClose, auth }) {
       const res = await fetch(`${API_URL}/import/run`, { method: 'POST', body: form, headers });
       if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Import misslyckades.'); }
       const data = await res.json();
+      window._lastAnalysisData = data; // Spara för månadsrapport
       onAnalysis(data);
       onClose();
     } catch(e) { setError(e.message); }
@@ -1047,6 +1048,7 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
         throw new Error(errMsg);
       }
       const data = await res.json();
+      window._lastAnalysisData = data; // Spara för månadsrapport
       onAnalysis(data);
     } catch (e) {
       setError(e.message);
@@ -2658,31 +2660,60 @@ function AbcXyzTab({ data }) {
 
 // ─── PDF RAPPORT ───────────────────────────────────────────────────────
 async function openPDFReport() {
-  if (!window._lastUploadedFile) {
-    alert('Ladda upp filen igen för att generera rapporten.');
+  // Prioritet 1: Använd analysdata direkt (fungerar efter Import Wizard OCH vanlig uppladdning)
+  if (window._lastAnalysisData) {
+    try {
+      let res;
+      try {
+        res = await fetch(`${API_URL}/monthly-report-from-json`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(window._lastAnalysisData)
+        });
+      } catch (networkErr) {
+        alert('Kunde inte nå servern. Kontrollera din internetanslutning och försök igen.');
+        return;
+      }
+      if (!res.ok) {
+        alert('Rapporten kunde inte genereras. Försök igen om en stund.');
+        return;
+      }
+      const html = await res.text();
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+    } catch (e) {
+      alert('Kunde inte generera rapport. Försök igen.');
+    }
     return;
   }
-  try {
-    const formData = new FormData();
-    formData.append('file', window._lastUploadedFile);
-    let res;
+  // Prioritet 2: Fallback till filbaserad rapport (äldre flöde)
+  if (window._lastUploadedFile) {
     try {
-      res = await fetch(`${API_URL}/monthly-report`, { method: 'POST', body: formData });
-    } catch (networkErr) {
-      alert('Kunde inte nå servern. Kontrollera din internetanslutning och försök igen.');
-      return;
+      const formData = new FormData();
+      formData.append('file', window._lastUploadedFile);
+      let res;
+      try {
+        res = await fetch(`${API_URL}/monthly-report`, { method: 'POST', body: formData });
+      } catch (networkErr) {
+        alert('Kunde inte nå servern. Kontrollera din internetanslutning och försök igen.');
+        return;
+      }
+      if (!res.ok) {
+        alert('Rapporten kunde inte genereras. Försök igen om en stund.');
+        return;
+      }
+      const html = await res.text();
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+    } catch (e) {
+      alert('Kunde inte generera rapport. Försök ladda upp filen igen.');
     }
-    if (!res.ok) {
-      alert('Rapporten kunde inte genereras. Försök igen om en stund.');
-      return;
-    }
-    const html = await res.text();
-    const blob = new Blob([html], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    window.open(url, '_blank');
-  } catch (e) {
-    alert('Kunde inte generera rapport. Försök ladda upp filen igen.');
+    return;
   }
+  // Ingen data tillgänglig
+  alert('Ladda upp och analysera data först för att generera rapporten.');
 }
 
 // ─── CSV EXPORT ────────────────────────────────────────────────────────
