@@ -1065,57 +1065,77 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
   }, []);
   return (
     <div className="upload-page">
-      <div style={{ position: 'absolute', top: 16, right: 16 }}>
+      {/* ── Top bar ── */}
+      <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', alignItems: 'center', gap: 10, zIndex: 10 }}>
+        {auth && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setShowHistory(!showHistory)} style={{ background: 'none', border: 'none', color: '#6366f1', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+              {showHistory ? 'Dölj historik' : 'Historik'}
+            </button>
+            <button onClick={onLogout} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 12 }}>Logga ut</button>
+          </div>
+        )}
         <ThemeToggle theme={theme} onToggle={onToggleTheme} />
       </div>
+
       <div className="upload-content">
+        {/* ── Logo ── */}
         <div className="logo-area">
           <div className="logo-icon">📦</div>
-          <div>
+          <div style={{ textAlign: 'left' }}>
             <h1 className="logo-text">Logitide</h1>
             <p className="logo-sub">OPTIMIZER</p>
           </div>
         </div>
 
-        {/* ── Tagline ── */}
-        <h2 className="upload-headline">Förvandla din lagerfil till<br /><span className="highlight">handlingsbara beslut på 30 sekunder.</span></h2>
+        {/* ── Headline ── */}
+        <h2 className="upload-headline">
+          Förvandla din lagerfil till<br />
+          <span className="highlight">handlingsbara beslut på 30 sekunder.</span>
+        </h2>
 
-        {/* ── Value promises ── */}
-        <div style={{ display: 'flex', gap: 16, margin: '24px 0', justifyContent: 'center', flexWrap: 'wrap' }}>
-          {[
-            { icon: '📊', title: 'ABC-analys', desc: 'Se vilka artiklar som driver 80 % av kapitalet' },
-            { icon: '🛒', title: 'Inköpsförslag', desc: 'Rekommendationer baserade på ledtid och förbrukning' },
-            { icon: '⚠️', title: 'Kapital & risk', desc: 'Identifiera kritiska artiklar och överlager direkt' },
-          ].map(({ icon, title, desc }) => (
-            <div key={title} style={{
-              background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12,
-              padding: '16px 20px', flex: '1 1 160px', maxWidth: 200, textAlign: 'center'
-            }}>
-              <div style={{ fontSize: 28, marginBottom: 8 }}>{icon}</div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9', marginBottom: 4 }}>{title}</div>
-              <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.4 }}>{desc}</div>
-            </div>
-          ))}
+        {/* ── Bento-kort ── */}
+        <div className="bento-grid">
+          <div className="bento-card abc">
+            <span className="bento-icon">📊</span>
+            <div className="bento-stat green">80%</div>
+            <div className="bento-title">ABC-analys</div>
+            <div className="bento-desc">Se vilka artiklar som driver 80 % av kapitalet</div>
+          </div>
+          <div className="bento-card buy">
+            <span className="bento-icon">🛒</span>
+            <div className="bento-stat blue">Auto</div>
+            <div className="bento-title">Inköpsförslag</div>
+            <div className="bento-desc">Baserat på ledtid, MOQ och faktisk förbrukning</div>
+          </div>
+          <div className="bento-card risk">
+            <span className="bento-icon">⚠️</span>
+            <div className="bento-stat amber">Live</div>
+            <div className="bento-title">Kapital & risk</div>
+            <div className="bento-desc">Identifiera överlager och kritiska brister direkt</div>
+          </div>
         </div>
 
-        {/* ── Guide button ── */}
-        <div style={{ textAlign: 'center', marginBottom: 8 }}>
+        {/* ── Guide-knapp ── */}
+        <div style={{ textAlign: 'center', marginBottom: 12 }}>
           <button
             onClick={() => setShowGuide(true)}
             style={{
-              background: 'none', border: '1px solid #334155', borderRadius: 8,
-              color: '#94a3b8', fontSize: 13, padding: '8px 20px', cursor: 'pointer',
-              display: 'inline-flex', alignItems: 'center', gap: 7, transition: 'border-color 0.15s, color 0.15s'
+              background: 'none', border: '1px solid var(--border)', borderRadius: 8,
+              color: 'var(--text2)', fontSize: 12, padding: '7px 18px', cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              transition: 'border-color .15s, color .15s',
             }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.color = '#a5b4fc'; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = '#334155'; e.currentTarget.style.color = '#94a3b8'; }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.color = '#818cf8'; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text2)'; }}
           >
-            <span style={{ fontSize: 15 }}>📋</span> Vad behöver jag ta med?
+            <span>📋</span> Vad behöver jag ta med?
           </button>
         </div>
 
         {showGuide && <OnboardingGuide onClose={() => setShowGuide(false)} />}
 
+        {/* ── Upload / Loading ── */}
         {!loading ? (
           <>
             <div
@@ -1125,9 +1145,10 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
               onDrop={onDrop}
               onClick={() => document.getElementById('file-input').click()}
             >
-              <Icon name="upload" size={40} />
+              <Icon name="upload" size={32} />
               <p className="drop-text">Släpp filen här</p>
               <p className="drop-sub">Excel (.xlsx, .xls) eller CSV · Max 20 MB</p>
+              <span className="drop-cta">Välj fil</span>
               <input
                 id="file-input"
                 type="file"
@@ -1152,43 +1173,42 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
             <p className="loading-msg">{loadingMsg}</p>
           </div>
         )}
-        {/* ── Multi-fil ERP-import ── */}
+
+        {/* ── ERP multi-fil import ── */}
         {!loading && (
           <div style={{ textAlign: 'center', margin: '10px 0 4px' }}>
-            <button
-              onClick={() => setShowImportWizard(true)}
-              style={{
-                background: 'none', border: '1px solid #1e3a5f', borderRadius: 8,
-                color: '#60a5fa', fontSize: 12, padding: '7px 18px', cursor: 'pointer',
-                display: 'inline-flex', alignItems: 'center', gap: 7,
-              }}
-            >
+            <button className="erp-import-btn" onClick={() => setShowImportWizard(true)}>
               <span>📂</span> Importera från flera filer (ERP-export)
             </button>
           </div>
         )}
-        <div style={{ textAlign: 'center', marginTop: 6, fontSize: 11, color: '#475569' }}>
-          🔒 Din fil analyseras i systemet — inga data skickas vidare till tredje part.
+
+        {/* ── Trust-signaler ── */}
+        <div className="trust-row">
+          <span className="trust-item">🔒 Krypterad överföring</span>
+          <span className="trust-dot" />
+          <span className="trust-item">🇪🇺 Data stannar i EU</span>
+          <span className="trust-dot" />
+          <span className="trust-item">✓ Inga data säljs vidare</span>
         </div>
-        <div className="supported" style={{ marginTop: 20 }}>
+
+        {/* ── ERP-taggar ── */}
+        <div className="supported">
           <span>Stöder:</span>
           {['Jeeves', 'SAP', 'Visma', 'Pyramid', 'Monitor', 'Excel-exporter'].map(erp => (
             <span key={erp} className="erp-tag">{erp}</span>
           ))}
         </div>
+
+        {/* ── Inloggad info & historik ── */}
         {auth && (
-          <div style={{ marginTop: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#475569' }}>
-            <span>Inloggad som {auth.email}{auth.company ? ` · ${auth.company}` : ''}</span>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <button onClick={() => setShowHistory(!showHistory)} style={{ background: 'none', border: 'none', color: '#6366f1', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-                {showHistory ? 'Dölj historik' : 'Visa historik'}
-              </button>
-              <button onClick={onLogout} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 12 }}>Logga ut</button>
-            </div>
+          <div style={{ marginTop: 20, fontSize: 11, color: 'var(--text3)', textAlign: 'center' }}>
+            Inloggad som {auth.email}{auth.company ? ` · ${auth.company}` : ''}
           </div>
         )}
         {showHistory && auth && <div style={{ marginTop: 16 }}><HistoryTab token={auth.token} /></div>}
       </div>
+
       {showImportWizard && (
         <ImportWizard
           onAnalysis={onAnalysis}
