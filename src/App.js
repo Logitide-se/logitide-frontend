@@ -555,10 +555,405 @@ function OnboardingGuide({ onClose }) {
   );
 }
 
+// ─── IMPORT WIZARD (multi-fil ERP-import) ──────────────────────────────────
+const LOGITIDE_FIELDS = [
+  { key: 'Artikelnummer', label: 'Artikelnummer', required: true },
+  { key: 'Artikelnamn',   label: 'Artikelnamn',   required: false },
+  { key: 'Lagersaldo',    label: 'Lagersaldo',     required: true },
+  { key: 'Inköpspris',    label: 'Inköpspris',     required: false },
+  { key: 'Ledtid',        label: 'Ledtid (dagar)', required: false },
+  { key: 'MOQ',           label: 'MOQ',            required: false },
+  { key: 'Lagerposition', label: 'Lagerposition',  required: false },
+  { key: 'Beställt antal',label: 'Beställt antal', required: false },
+  { key: 'Förväntat leveransdatum', label: 'Förväntat lev.datum', required: false },
+  { key: '__date__',      label: 'Datum (transaktion)',  required: false },
+  { key: '__qty__',       label: 'Antal (transaktion)',  required: false },
+];
+
+function ImportWizard({ onAnalysis, onClose, auth }) {
+  const [step, setStep] = useState(1);
+  const [files, setFiles] = useState([]);
+  const [mappingSuggestions, setMappingSuggestions] = useState(null); // {file_0: {col: {field, confidence}}}
+  const [confirmedMapping, setConfirmedMapping] = useState({});       // {file_0: {col: fieldKey}}
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [dragging, setDragging] = useState(false);
+
+  const addFiles = (newFiles) => {
+    setFiles(prev => {
+      const existing = new Set(prev.map(f => f.name));
+      const filtered = Array.from(newFiles).filter(f => !existing.has(f.name));
+      return [...prev, ...filtered].slice(0, 5);
+    });
+  };
+
+  const removeFile = (i) => setFiles(prev => prev.filter((_, idx) => idx !== i));
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragging(false);
+    addFiles(e.dataTransfer.files);
+  };
+
+  // Steg 1→2: skicka filer, hämta mappningsförslag
+  const fetchSuggestions = async () => {
+    if (!files.length) { setError('Lägg till minst en fil.'); return; }
+    setLoading(true); setError(null);
+    try {
+      const form = new FormData();
+      files.forEach(f => form.append('files', f));
+      const res = await fetch(`${API_URL}/import/suggest-mappings`, { method: 'POST', body: form });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Kunde inte analysera filerna.'); }
+      const data = await res.json();
+      setMappingSuggestions(data);
+      // Bygg confirmedMapping från suggestions (AUTO mappar direkt)
+      const cm = {};
+      Object.entries(data.files || {}).forEach(([fileKey, fdata]) => {
+        cm[fileKey] = {};
+        Object.entries(fdata.columns || {}).forEach(([col, suggestion]) => {
+          cm[fileKey][col] = suggestion.field || '';
+        });
+      });
+      setConfirmedMapping(cm);
+      setStep(2);
+    } catch(e) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  // Steg 2→3: kör importen med bekräftad mappning
+  const runImport = async () => {
+    setLoading(true); setError(null);
+    try {
+      const form = new FormData();
+      files.forEach(f => form.append('files', f));
+      form.append('mapping', JSON.stringify(confirmedMapping));
+      const headers = {};
+      if (auth?.token) headers['Authorization'] = `Bearer ${auth.token}`;
+      const res = await fetch(`${API_URL}/import/run`, { method: 'POST', body: form, headers });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Import misslyckades.'); }
+      const data = await res.json();
+      onAnalysis(data);
+      onClose();
+    } catch(e) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const updateMapping = (fileKey, col, newField) => {
+    setConfirmedMapping(prev => ({
+      ...prev,
+      [fileKey]: { ...prev[fileKey], [col]: newField }
+    }));
+  };
+
+  // Räkna summary
+  const mappingStats = React.useMemo(() => {
+    if (!mappingSuggestions) return { auto: 0, check: 0, missing: 0 };
+    let auto = 0, check = 0, missing = 0;
+    Object.values(mappingSuggestions.files || {}).forEach(fdata => {
+      Object.values(fdata.columns || {}).forEach(s => {
+        if (s.confidence === 'auto') auto++;
+        else if (s.confidence === 'check') check++;
+        else missing++;
+      });
+    });
+    return { auto, check, missing };
+  }, [mappingSuggestions]);
+
+  // Förhandsgranskning — samla unika Logitide-fält som är bekräftade
+  const confirmedFields = React.useMemo(() => {
+    const fields = new Set();
+    Object.values(confirmedMapping).forEach(fileMap => {
+      Object.values(fileMap).forEach(f => { if (f && !f.startsWith('__')) fields.add(f); });
+    });
+    return fields;
+  }, [confirmedMapping]);
+
+  const missingRequired = ['Artikelnummer', 'Lagersaldo'].filter(f => !confirmedFields.has(f));
+
+  const s = { // inline styles
+    overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 },
+    modal: { background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12, width: '100%', maxWidth: 860, maxHeight: '92vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,0.6)' },
+    header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid #1e293b' },
+    title: { fontSize: 15, fontWeight: 700, color: '#f1f5f9' },
+    closeBtn: { background: 'none', border: 'none', color: '#64748b', fontSize: 20, cursor: 'pointer', lineHeight: 1 },
+    body: { flex: 1, overflowY: 'auto', padding: '20px 24px' },
+    footer: { padding: '14px 24px', borderTop: '1px solid #1e293b', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+    btn: (variant) => ({
+      padding: '8px 20px', borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none', fontFamily: 'inherit',
+      ...(variant === 'primary' ? { background: '#3b82f6', color: '#fff' } :
+          variant === 'success' ? { background: '#16a34a', color: '#fff' } :
+          { background: 'transparent', border: '1px solid #334155', color: '#94a3b8' })
+    }),
+    dropZone: (active) => ({
+      border: `2px dashed ${active ? '#3b82f6' : '#334155'}`,
+      borderRadius: 10, padding: '36px 24px', textAlign: 'center', cursor: 'pointer',
+      background: active ? 'rgba(59,130,246,0.07)' : '#0f172a', transition: 'all 0.15s',
+      marginBottom: 16,
+    }),
+    chip: { display: 'flex', alignItems: 'center', gap: 8, background: '#1e293b', border: '1px solid #334155', borderRadius: 20, padding: '5px 12px 5px 10px', fontSize: 12, color: '#cbd5e1' },
+    badge: (conf) => ({
+      fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 3,
+      background: conf === 'auto' ? 'rgba(34,197,94,0.15)' : conf === 'check' ? 'rgba(245,158,11,0.15)' : 'rgba(100,116,139,0.2)',
+      color: conf === 'auto' ? '#22c55e' : conf === 'check' ? '#f59e0b' : '#64748b',
+    }),
+  };
+
+  const stepLabels = ['Ladda upp filer', 'Mappa kolumner', 'Granska & importera'];
+
+  return (
+    <div style={s.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={s.modal}>
+        {/* Header */}
+        <div style={s.header}>
+          <div>
+            <div style={s.title}>Importera från ERP-system</div>
+            {/* Steps */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginTop: 10 }}>
+              {stepLabels.map((label, i) => (
+                <React.Fragment key={i}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{
+                      width: 22, height: 22, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, fontWeight: 700, flexShrink: 0,
+                      background: i + 1 < step ? '#16a34a' : i + 1 === step ? '#3b82f6' : '#1e293b',
+                      color: i + 1 <= step ? '#fff' : '#64748b',
+                      border: i + 1 > step ? '1.5px solid #334155' : 'none',
+                    }}>{i + 1 < step ? '✓' : i + 1}</div>
+                    <span style={{ fontSize: 11, color: i + 1 === step ? '#e2e8f0' : i + 1 < step ? '#22c55e' : '#64748b', whiteSpace: 'nowrap' }}>{label}</span>
+                  </div>
+                  {i < 2 && <div style={{ width: 28, height: 1, background: i + 1 < step ? '#22c55e' : '#334155', margin: '0 8px' }} />}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+          <button style={s.closeBtn} onClick={onClose}>✕</button>
+        </div>
+
+        {/* Body */}
+        <div style={s.body}>
+          {error && (
+            <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 7, padding: '10px 14px', color: '#f87171', fontSize: 12, marginBottom: 16 }}>
+              ⚠️ {error}
+            </div>
+          )}
+
+          {/* STEG 1 — Filuppladdning */}
+          {step === 1 && (
+            <div>
+              <p style={{ fontSize: 13, color: '#94a3b8', marginBottom: 16, lineHeight: 1.6 }}>
+                Ladda upp 1–5 exportfiler från ert affärssystem. Systemet känner automatiskt igen kolumner från Jeeves, Visma, SAP, Monitor, Pyramid och de flesta andra ERP-system.
+              </p>
+              <div
+                style={s.dropZone(dragging)}
+                onDragOver={e => { e.preventDefault(); setDragging(true); }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={handleDrop}
+                onClick={() => document.getElementById('mw-file-input').click()}
+              >
+                <div style={{ fontSize: 32, marginBottom: 8 }}>📂</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0', marginBottom: 4 }}>Dra och släpp filer här</div>
+                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 16 }}>Excel (.xlsx) eller CSV · Max 5 filer · 20 MB per fil</div>
+                <div style={{ display: 'inline-block', padding: '8px 20px', background: '#3b82f6', color: '#fff', borderRadius: 6, fontSize: 12, fontWeight: 600 }}>Välj filer</div>
+                <input id="mw-file-input" type="file" accept=".xlsx,.csv" multiple style={{ display: 'none' }}
+                  onChange={e => addFiles(e.target.files)} />
+              </div>
+              {files.length > 0 && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                  {files.map((f, i) => (
+                    <div key={i} style={s.chip}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', flexShrink: 0 }} />
+                      <span style={{ fontFamily: 'monospace' }}>{f.name}</span>
+                      <span style={{ color: '#475569', fontSize: 11 }}>{(f.size / 1024).toFixed(0)} KB</span>
+                      <span onClick={() => removeFile(i)} style={{ color: '#475569', cursor: 'pointer', fontSize: 15, lineHeight: 1 }}>×</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ marginTop: 20, background: '#1e293b', borderRadius: 8, padding: '12px 16px' }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Exportera dessa kolumner från ditt system</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {[
+                    { label: 'Artikelnummer', req: true }, { label: 'Lagersaldo', req: true }, { label: 'Förbrukning/Försäljning', req: true },
+                    { label: 'Inköpspris', req: false }, { label: 'Ledtid', req: false }, { label: 'Lagerposition', req: false },
+                    { label: 'MOQ', req: false }, { label: 'Historisk förbrukning (12 mån)', req: false },
+                  ].map(({ label, req }) => (
+                    <span key={label} style={{
+                      fontSize: 11, padding: '3px 8px', borderRadius: 4,
+                      background: req ? 'rgba(99,102,241,0.12)' : '#0f172a',
+                      color: req ? '#a5b4fc' : '#64748b',
+                      border: `1px solid ${req ? 'rgba(99,102,241,0.25)' : '#334155'}`,
+                    }}>{label}{req ? ' *' : ''}</span>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10, color: '#475569', marginTop: 8 }}>* Obligatoriskt · Övriga fält förbättrar analysen</div>
+              </div>
+            </div>
+          )}
+
+          {/* STEG 2 — Kolumnmappning */}
+          {step === 2 && mappingSuggestions && (
+            <div>
+              <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
+                  <span style={{ fontWeight: 700, color: '#e2e8f0' }}>{mappingStats.auto}</span>
+                  <span style={{ color: '#64748b' }}>automatisk</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b', display: 'inline-block' }} />
+                  <span style={{ fontWeight: 700, color: '#e2e8f0' }}>{mappingStats.check}</span>
+                  <span style={{ color: '#64748b' }}>kontrollera</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#475569', display: 'inline-block' }} />
+                  <span style={{ fontWeight: 700, color: '#e2e8f0' }}>{mappingStats.missing}</span>
+                  <span style={{ color: '#64748b' }}>ej hittad</span>
+                </div>
+              </div>
+
+              {Object.entries(mappingSuggestions.files || {}).map(([fileKey, fdata]) => (
+                <div key={fileKey} style={{ marginBottom: 24 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
+                    📄 {fdata.filename || fileKey}
+                  </div>
+                  <div style={{ background: '#1e293b', borderRadius: 8, overflow: 'hidden', border: '1px solid #334155' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 28px 1fr auto', gap: 0 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#475569', padding: '10px 12px 6px' }}>Kolumn i din fil</div>
+                      <div />
+                      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#475569', padding: '10px 12px 6px' }}>Logitide-fält</div>
+                      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#475569', padding: '10px 12px 6px' }}>Konfidens</div>
+                    </div>
+                    {Object.entries(fdata.columns || {}).map(([col, suggestion], i) => {
+                      const conf = suggestion.confidence || 'none';
+                      const curVal = confirmedMapping[fileKey]?.[col] || '';
+                      return (
+                        <div key={col} style={{
+                          display: 'grid', gridTemplateColumns: '1fr 28px 1fr auto',
+                          borderTop: i > 0 ? '1px solid #0f172a' : 'none',
+                          alignItems: 'center', padding: '4px 12px',
+                          background: conf === 'check' ? 'rgba(245,158,11,0.04)' : 'transparent',
+                        }}>
+                          <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#94a3b8', paddingRight: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col}</span>
+                          <span style={{ color: '#475569', fontSize: 13, textAlign: 'center' }}>→</span>
+                          <select
+                            value={curVal}
+                            onChange={e => updateMapping(fileKey, col, e.target.value)}
+                            style={{
+                              background: '#0f172a', border: `1.5px solid ${conf === 'auto' ? '#22c55e' : conf === 'check' ? '#f59e0b' : '#334155'}`,
+                              borderRadius: 5, padding: '5px 8px', fontSize: 12, color: '#e2e8f0',
+                              cursor: 'pointer', width: '100%', fontFamily: 'inherit',
+                            }}
+                          >
+                            <option value="">— Ignorera —</option>
+                            {LOGITIDE_FIELDS.map(f => (
+                              <option key={f.key} value={f.key}>{f.label}{f.required ? ' *' : ''}</option>
+                            ))}
+                          </select>
+                          <div style={{ textAlign: 'right', paddingLeft: 8 }}>
+                            <span style={s.badge(conf)}>
+                              {conf === 'auto' ? 'AUTO' : conf === 'check' ? 'KONTROLLERA' : 'SAKNAS'}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* STEG 3 — Granska */}
+          {step === 3 && (
+            <div>
+              <div style={{ background: '#1e293b', borderRadius: 8, padding: '16px 20px', marginBottom: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', marginBottom: 10 }}>Importsammanfattning</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12 }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 24, fontWeight: 800, color: '#3b82f6' }}>{files.length}</div>
+                    <div style={{ fontSize: 11, color: '#64748b' }}>filer</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 24, fontWeight: 800, color: '#22c55e' }}>{confirmedFields.size}</div>
+                    <div style={{ fontSize: 11, color: '#64748b' }}>fält mappade</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 24, fontWeight: 800, color: missingRequired.length ? '#ef4444' : '#22c55e' }}>{missingRequired.length === 0 ? '✓' : missingRequired.length}</div>
+                    <div style={{ fontSize: 11, color: '#64748b' }}>obligatoriska saknas</div>
+                  </div>
+                </div>
+              </div>
+              {missingRequired.length > 0 && (
+                <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 7, padding: '10px 14px', color: '#f87171', fontSize: 12, marginBottom: 16 }}>
+                  ⚠️ Obligatoriska fält saknas: <strong>{missingRequired.join(', ')}</strong>. Gå tillbaka och mappa dessa.
+                </div>
+              )}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {LOGITIDE_FIELDS.filter(f => !f.key.startsWith('__')).map(f => (
+                  <div key={f.key} style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '5px 10px', borderRadius: 5, fontSize: 12,
+                    background: confirmedFields.has(f.key) ? 'rgba(34,197,94,0.1)' : 'rgba(100,116,139,0.1)',
+                    border: `1px solid ${confirmedFields.has(f.key) ? 'rgba(34,197,94,0.25)' : '#334155'}`,
+                    color: confirmedFields.has(f.key) ? '#22c55e' : '#64748b',
+                  }}>
+                    <span>{confirmedFields.has(f.key) ? '✓' : '–'}</span>
+                    <span>{f.label}</span>
+                    {f.required && !confirmedFields.has(f.key) && <span style={{ color: '#ef4444' }}>*</span>}
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop: 16, padding: '12px 16px', background: '#1e293b', borderRadius: 8, fontSize: 12, color: '#64748b', lineHeight: 1.7 }}>
+                <strong style={{ color: '#94a3b8' }}>Filer:</strong> {files.map(f => f.name).join(', ')}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={s.footer}>
+          {loading ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#64748b', fontSize: 13 }}>
+              <div style={{ width: 18, height: 18, border: '2px solid #334155', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+              {step === 1 ? 'Analyserar kolumner…' : 'Importerar data…'}
+            </div>
+          ) : (
+            <button style={s.btn('ghost')} onClick={step === 1 ? onClose : () => setStep(step - 1)}>
+              {step === 1 ? 'Avbryt' : '← Tillbaka'}
+            </button>
+          )}
+          {!loading && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              {step === 1 && (
+                <button style={s.btn('primary')} onClick={fetchSuggestions} disabled={!files.length}>
+                  Analysera kolumner →
+                </button>
+              )}
+              {step === 2 && (
+                <>
+                  <button style={s.btn('ghost')} onClick={() => setStep(3)}>Förhandsgranska</button>
+                  <button style={s.btn('primary')} onClick={() => setStep(3)}>Fortsätt →</button>
+                </>
+              )}
+              {step === 3 && (
+                <button style={{ ...s.btn('success'), opacity: missingRequired.length ? 0.5 : 1 }}
+                  onClick={runImport} disabled={missingRequired.length > 0}>
+                  🚀 Importera & analysera
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [showImportWizard, setShowImportWizard] = useState(false);
   const [loadingMsg, setLoadingMsg] = useState('');
   const [showHistory, setShowHistory] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
@@ -727,7 +1122,22 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
             <p className="loading-msg">{loadingMsg}</p>
           </div>
         )}
-        <div style={{ textAlign: 'center', marginTop: 10, fontSize: 11, color: '#475569' }}>
+        {/* ── Multi-fil ERP-import ── */}
+        {!loading && (
+          <div style={{ textAlign: 'center', margin: '10px 0 4px' }}>
+            <button
+              onClick={() => setShowImportWizard(true)}
+              style={{
+                background: 'none', border: '1px solid #1e3a5f', borderRadius: 8,
+                color: '#60a5fa', fontSize: 12, padding: '7px 18px', cursor: 'pointer',
+                display: 'inline-flex', alignItems: 'center', gap: 7,
+              }}
+            >
+              <span>📂</span> Importera från flera filer (ERP-export)
+            </button>
+          </div>
+        )}
+        <div style={{ textAlign: 'center', marginTop: 6, fontSize: 11, color: '#475569' }}>
           🔒 Din fil analyseras i systemet — inga data skickas vidare till tredje part.
         </div>
         <div className="supported" style={{ marginTop: 20 }}>
@@ -749,6 +1159,13 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
         )}
         {showHistory && auth && <div style={{ marginTop: 16 }}><HistoryTab token={auth.token} /></div>}
       </div>
+      {showImportWizard && (
+        <ImportWizard
+          onAnalysis={onAnalysis}
+          onClose={() => setShowImportWizard(false)}
+          auth={auth}
+        />
+      )}
     </div>
   );
 }
