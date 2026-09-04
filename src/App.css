@@ -69,17 +69,17 @@ input { font-family: inherit; }
   overflow: hidden;
   background: var(--bg);
 }
-/* Subtil radial glow i bakgrunden */
+/* Subtil radial glow i bakgrunden — starkare i ljust läge */
 .upload-page::before {
   content: '';
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 80% 50% at 50% -10%, #3b82f618 0%, transparent 70%),
-    radial-gradient(ellipse 50% 40% at 80% 80%, #6366f10a 0%, transparent 60%);
+    radial-gradient(ellipse 80% 50% at 50% -5%, #3b82f628 0%, transparent 65%),
+    radial-gradient(ellipse 50% 40% at 80% 85%, #6366f114 0%, transparent 60%);
   pointer-events: none;
 }
-/* Subtilt rutnät som bakgrundsmönster */
+/* Subtilt rutnät som bakgrundsmönster — synligare i ljust läge */
 .upload-page::after {
   content: '';
   position: absolute;
@@ -87,8 +87,14 @@ input { font-family: inherit; }
   background-image: linear-gradient(var(--border) 1px, transparent 1px),
     linear-gradient(90deg, var(--border) 1px, transparent 1px);
   background-size: 40px 40px;
-  opacity: 0.25;
+  opacity: 0.5;
   pointer-events: none;
+}
+[data-theme="light"] .upload-page::after { opacity: 0.6; }
+[data-theme="light"] .upload-page::before {
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -5%, #3b82f622 0%, transparent 65%),
+    radial-gradient(ellipse 50% 40% at 80% 85%, #6366f10d 0%, transparent 60%);
 }
 .upload-content {
   max-width: 620px;
@@ -137,13 +143,14 @@ input { font-family: inherit; }
 .bento-card {
   background: var(--bg2);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 18px 16px;
+  border-radius: 16px;
+  padding: 22px 20px 20px;
   text-align: left;
   position: relative;
   overflow: hidden;
-  transition: border-color .2s, transform .15s;
+  transition: border-color .2s, transform .15s, box-shadow .2s;
 }
+.bento-card:hover { box-shadow: 0 4px 20px rgba(59,130,246,0.08); }
 .bento-card:hover { border-color: #3b82f640; transform: translateY(-1px); }
 .bento-card::before {
   content: '';
@@ -160,31 +167,31 @@ input { font-family: inherit; }
 .bento-card.risk::before { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
 
 .bento-icon {
-  font-size: 1.4rem;
-  margin-bottom: 10px;
+  font-size: 1.6rem;
+  margin-bottom: 12px;
   display: block;
 }
 .bento-stat {
-  font-size: 1.5rem;
+  font-size: 1.8rem;
   font-weight: 800;
   color: var(--text);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
   line-height: 1;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
 }
 .bento-stat.green { color: #22c55e; }
 .bento-stat.blue { color: #3b82f6; }
 .bento-stat.amber { color: #f59e0b; }
 .bento-title {
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   font-weight: 700;
   color: var(--text);
-  margin-bottom: 3px;
+  margin-bottom: 5px;
 }
 .bento-desc {
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   color: var(--text3);
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
 /* ── Drop Zone ── */
