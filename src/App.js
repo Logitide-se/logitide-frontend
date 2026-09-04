@@ -825,7 +825,35 @@ function ImportWizard({ onAnalysis, onClose, auth }) {
                     </div>
                     {Object.entries(fdata.columns || {}).map(([col, suggestion], i) => {
                       const conf = suggestion.confidence || 'none';
+                      const method = suggestion.method || '';
+                      const fieldVal = suggestion.field || '';
+                      const isMonth = fieldVal.startsWith('Månad_');
+                      const isIgnore = method === 'ignore';
                       const curVal = confirmedMapping[fileKey]?.[col] || '';
+
+                      // Månadskolumner och ignorerade kolumner — visa som låst rad
+                      if (isMonth || isIgnore) {
+                        return (
+                          <div key={col} style={{
+                            display: 'grid', gridTemplateColumns: '1fr 28px 1fr auto',
+                            borderTop: i > 0 ? '1px solid #0f172a' : 'none',
+                            alignItems: 'center', padding: '4px 12px',
+                            opacity: 0.65,
+                          }}>
+                            <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#94a3b8', paddingRight: 8 }}>{col}</span>
+                            <span style={{ color: '#475569', fontSize: 13, textAlign: 'center' }}>→</span>
+                            <span style={{ fontSize: 12, color: '#64748b', fontStyle: 'italic', padding: '5px 8px' }}>
+                              {isMonth ? `📅 Månadsförbrukning (${fieldVal.replace('Månad_', 'mån ')})` : '— Ignoreras —'}
+                            </span>
+                            <div style={{ textAlign: 'right', paddingLeft: 8 }}>
+                              <span style={{ ...s.badge('auto'), background: isIgnore ? '#1e293b' : undefined, color: isIgnore ? '#64748b' : undefined }}>
+                                {isMonth ? 'AUTO' : 'IGNORERAS'}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      }
+
                       return (
                         <div key={col} style={{
                           display: 'grid', gridTemplateColumns: '1fr 28px 1fr auto',
