@@ -469,9 +469,10 @@ input { font-family: inherit; }
 .dq-title { flex: 1; font-size: 0.85rem; font-weight: 600; color: #d29922; }
 .dq-toggle { font-size: 0.7rem; color: #d29922; }
 .dq-body { padding: .75rem 1rem 1rem; border-top: 1px solid #d2992222; }
-.dq-row { display: flex; align-items: baseline; gap: 12px; padding: .35rem 0; border-bottom: 1px solid #d2992211; }
+.dq-row { display: flex; align-items: baseline; gap: 10px; padding: .35rem 0; border-bottom: 1px solid #d2992211; }
 .dq-row:last-of-type { border-bottom: none; }
-.dq-field { font-size: 0.8rem; font-weight: 700; color: var(--text2); min-width: 180px; }
+.dq-severity { font-size: 0.7rem; min-width: 10px; flex-shrink: 0; }
+.dq-field { font-size: 0.8rem; font-weight: 700; color: var(--text2); min-width: 130px; }
 .dq-impact { font-size: 0.8rem; color: var(--text3); }
 .dq-tip { margin-top: .75rem; font-size: 0.78rem; color: var(--text3); font-style: italic; }
 
