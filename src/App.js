@@ -201,11 +201,9 @@ function ValidationBanner({ validation }) {
 function DataQualityBanner({ summary, dataQuality }) {
   const [expanded, setExpanded] = useState(false);
   const missing = [];
-  if (!summary.has_demand_data) missing.push({ field: 'Förbrukning', impact: 'ABC/XYZ, täcktid och inköpsförslag kan inte beräknas — lägg till månadsdata eller förbrukningskolumn', severity: 'high' });
-  if (!summary.has_cost_data)   missing.push({ field: 'Inköpspris', impact: 'Kapitalvärden visas inte — bundet kapital, överlager och ordervärde kräver pris', severity: 'high' });
-  if (!summary.has_month_data)  missing.push({ field: 'Månadsdata', impact: 'XYZ-analys och prognos inaktiv — förbrukning beräknas som årssnitt utan säsongsjustering', severity: 'medium' });
-  if (!summary.has_location_data) missing.push({ field: 'Lagerposition', impact: 'Slottingförslag kan inte genereras', severity: 'medium' });
-  if (!summary.has_lead_time_data) missing.push({ field: 'Ledtid', impact: 'Standardvärde 14 dagar används för alla artiklar — justera för er verklighet', severity: 'low' });
+  if (!summary.has_cost_data) missing.push({ field: 'Inköpspris (cost)', impact: 'Kapitalanalys och ordervärde kan inte beräknas' });
+  if (!summary.has_location_data) missing.push({ field: 'Lagerposition (loc)', impact: 'Slottingförslag kan inte genereras' });
+  if (!summary.has_lead_time_data) missing.push({ field: 'Ledtid (lead_time_days)', impact: 'Standardvärde 14 dagar används — justera för er verklighet' });
   if (missing.length === 0) return null;
   return (
     <div className="data-quality-banner">
@@ -220,14 +218,11 @@ function DataQualityBanner({ summary, dataQuality }) {
         <div className="dq-body">
           {missing.map((m, i) => (
             <div key={i} className="dq-row">
-              <span className="dq-severity" style={{ color: m.severity === 'high' ? '#ef4444' : m.severity === 'medium' ? '#f97316' : '#94a3b8' }}>
-                {m.severity === 'high' ? '●' : m.severity === 'medium' ? '●' : '○'}
-              </span>
               <span className="dq-field">{m.field}</span>
               <span className="dq-impact">{m.impact}</span>
             </div>
           ))}
-          <p className="dq-tip">Lägg till dessa kolumner i er exportfil från WMS/ERP för en komplett analys. Röd = analysen är kraftigt begränsad. Orange = delvis begränsad.</p>
+          <p className="dq-tip">Lägg till dessa kolumner i er exportfil från WMS/ERP för en komplett analys.</p>
         </div>
       )}
     </div>
@@ -1165,18 +1160,10 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
             {error && (
               <div className="error-box">
                 <b>⚠️ Kunde inte analysera filen</b>
-                {error.split('\n').map((line, i) => {
-                  const isTip = line.startsWith('Tips:');
-                  return (
-                    <p key={i} style={{
-                      margin: '6px 0',
-                      color: isTip ? '#f59e0b' : undefined,
-                      fontSize: isTip ? '0.85em' : undefined,
-                    }}>
-                      {isTip ? '💡 ' : '• '}{line}
-                    </p>
-                  );
-                })}
+                {error.includes('\n')
+                  ? error.split('\n').map((line, i) => <p key={i} style={{ margin: '4px 0' }}>{line}</p>)
+                  : <p>{error}</p>
+                }
               </div>
             )}
           </>
@@ -1236,8 +1223,7 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
 // ─── OVERVIEW TAB ─────────────────────────────────────────────────────────
 function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider }) {
   const { summary, top_actions, abc_distribution, articles, data_quality, validation } = data;
-  const hasCost   = summary.has_cost_data;
-  const hasDemand = summary.has_demand_data !== false; // true om fältet saknas (bakåtkompatibelt)
+  const hasCost = summary.has_cost_data;
   const hasLoc = summary.has_location_data;
 
   // Derive sparkline shapes from article coverage distribution — gives real data-based curves
@@ -1299,20 +1285,14 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
         </div>
       )}
       <div className="kpi-grid">
-        <KpiCard label="KRITISKA BRISTER"
-          value={hasDemand ? fmt(summary.critical) : null}
-          sub={hasDemand ? `${summary.watch} bevakas` : null}
-          color="#ef4444"
+        <KpiCard label="KRITISKA BRISTER" value={fmt(summary.critical)} sub={`${summary.watch} bevakas`} color="#ef4444"
           sparkPoints={sparkCritical}
-          missingReason={!hasDemand ? 'Kräver förbrukningsdata för att beräknas' : null}
-          trend={hasDemand && summary.critical > 0 ? { direction: 'up', pct: Math.round((summary.critical / Math.max(1, summary.total_articles)) * 100) } : null}
+          trend={summary.critical > 0 ? { direction: 'up', pct: Math.round((summary.critical / Math.max(1, summary.total_articles)) * 100) } : null}
           tooltip={"Kritisk = täcktid ≤ ledtid OCH ingen inköpsorder är lagd.\nBevaka = brist men order är redan på väg.\n\nBevaka-tröskel per ABC-klass:\nA-artiklar: täcktid < 2× ledtid (hög buffer)\nB-artiklar: täcktid < 1.5× ledtid (standard)\nC-artiklar: täcktid < 1.2× ledtid (lägre marginal)"} />
-        <KpiCard label="ATT BESTÄLLA"
-          value={hasDemand ? fmt(summary.articles_to_order) : null}
-          sub={!hasDemand ? null : hasCost ? fmtKr(summary.total_order_value_sek) : 'Lägg till inköpspris för ordervärde'}
+        <KpiCard label="ATT BESTÄLLA" value={fmt(summary.articles_to_order)}
+          sub={hasCost ? fmtKr(summary.total_order_value_sek) : 'Lägg till inköpspris för ordervärde'}
           color="#f97316"
           sparkPoints={sparkOrder}
-          missingReason={!hasDemand ? 'Kräver förbrukningsdata för att beräknas' : null}
           tooltip={"Antal artiklar där systemet rekommenderar inköp — dvs. täcktid understiger bevaka-tröskeln.\n\nInkluderar både kritiska artiklar (brist inom ledtid) och bevaka-artiklar (brist inom bufferttid).\n\nOrderkvantitet beräknas som: (2× ledtid − täcktid) × daglig förbrukning, avrundat till minsta orderenhet."} />
         <KpiCard
           label="BUNDET KAPITAL"
@@ -1337,6 +1317,50 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
           sparkPoints={sparkDead}
           tooltip={"Artiklar med saldo > 0 men registrerad förbrukning = 0.\n\nKan bero på felregistrering, utgångna produkter eller kassationer som ej bokförts.\n\nDött lager binder kapital utan att bidra till servicenivån — överväg utförsäljning eller skrotning."} />
       </div>
+      {/* ─── PROGNOS: KOMMANDE 90 DAGAR ─────────────────────────────── */}
+      {articles?.length > 0 && summary.forecast_available && (() => {
+        const within30  = articles.filter(a => a.coverage_days >= 0 && a.coverage_days <= 30  && a.status !== 'DEAD_STOCK').sort((a,b) => a.coverage_days - b.coverage_days);
+        const within60  = articles.filter(a => a.coverage_days >  30 && a.coverage_days <= 60  && a.status !== 'DEAD_STOCK').sort((a,b) => a.coverage_days - b.coverage_days);
+        const within90  = articles.filter(a => a.coverage_days >  60 && a.coverage_days <= 90  && a.status !== 'DEAD_STOCK').sort((a,b) => a.coverage_days - b.coverage_days);
+        if (within30.length + within60.length + within90.length === 0) return null;
+        const BucketCol = ({ label, items, color, bg }) => (
+          <div style={{ flex: 1, background: bg, borderRadius: 10, padding: '14px 16px', border: `1px solid ${color}30` }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color, letterSpacing: '0.08em', marginBottom: 10 }}>
+              {label} <span style={{ fontWeight: 400, opacity: 0.7 }}>({items.length} art.)</span>
+            </div>
+            {items.length === 0
+              ? <div style={{ fontSize: 12, color: '#475569' }}>Inga artiklar</div>
+              : items.slice(0, 5).map((a, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: i < Math.min(items.length, 5) - 1 ? `1px solid ${color}18` : 'none' }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#f1f5f9' }}>{a.name || a.article}</div>
+                    <div style={{ fontSize: 10, color: '#64748b' }}>{a.article} · {a.abc}{a.xyz ? `/${a.xyz}` : ''}</div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color }}>{fmtDays(a.coverage_days)}</div>
+                    {a.order_qty > 0 && <div style={{ fontSize: 10, color: '#60a5fa' }}>Beställ {fmt(a.order_qty)} st</div>}
+                  </div>
+                </div>
+              ))
+            }
+            {items.length > 5 && <div style={{ fontSize: 11, color: '#475569', marginTop: 6 }}>+{items.length - 5} till</div>}
+          </div>
+        );
+        return (
+          <div className="section">
+            <div className="section-header">
+              <h3>Kommande 90 dagar</h3>
+              <span className="badge" style={{ background: '#1e293b', color: '#94a3b8' }}>Prognos baserad på säsongsjusterad förbrukning</span>
+            </div>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <BucketCol label="INOM 30 DAGAR" items={within30} color="#ef4444" bg="#ef444408" />
+              <BucketCol label="30–60 DAGAR"   items={within60} color="#f97316" bg="#f9731608" />
+              <BucketCol label="60–90 DAGAR"   items={within90} color="#eab308" bg="#eab30808" />
+            </div>
+          </div>
+        );
+      })()}
+
       {top_actions?.length > 0 && (
         <div className="section">
           <div className="section-header">
@@ -1373,8 +1397,8 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
         <div className="section">
           <h3>Snabbåtgärder</h3>
           <div className="quick-actions">
-            <div className="qa-row"><Icon name="alert" size={16} /><div><b>Kritiska brister</b><p>{hasDemand ? `${summary.critical} artiklar` : 'Kräver förbrukningsdata'}</p></div></div>
-            <div className="qa-row"><Icon name="trending" size={16} /><div><b>Inköpsförslag</b><p>{hasDemand ? `${summary.articles_to_order} att beställa${hasCost ? ` · ${fmtKr(summary.total_order_value_sek)}` : ''}` : 'Kräver förbrukningsdata'}</p></div></div>
+            <div className="qa-row"><Icon name="alert" size={16} /><div><b>Kritiska brister</b><p>{summary.critical} artiklar</p></div></div>
+            <div className="qa-row"><Icon name="trending" size={16} /><div><b>Inköpsförslag</b><p>{summary.articles_to_order} att beställa{hasCost ? ` · ${fmtKr(summary.total_order_value_sek)}` : ''}</p></div></div>
             <div className="qa-row"><Icon name="move" size={16} /><div><b>Slotting</b><p>{hasLoc ? `${summary.articles_to_move} att flytta` : 'Lagerposition saknas i filen'}</p></div></div>
             <div className="qa-row"><Icon name="grid" size={16} /><div><b>ABC/XYZ-analys</b><p>{summary.total_articles} artiklar</p></div></div>
           </div>
