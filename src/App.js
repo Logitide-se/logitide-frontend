@@ -1317,24 +1317,33 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
           sparkPoints={sparkDead}
           tooltip={"Artiklar med saldo > 0 men registrerad förbrukning = 0.\n\nKan bero på felregistrering, utgångna produkter eller kassationer som ej bokförts.\n\nDött lager binder kapital utan att bidra till servicenivån — överväg utförsäljning eller skrotning."} />
       </div>
-      {/* ─── PROGNOS: KOMMANDE 90 DAGAR ─────────────────────────────── */}
+      {/* ─── PROGNOS: PRIORITERING BASERAD PÅ BESTÄLLNINGSPUNKTSLOGIK ─── */}
       {articles?.length > 0 && summary.forecast_available && (() => {
-        const within30  = articles.filter(a => a.coverage_days >= 0 && a.coverage_days <= 30  && a.status !== 'DEAD_STOCK').sort((a,b) => a.coverage_days - b.coverage_days);
-        const within60  = articles.filter(a => a.coverage_days >  30 && a.coverage_days <= 60  && a.status !== 'DEAD_STOCK').sort((a,b) => a.coverage_days - b.coverage_days);
-        const within90  = articles.filter(a => a.coverage_days >  60 && a.coverage_days <= 90  && a.status !== 'DEAD_STOCK').sort((a,b) => a.coverage_days - b.coverage_days);
-        if (within30.length + within60.length + within90.length === 0) return null;
-        const BucketCol = ({ label, items, color, bg }) => (
+        // ROP-logik: förhåll täcktid till ledtid per artikel — branschstandard
+        const akut    = articles.filter(a => a.status === 'CRITICAL' && a.order_qty > 0)
+                                .sort((a,b) => a.coverage_days - b.coverage_days);
+        const veckan  = articles.filter(a => a.status === 'WATCH')
+                                .sort((a,b) => a.coverage_days - b.coverage_days);
+        const planera = articles.filter(a => a.status === 'OK'
+                                  && a.coverage_days > 0
+                                  && a.coverage_days <= a.lead_time_days * 4
+                                  && a.demand_per_day > 0)
+                                .sort((a,b) => a.coverage_days - b.coverage_days);
+        if (akut.length + veckan.length + planera.length === 0) return null;
+
+        const BucketCol = ({ label, sub, items, color, bg }) => (
           <div style={{ flex: 1, background: bg, borderRadius: 10, padding: '14px 16px', border: `1px solid ${color}30` }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color, letterSpacing: '0.08em', marginBottom: 10 }}>
-              {label} <span style={{ fontWeight: 400, opacity: 0.7 }}>({items.length} art.)</span>
+            <div style={{ fontSize: 11, fontWeight: 700, color, letterSpacing: '0.08em', marginBottom: 2 }}>
+              {label} <span style={{ fontWeight: 400, opacity: 0.7 }}>({items.length})</span>
             </div>
+            <div style={{ fontSize: 10, color: '#475569', marginBottom: 10 }}>{sub}</div>
             {items.length === 0
-              ? <div style={{ fontSize: 12, color: '#475569' }}>Inga artiklar</div>
+              ? <div style={{ fontSize: 12, color: '#475569' }}>✓ Inga artiklar</div>
               : items.slice(0, 5).map((a, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: i < Math.min(items.length, 5) - 1 ? `1px solid ${color}18` : 'none' }}>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#f1f5f9' }}>{a.name || a.article}</div>
-                    <div style={{ fontSize: 10, color: '#64748b' }}>{a.article} · {a.abc}{a.xyz ? `/${a.xyz}` : ''}</div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#f1f5f9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name || a.article}</div>
+                    <div style={{ fontSize: 10, color: '#64748b' }}>{a.article} · {a.abc}{a.xyz ? `/${a.xyz}` : ''} · ledtid {Math.round(a.lead_time_days)}d</div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color }}>{fmtDays(a.coverage_days)}</div>
@@ -1343,19 +1352,42 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
                 </div>
               ))
             }
-            {items.length > 5 && <div style={{ fontSize: 11, color: '#475569', marginTop: 6 }}>+{items.length - 5} till</div>}
+            {items.length > 5 && (
+              <div style={{ fontSize: 11, color: '#475569', marginTop: 8, paddingTop: 6, borderTop: `1px solid ${color}18` }}>
+                +{items.length - 5} artiklar till — se Inköp-fliken
+              </div>
+            )}
           </div>
         );
+
         return (
           <div className="section">
             <div className="section-header">
-              <h3>Kommande 90 dagar</h3>
-              <span className="badge" style={{ background: '#1e293b', color: '#94a3b8' }}>Prognos baserad på säsongsjusterad förbrukning</span>
+              <h3>Inköpsprioriteringar</h3>
+              <span className="badge" style={{ background: '#1e293b', color: '#94a3b8' }}>Baserat på beställningspunktslogik (ROP)</span>
             </div>
             <div style={{ display: 'flex', gap: 12 }}>
-              <BucketCol label="INOM 30 DAGAR" items={within30} color="#ef4444" bg="#ef444408" />
-              <BucketCol label="30–60 DAGAR"   items={within60} color="#f97316" bg="#f9731608" />
-              <BucketCol label="60–90 DAGAR"   items={within90} color="#eab308" bg="#eab30808" />
+              <BucketCol
+                label="BESTÄLL NU"
+                sub={`Täcktid under ledtid — brist uppstår`}
+                items={akut}
+                color="#ef4444"
+                bg="#ef444408"
+              />
+              <BucketCol
+                label="BESTÄLL DENNA VECKA"
+                sub={`Täcktid under bevaka-tröskel`}
+                items={veckan}
+                color="#f97316"
+                bg="#f9731608"
+              />
+              <BucketCol
+                label="PLANERA NÄSTA CYKEL"
+                sub={`Täcktid under 4× ledtid — planera inköp`}
+                items={planera}
+                color="#eab308"
+                bg="#eab30808"
+              />
             </div>
           </div>
         );
