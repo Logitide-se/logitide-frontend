@@ -1165,10 +1165,18 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
             {error && (
               <div className="error-box">
                 <b>⚠️ Kunde inte analysera filen</b>
-                {error.includes('\n')
-                  ? error.split('\n').map((line, i) => <p key={i} style={{ margin: '4px 0' }}>{line}</p>)
-                  : <p>{error}</p>
-                }
+                {error.split('\n').map((line, i) => {
+                  const isTip = line.startsWith('Tips:');
+                  return (
+                    <p key={i} style={{
+                      margin: '6px 0',
+                      color: isTip ? '#f59e0b' : undefined,
+                      fontSize: isTip ? '0.85em' : undefined,
+                    }}>
+                      {isTip ? '💡 ' : '• '}{line}
+                    </p>
+                  );
+                })}
               </div>
             )}
           </>
