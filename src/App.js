@@ -1270,147 +1270,14 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
     const dead = articles.filter(a => a.status === 'DEAD_STOCK' || (a.stock > 0 && (a.demand_per_day || 0) === 0));
     const buckets = [0,0,0,0,0,0,0,0];
     dead.forEach((a, i) => { buckets[i % 8]++; });
+    // Downward slope = good (decreasing dead stock)
     return buckets.map((v, i) => Math.max(0, v - i * 0.5));
   }, [articles]);
-
-  // ─── LAGERHÄLSA — sammansatt poäng 0–100 ──────────────────────────
-  const healthScore = React.useMemo(() => {
-    if (!articles?.length || summary.has_demand_data === false) return null;
-
-    const svcAll = Number(summary.service_level_pct) || 0;
-    const svcA = Number(summary.a_service_level_pct) || svcAll;
-
-    const totalStock = Number(summary.total_stock_value_sek) || 0;
-    const overstockVal = Number(summary.overstock_value_sek) || 0;
-    const overstockPct = totalStock > 0 ? (overstockVal / totalStock * 100) : 0;
-    const capitalScore = Math.max(0, 100 - overstockPct * 4);
-
-    const hasLocData = !!summary.has_location_data;
-    const totalArt = Number(summary.total_articles) || articles.length || 1;
-    const articlesToMove = Number(summary.articles_to_move) || 0;
-    const moveScore = hasLocData
-      ? Math.max(0, 100 - (articlesToMove / totalArt * 100))
-      : null;
-
-    const weights = moveScore !== null
-      ? { svcAll: 0.40, svcA: 0.30, capital: 0.15, move: 0.15 }
-      : { svcAll: 0.47, svcA: 0.35, capital: 0.18, move: 0 };
-
-    let score = Math.round(
-      svcAll * weights.svcAll +
-      svcA * weights.svcA +
-      capitalScore * weights.capital +
-      (moveScore ?? 0) * weights.move
-    );
-    if (!Number.isFinite(score)) score = 0;
-    score = Math.max(0, Math.min(100, score));
-
-    let label, color;
-    if (score >= 85)      { label = 'Utmärkt';  color = '#22c55e'; }
-    else if (score >= 70) { label = 'Bra';      color = '#84cc16'; }
-    else if (score >= 50) { label = 'Behöver åtgärd'; color = '#f97316'; }
-    else                  { label = 'Kritiskt'; color = '#ef4444'; }
-
-    return { score, label, color, svcAll, svcA, capitalScore, moveScore };
-  }, [articles, summary]);
-
-  // ─── HÄLSOTREND — jämför mot senast sparade historikpost (kräver inloggning) ─
-  const [healthTrend, setHealthTrend] = React.useState(null);
-  React.useEffect(() => {
-    setHealthTrend(null);
-    if (!healthScore) return;
-    const token = localStorage.getItem('logitide_token');
-    if (!token) return;
-    let cancelled = false;
-    const calcScore = (s) => {
-      const svcAll = Number(s.service_level_pct) || 0;
-      const svcA = Number(s.a_service_level_pct) || svcAll;
-      const totalStock = Number(s.total_stock_value_sek) || 0;
-      const overstock = Number(s.overstock_value_sek) || 0;
-      const overstockPct = totalStock > 0 ? (overstock / totalStock * 100) : 0;
-      const capitalScore = Math.max(0, 100 - overstockPct * 4);
-      const hasLoc = !!s.has_location_data;
-      const totalArt = Number(s.total_articles) || 1;
-      const toMove = Number(s.articles_to_move) || 0;
-      const moveScore = hasLoc ? Math.max(0, 100 - (toMove / totalArt * 100)) : null;
-      const w = moveScore !== null
-        ? { svcAll: 0.40, svcA: 0.30, capital: 0.15, move: 0.15 }
-        : { svcAll: 0.47, svcA: 0.35, capital: 0.18, move: 0 };
-      let sc = Math.round(svcAll * w.svcAll + svcA * w.svcA + capitalScore * w.capital + (moveScore ?? 0) * w.move);
-      return Number.isFinite(sc) ? Math.max(0, Math.min(100, sc)) : null;
-    };
-    fetch(`${API_URL}/history`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        if (cancelled) return;
-        const entries = (d?.analyses || []).filter(a => a.summary && typeof a.summary.service_level_pct === 'number');
-        if (entries.length < 2) return; // Behöver minst två sparade punkter för att jämföra
-        // entries[0] kan vara den analys som precis kördes (sparas async av backend).
-        // Om den är väldigt ny (< 2 min) räknas den som "nuvarande" och entries[1] blir referens.
-        // Annars jämför vi ändå mot entries[0] som senaste kända punkt före denna vy laddades.
-        const newestAgeMs = Date.now() - new Date(entries[0].created_at).getTime();
-        const prevEntry = newestAgeMs < 2 * 60 * 1000 ? entries[1] : entries[0];
-        if (!prevEntry) return;
-        const pScore = calcScore(prevEntry.summary);
-        if (pScore == null) return;
-        const diff = healthScore.score - pScore;
-        if (Math.abs(diff) < 1) return;
-        setHealthTrend({ diff, date: prevEntry.created_at });
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [healthScore?.score]);
 
   return (
     <div className="tab-content">
       <ValidationBanner validation={validation} />
       <DataQualityBanner summary={summary} dataQuality={data_quality} />
-
-      {healthScore && (
-        <div className="section" style={{ display: 'flex', alignItems: 'center', gap: 28, padding: '20px 24px' }}>
-          <div style={{ position: 'relative', width: 96, height: 96, flexShrink: 0 }}>
-            <svg width="96" height="96" viewBox="0 0 96 96" style={{ transform: 'rotate(-90deg)' }}>
-              <circle cx="48" cy="48" r="42" fill="none" stroke="#1e293b" strokeWidth="9" />
-              <circle cx="48" cy="48" r="42" fill="none" stroke={healthScore.color} strokeWidth="9"
-                strokeDasharray={`${2 * Math.PI * 42}`}
-                strokeDashoffset={`${2 * Math.PI * 42 * (1 - healthScore.score / 100)}`}
-                strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.6s ease' }} />
-            </svg>
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-              <div style={{ fontSize: 26, fontWeight: 800, color: healthScore.color, lineHeight: 1 }}>{healthScore.score}</div>
-              <div style={{ fontSize: 9, color: '#64748b' }}>/ 100</div>
-            </div>
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 2 }}>LAGERHÄLSA</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-              <div style={{ fontSize: 20, fontWeight: 700, color: healthScore.color }}>{healthScore.label}</div>
-              {healthTrend && (
-                <div style={{
-                  fontSize: 12, fontWeight: 700,
-                  color: healthTrend.diff > 0 ? '#22c55e' : '#ef4444',
-                  background: healthTrend.diff > 0 ? '#22c55e18' : '#ef444418',
-                  padding: '2px 8px', borderRadius: 6
-                }}>
-                  {healthTrend.diff > 0 ? '▲' : '▼'} {Math.abs(healthTrend.diff)} sedan förra analysen
-                </div>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-              <div style={{ fontSize: 12, color: '#94a3b8' }}>Servicenivå: <b style={{ color: '#f1f5f9' }}>{Number(healthScore.svcAll || 0).toFixed(0)}%</b></div>
-              <div style={{ fontSize: 12, color: '#94a3b8' }}>A-artiklar: <b style={{ color: '#f1f5f9' }}>{Number(healthScore.svcA || 0).toFixed(0)}%</b></div>
-              <div style={{ fontSize: 12, color: '#94a3b8' }}>Kapitaleffektivitet: <b style={{ color: '#f1f5f9' }}>{Number(healthScore.capitalScore || 0).toFixed(0)}%</b></div>
-              {healthScore.moveScore !== null && (
-                <div style={{ fontSize: 12, color: '#94a3b8' }}>Slotting: <b style={{ color: '#f1f5f9' }}>{Number(healthScore.moveScore || 0).toFixed(0)}%</b></div>
-              )}
-            </div>
-            {!localStorage.getItem('logitide_token') && (
-              <div style={{ fontSize: 11, color: '#475569', marginTop: 8 }}>Logga in för att se trend över tid</div>
-            )}
-          </div>
-        </div>
-      )}
-
       {summary.critical > 0 && (
         <div className="alert-banner">
           <Icon name="alert" size={18} />
@@ -2513,225 +2380,6 @@ function CapitalTab({ data }) {
   );
 }
 
-// ─── LEVERANTÖRSVY ────────────────────────────────────────────────────────
-function exportSupplierCSV(suppliers) {
-  const headers = ['leverantor', 'artikel', 'namn', 'status', 'tacktid_dagar', 'antal', 'ordervarde_kr'];
-  const rows = [];
-  suppliers.forEach(s => {
-    (s.articles || []).forEach(a => {
-      rows.push([
-        s.supplier, a.article, a.name || '', a.status,
-        a.coverage_days ?? '', a.order_qty ?? 0, Math.round(a.order_value || 0),
-      ]);
-    });
-  });
-  const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))].join('\n');
-  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const today = new Date().toISOString().slice(0, 10);
-  a.href = url; a.download = `logitide_leverantorer_${today}.csv`; a.click();
-  URL.revokeObjectURL(url);
-}
-
-function SupplierCard({ supplier, hasCost, defaultOpen = false }) {
-  const [open, setOpen] = useState(defaultOpen);
-  const isUnknown = supplier.supplier === 'Okänd leverantör';
-  const critPct = supplier.articles_count > 0 ? Math.round((supplier.critical_count / supplier.articles_count) * 100) : 0;
-  const accentColor = supplier.critical_count > 0 ? '#ef4444' : supplier.watch_count > 0 ? '#f97316' : '#22c55e';
-
-  return (
-    <div style={{
-      background: 'var(--color-surface)', border: '1px solid var(--color-border)',
-      borderRadius: 10, marginBottom: 10, overflow: 'hidden',
-      opacity: isUnknown ? 0.8 : 1,
-    }}>
-      <div
-        onClick={() => setOpen(!open)}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px',
-          cursor: 'pointer', userSelect: 'none',
-        }}
-      >
-        <div style={{ width: 4, height: 36, borderRadius: 2, background: accentColor, flexShrink: 0 }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: isUnknown ? 'var(--color-muted)' : 'var(--color-text)' }}>
-              {isUnknown ? '❓ ' : '🏢 '}{supplier.supplier}
-            </span>
-            {supplier.critical_count > 0 && (
-              <span style={{ fontSize: 10, fontWeight: 700, background: '#ef444422', color: '#ef4444', borderRadius: 4, padding: '2px 7px' }}>
-                {supplier.critical_count} KRITISKA
-              </span>
-            )}
-            {supplier.watch_count > 0 && (
-              <span style={{ fontSize: 10, fontWeight: 700, background: '#f9731622', color: '#f97316', borderRadius: 4, padding: '2px 7px' }}>
-                {supplier.watch_count} BEVAKA
-              </span>
-            )}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--color-muted)', marginTop: 3 }}>
-            {supplier.articles_count} artiklar att beställa
-          </div>
-        </div>
-        {hasCost && (
-          <div style={{ textAlign: 'right', flexShrink: 0 }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--color-text)' }}>{fmtKr(supplier.total_order_value_sek)}</div>
-            <div style={{ fontSize: 10, color: 'var(--color-muted)' }}>ordervärde</div>
-          </div>
-        )}
-        <span style={{ color: 'var(--color-muted)', fontSize: 13, flexShrink: 0 }}>{open ? '▲' : '▼'}</span>
-      </div>
-      {open && (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, borderTop: '1px solid var(--color-border)' }}>
-          <thead>
-            <tr style={{ background: 'var(--color-bg)' }}>
-              <th style={{ padding: '6px 14px', textAlign: 'left', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10, letterSpacing: '0.06em' }}>ARTIKEL</th>
-              <th style={{ padding: '6px 14px', textAlign: 'center', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10 }}>ABC</th>
-              <th style={{ padding: '6px 14px', textAlign: 'right', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10 }}>TÄCKTID</th>
-              <th style={{ padding: '6px 14px', textAlign: 'right', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10 }}>BESTÄLL</th>
-              {hasCost && <th style={{ padding: '6px 14px', textAlign: 'right', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10 }}>VÄRDE</th>}
-              <th style={{ padding: '6px 14px', textAlign: 'center', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10 }}>STATUS</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(supplier.articles || []).map((a, i) => (
-              <tr key={i} style={{ borderTop: '1px solid var(--color-border)' }}>
-                <td style={{ padding: '7px 14px' }}>
-                  <div style={{ color: 'var(--color-text)', fontWeight: 500 }}>{a.name || a.article}</div>
-                  <div style={{ color: 'var(--color-muted)', fontSize: 11 }}>{a.article}</div>
-                </td>
-                <td style={{ padding: '7px 14px', textAlign: 'center' }}>
-                  <span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}</span>
-                </td>
-                <td style={{ padding: '7px 14px', textAlign: 'right', color: a.status === 'CRITICAL' ? '#ef4444' : a.status === 'WATCH' ? '#f97316' : 'var(--color-muted)', fontWeight: 600 }}>
-                  {fmtDays(a.coverage_days)}
-                </td>
-                <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: 700, color: 'var(--color-text)' }}>{fmt(a.order_qty)} st</td>
-                {hasCost && <td style={{ padding: '7px 14px', textAlign: 'right', color: 'var(--color-muted)' }}>{fmtKr(a.order_value)}</td>}
-                <td style={{ padding: '7px 14px', textAlign: 'center' }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: statusColor(a.status) }}>{statusLabel(a.status)}</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
-}
-
-function SupplierTab({ data }) {
-  const { summary, supplier_summary } = data;
-  const hasCost = summary.has_cost_data;
-  const hasSupplierData = summary.has_supplier_data === true;
-  const [search, setSearch] = useState('');
-
-  if (!hasSupplierData) {
-    return (
-      <div className="tab-content">
-        <div style={{
-          maxWidth: 600, margin: '40px auto', textAlign: 'center',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20
-        }}>
-          <div style={{ fontSize: 40 }}>🏢</div>
-          <div>
-            <h3 style={{ color: 'var(--color-text)', marginBottom: 8 }}>Leverantörsvy kräver en leverantörskolumn</h3>
-            <p style={{ color: 'var(--color-muted)', fontSize: 14, lineHeight: 1.7, maxWidth: 480 }}>
-              För att gruppera inköpsbehov per leverantör måste systemet veta vilken
-              leverantör varje artikel köps ifrån. Lägg till kolumnen i er exportfil
-              och ladda upp på nytt.
-            </p>
-          </div>
-          <div style={{
-            background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12,
-            padding: '20px 24px', width: '100%', textAlign: 'left'
-          }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-muted)', letterSpacing: '0.1em', marginBottom: 14 }}>
-              VAD SOM KRÄVS
-            </div>
-            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-              <span style={{ color: '#22c55e', fontSize: 16, marginTop: 1, flexShrink: 0 }}>✓</span>
-              <div>
-                <div style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 600 }}>Kolumn med leverantörsnamn</div>
-                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>
-                  Kolumnnamn som känns igen: <code style={{ background: 'var(--color-bg)', padding: '1px 5px', borderRadius: 3 }}>Leverantör, Supplier, Vendor</code>
-                </div>
-              </div>
-            </div>
-          </div>
-          <p style={{ fontSize: 12, color: 'var(--color-muted)' }}>
-            Lägg till leverantörskolumnen i er exportfil och ladda upp på nytt.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const suppliers = (supplier_summary || []).filter(s =>
-    !search || s.supplier.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const totalSuppliers = (supplier_summary || []).length;
-  const criticalSuppliers = (supplier_summary || []).filter(s => s.critical_count > 0).length;
-  const totalValue = (supplier_summary || []).reduce((sum, s) => sum + (s.total_order_value_sek || 0), 0);
-
-  if (totalSuppliers === 0) {
-    return (
-      <div className="tab-content">
-        <div style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--color-muted)' }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>✓</div>
-          <p>Inga artiklar behöver beställas just nu — inget att gruppera per leverantör.</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="tab-content">
-      <div className="purch-kpi" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 16 }}>
-        <KpiCard label="LEVERANTÖRER" value={fmt(totalSuppliers)}
-          sub={`${criticalSuppliers} med kritiska brister`} color="#0ea5e9" />
-        <KpiCard label="TOTALT ORDERVÄRDE"
-          value={hasCost ? fmtKr(totalValue) : null}
-          missingReason={!hasCost ? 'Kräver inköpspris i filen' : null} color="#3b82f6" />
-        <KpiCard label="SNITT PER LEVERANTÖR"
-          value={hasCost ? fmtKr(Math.round(totalValue / Math.max(totalSuppliers, 1))) : null}
-          missingReason={!hasCost ? 'Kräver inköpspris i filen' : null} color="#8b5cf6" />
-      </div>
-
-      <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center' }}>
-        <input
-          placeholder="Sök leverantör..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{
-            flex: 1, minWidth: 160, background: 'var(--color-surface)', border: '1px solid var(--color-border)',
-            borderRadius: 6, padding: '6px 10px', color: 'var(--color-text)', fontSize: 13, outline: 'none'
-          }}
-        />
-        <button className="export-btn" onClick={() => exportSupplierCSV(supplier_summary || [])}>
-          <Icon name="download" size={14} /> Exportera CSV
-        </button>
-      </div>
-
-      <p style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 12, lineHeight: 1.5 }}>
-        Sorterat på flest kritiska brister och högst ordervärde. Klicka på en leverantör för att se artiklarna.
-      </p>
-
-      {suppliers.length === 0 && (
-        <div style={{ textAlign: 'center', padding: 32, color: 'var(--color-muted)', fontSize: 14 }}>
-          Inga leverantörer matchar "{search}"
-        </div>
-      )}
-
-      {suppliers.map((s, i) => (
-        <SupplierCard key={s.supplier} supplier={s} hasCost={hasCost} defaultOpen={i === 0 && suppliers.length <= 3} />
-      ))}
-    </div>
-  );
-}
-
 // ─── ABC/XYZ TAB — KOMPAKT NETSTOCK-STIL ─────────────────────────────────
 
 // Estimerar XYZ lokalt när månadsdata saknas:
@@ -2764,10 +2412,6 @@ function AbcXyzTab({ data }) {
   }, [articles, xyzAvailable]);
 
   // ── Matrisdata ──
-  // OBS: värdet ska alltid vara bundet kapital (stock_value) — samma som Översikt,
-  // Kapital-sidan och backend's abc_distribution. Ingen fallback till annual_value,
-  // eftersom det är ett annat mått (förbrukning × pris) och skulle blåsa upp t.ex.
-  // en KRITISK artikel med stock=0 (stock_value=0) men hög förbrukning (annual_value>0).
   const matrix = {};
   ['A','B','C'].forEach(abc => {
     ['X','Y','Z'].forEach(xyz => {
@@ -3137,7 +2781,6 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
     { id: 'purchasing', label: 'Inköp', icon: 'trending', badge: summary?.articles_to_order },
     { id: 'slotting', label: 'Slotting', icon: 'move', badge: summary?.has_location_data ? summary?.articles_to_move : null },
     { id: 'capital', label: 'Kapital', icon: 'money', badge: summary?.has_cost_data ? (summary?.dead_stock + (summary?.overstock || 0)) : null },
-    { id: 'suppliers', label: 'Leverantörer', icon: 'package', badge: summary?.has_supplier_data ? summary?.supplier_count : null },
     ...(auth ? [{ id: 'history', label: 'Historik', icon: 'trending' }] : []),
   ];
   return (
@@ -3193,7 +2836,7 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
             <span className="data-dot">●</span> Data aktiv<br />
             <span className="data-count">{fmt(summary?.total_articles)} artiklar</span>
           </div>
-          <div className="version">v2.5 · {summary?.analysis_timestamp}</div>
+          <div className="version">v2.8 · {summary?.analysis_timestamp}</div>
           {auth && (
             <div style={{ fontSize: 10, color: '#475569', marginTop: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>{auth.email}</span>
@@ -3231,7 +2874,6 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
         {activeTab === 'purchasing' && <PurchasingTab data={effectiveData} />}
         {activeTab === 'slotting' && <SlottingTab data={effectiveData} />}
         {activeTab === 'capital' && <CapitalTab data={effectiveData} />}
-        {activeTab === 'suppliers' && <SupplierTab data={effectiveData} />}
         {activeTab === 'history' && auth && <HistoryTab token={auth.token} />}
       </div>
     </div>
