@@ -1270,7 +1270,6 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
     const dead = articles.filter(a => a.status === 'DEAD_STOCK' || (a.stock > 0 && (a.demand_per_day || 0) === 0));
     const buckets = [0,0,0,0,0,0,0,0];
     dead.forEach((a, i) => { buckets[i % 8]++; });
-    // Downward slope = good (decreasing dead stock)
     return buckets.map((v, i) => Math.max(0, v - i * 0.5));
   }, [articles]);
 
@@ -1278,19 +1277,14 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
   const healthScore = React.useMemo(() => {
     if (!articles?.length || summary.has_demand_data === false) return null;
 
-    // 1. Servicenivå alla artiklar (40%) — andel med status OK
     const svcAll = Number(summary.service_level_pct) || 0;
-
-    // 2. Servicenivå A-artiklar (30%) — viktigast för kunden
     const svcA = Number(summary.a_service_level_pct) || svcAll;
 
-    // 3. Kapital i överlager (15%) — inverterat, mindre är bättre
     const totalStock = Number(summary.total_stock_value_sek) || 0;
     const overstockVal = Number(summary.overstock_value_sek) || 0;
     const overstockPct = totalStock > 0 ? (overstockVal / totalStock * 100) : 0;
-    const capitalScore = Math.max(0, 100 - overstockPct * 4); // 25% överlager → 0 poäng
+    const capitalScore = Math.max(0, 100 - overstockPct * 4);
 
-    // 4. Korrekt slottade (15%) — bara om lagerposition finns
     const hasLocData = !!summary.has_location_data;
     const totalArt = Number(summary.total_articles) || articles.length || 1;
     const articlesToMove = Number(summary.articles_to_move) || 0;
@@ -1298,7 +1292,6 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
       ? Math.max(0, 100 - (articlesToMove / totalArt * 100))
       : null;
 
-    // Om slotting saknas, vikta om proportionerligt mellan de tre andra
     const weights = moveScore !== null
       ? { svcAll: 0.40, svcA: 0.30, capital: 0.15, move: 0.15 }
       : { svcAll: 0.47, svcA: 0.35, capital: 0.18, move: 0 };
@@ -1320,6 +1313,53 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
 
     return { score, label, color, svcAll, svcA, capitalScore, moveScore };
   }, [articles, summary]);
+
+  // ─── HÄLSOTREND — jämför mot senast sparade historikpost (kräver inloggning) ─
+  const [healthTrend, setHealthTrend] = React.useState(null);
+  React.useEffect(() => {
+    setHealthTrend(null);
+    if (!healthScore) return;
+    const token = localStorage.getItem('logitide_token');
+    if (!token) return;
+    let cancelled = false;
+    const calcScore = (s) => {
+      const svcAll = Number(s.service_level_pct) || 0;
+      const svcA = Number(s.a_service_level_pct) || svcAll;
+      const totalStock = Number(s.total_stock_value_sek) || 0;
+      const overstock = Number(s.overstock_value_sek) || 0;
+      const overstockPct = totalStock > 0 ? (overstock / totalStock * 100) : 0;
+      const capitalScore = Math.max(0, 100 - overstockPct * 4);
+      const hasLoc = !!s.has_location_data;
+      const totalArt = Number(s.total_articles) || 1;
+      const toMove = Number(s.articles_to_move) || 0;
+      const moveScore = hasLoc ? Math.max(0, 100 - (toMove / totalArt * 100)) : null;
+      const w = moveScore !== null
+        ? { svcAll: 0.40, svcA: 0.30, capital: 0.15, move: 0.15 }
+        : { svcAll: 0.47, svcA: 0.35, capital: 0.18, move: 0 };
+      let sc = Math.round(svcAll * w.svcAll + svcA * w.svcA + capitalScore * w.capital + (moveScore ?? 0) * w.move);
+      return Number.isFinite(sc) ? Math.max(0, Math.min(100, sc)) : null;
+    };
+    fetch(`${API_URL}/history`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (cancelled) return;
+        const entries = (d?.analyses || []).filter(a => a.summary && typeof a.summary.service_level_pct === 'number');
+        if (entries.length < 2) return; // Behöver minst två sparade punkter för att jämföra
+        // entries[0] kan vara den analys som precis kördes (sparas async av backend).
+        // Om den är väldigt ny (< 2 min) räknas den som "nuvarande" och entries[1] blir referens.
+        // Annars jämför vi ändå mot entries[0] som senaste kända punkt före denna vy laddades.
+        const newestAgeMs = Date.now() - new Date(entries[0].created_at).getTime();
+        const prevEntry = newestAgeMs < 2 * 60 * 1000 ? entries[1] : entries[0];
+        if (!prevEntry) return;
+        const pScore = calcScore(prevEntry.summary);
+        if (pScore == null) return;
+        const diff = healthScore.score - pScore;
+        if (Math.abs(diff) < 1) return;
+        setHealthTrend({ diff, date: prevEntry.created_at });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [healthScore?.score]);
 
   return (
     <div className="tab-content">
@@ -1343,7 +1383,19 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 2 }}>LAGERHÄLSA</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: healthScore.color, marginBottom: 8 }}>{healthScore.label}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <div style={{ fontSize: 20, fontWeight: 700, color: healthScore.color }}>{healthScore.label}</div>
+              {healthTrend && (
+                <div style={{
+                  fontSize: 12, fontWeight: 700,
+                  color: healthTrend.diff > 0 ? '#22c55e' : '#ef4444',
+                  background: healthTrend.diff > 0 ? '#22c55e18' : '#ef444418',
+                  padding: '2px 8px', borderRadius: 6
+                }}>
+                  {healthTrend.diff > 0 ? '▲' : '▼'} {Math.abs(healthTrend.diff)} sedan förra analysen
+                </div>
+              )}
+            </div>
             <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
               <div style={{ fontSize: 12, color: '#94a3b8' }}>Servicenivå: <b style={{ color: '#f1f5f9' }}>{Number(healthScore.svcAll || 0).toFixed(0)}%</b></div>
               <div style={{ fontSize: 12, color: '#94a3b8' }}>A-artiklar: <b style={{ color: '#f1f5f9' }}>{Number(healthScore.svcA || 0).toFixed(0)}%</b></div>
@@ -1352,6 +1404,9 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
                 <div style={{ fontSize: 12, color: '#94a3b8' }}>Slotting: <b style={{ color: '#f1f5f9' }}>{Number(healthScore.moveScore || 0).toFixed(0)}%</b></div>
               )}
             </div>
+            {!localStorage.getItem('logitide_token') && (
+              <div style={{ fontSize: 11, color: '#475569', marginTop: 8 }}>Logga in för att se trend över tid</div>
+            )}
           </div>
         </div>
       )}
@@ -1395,82 +1450,6 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
           sparkPoints={sparkDead}
           tooltip={"Artiklar med saldo > 0 men registrerad förbrukning = 0.\n\nKan bero på felregistrering, utgångna produkter eller kassationer som ej bokförts.\n\nDött lager binder kapital utan att bidra till servicenivån — överväg utförsäljning eller skrotning."} />
       </div>
-      {/* ─── PROGNOS: PRIORITERING BASERAD PÅ BESTÄLLNINGSPUNKTSLOGIK ─── */}
-      {articles?.length > 0 && summary.forecast_available && (() => {
-        // ROP-logik: förhåll täcktid till ledtid per artikel — branschstandard
-        const akut    = articles.filter(a => a.status === 'CRITICAL' && a.order_qty > 0)
-                                .sort((a,b) => a.coverage_days - b.coverage_days);
-        const veckan  = articles.filter(a => a.status === 'WATCH')
-                                .sort((a,b) => a.coverage_days - b.coverage_days);
-        const planera = articles.filter(a => a.status === 'OK'
-                                  && a.coverage_days > 0
-                                  && a.coverage_days <= a.lead_time_days * 4
-                                  && a.demand_per_day > 0)
-                                .sort((a,b) => a.coverage_days - b.coverage_days);
-        if (akut.length + veckan.length + planera.length === 0) return null;
-
-        const BucketCol = ({ label, sub, items, color, bg }) => (
-          <div style={{ flex: 1, background: bg, borderRadius: 10, padding: '14px 16px', border: `1px solid ${color}30` }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color, letterSpacing: '0.08em', marginBottom: 2 }}>
-              {label} <span style={{ fontWeight: 400, opacity: 0.7 }}>({items.length})</span>
-            </div>
-            <div style={{ fontSize: 10, color: '#475569', marginBottom: 10 }}>{sub}</div>
-            {items.length === 0
-              ? <div style={{ fontSize: 12, color: '#475569' }}>✓ Inga artiklar</div>
-              : items.slice(0, 5).map((a, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: i < Math.min(items.length, 5) - 1 ? `1px solid ${color}18` : 'none' }}>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#f1f5f9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name || a.article}</div>
-                    <div style={{ fontSize: 10, color: '#64748b' }}>{a.article} · {a.abc}{a.xyz ? `/${a.xyz}` : ''} · ledtid {Math.round(a.lead_time_days)}d</div>
-                  </div>
-                  <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color }}>{fmtDays(a.coverage_days)}</div>
-                    {a.order_qty > 0 && <div style={{ fontSize: 10, color: '#60a5fa' }}>Beställ {fmt(a.order_qty)} st</div>}
-                  </div>
-                </div>
-              ))
-            }
-            {items.length > 5 && (
-              <div style={{ fontSize: 11, color: '#475569', marginTop: 8, paddingTop: 6, borderTop: `1px solid ${color}18` }}>
-                +{items.length - 5} artiklar till — se Inköp-fliken
-              </div>
-            )}
-          </div>
-        );
-
-        return (
-          <div className="section">
-            <div className="section-header">
-              <h3>Inköpsprioriteringar</h3>
-              <span className="badge" style={{ background: '#1e293b', color: '#94a3b8' }}>Baserat på beställningspunktslogik (ROP)</span>
-            </div>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <BucketCol
-                label="BESTÄLL NU"
-                sub={`Täcktid under ledtid — brist uppstår`}
-                items={akut}
-                color="#ef4444"
-                bg="#ef444408"
-              />
-              <BucketCol
-                label="BESTÄLL DENNA VECKA"
-                sub={`Täcktid under bevaka-tröskel`}
-                items={veckan}
-                color="#f97316"
-                bg="#f9731608"
-              />
-              <BucketCol
-                label="PLANERA NÄSTA CYKEL"
-                sub={`Täcktid under 4× ledtid — planera inköp`}
-                items={planera}
-                color="#eab308"
-                bg="#eab30808"
-              />
-            </div>
-          </div>
-        );
-      })()}
-
       {top_actions?.length > 0 && (
         <div className="section">
           <div className="section-header">
