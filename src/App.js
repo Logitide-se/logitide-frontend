@@ -1279,21 +1279,23 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
     if (!articles?.length || summary.has_demand_data === false) return null;
 
     // 1. Servicenivå alla artiklar (40%) — andel med status OK
-    const svcAll = summary.service_level_pct ?? 0;
+    const svcAll = Number(summary.service_level_pct) || 0;
 
     // 2. Servicenivå A-artiklar (30%) — viktigast för kunden
-    const svcA = summary.a_service_level_pct ?? svcAll;
+    const svcA = Number(summary.a_service_level_pct) || svcAll;
 
     // 3. Kapital i överlager (15%) — inverterat, mindre är bättre
-    const totalStock = summary.total_stock_value_sek || 0;
-    const overstockPct = totalStock > 0 ? (summary.overstock_value_sek || 0) / totalStock * 100 : 0;
+    const totalStock = Number(summary.total_stock_value_sek) || 0;
+    const overstockVal = Number(summary.overstock_value_sek) || 0;
+    const overstockPct = totalStock > 0 ? (overstockVal / totalStock * 100) : 0;
     const capitalScore = Math.max(0, 100 - overstockPct * 4); // 25% överlager → 0 poäng
 
     // 4. Korrekt slottade (15%) — bara om lagerposition finns
-    const hasLoc = summary.has_location_data;
-    const totalArt = summary.total_articles || 1;
-    const moveScore = hasLoc
-      ? Math.max(0, 100 - (summary.articles_to_move || 0) / totalArt * 100)
+    const hasLocData = !!summary.has_location_data;
+    const totalArt = Number(summary.total_articles) || articles.length || 1;
+    const articlesToMove = Number(summary.articles_to_move) || 0;
+    const moveScore = hasLocData
+      ? Math.max(0, 100 - (articlesToMove / totalArt * 100))
       : null;
 
     // Om slotting saknas, vikta om proportionerligt mellan de tre andra
@@ -1301,12 +1303,14 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
       ? { svcAll: 0.40, svcA: 0.30, capital: 0.15, move: 0.15 }
       : { svcAll: 0.47, svcA: 0.35, capital: 0.18, move: 0 };
 
-    const score = Math.round(
+    let score = Math.round(
       svcAll * weights.svcAll +
       svcA * weights.svcA +
       capitalScore * weights.capital +
       (moveScore ?? 0) * weights.move
     );
+    if (!Number.isFinite(score)) score = 0;
+    score = Math.max(0, Math.min(100, score));
 
     let label, color;
     if (score >= 85)      { label = 'Utmärkt';  color = '#22c55e'; }
@@ -1314,8 +1318,8 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
     else if (score >= 50) { label = 'Behöver åtgärd'; color = '#f97316'; }
     else                  { label = 'Kritiskt'; color = '#ef4444'; }
 
-    return { score: Math.max(0, Math.min(100, score)), label, color, svcAll, svcA, capitalScore, moveScore };
-  }, [articles, hasDemand, summary]);
+    return { score, label, color, svcAll, svcA, capitalScore, moveScore };
+  }, [articles, summary]);
 
   return (
     <div className="tab-content">
@@ -1341,11 +1345,11 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
             <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 2 }}>LAGERHÄLSA</div>
             <div style={{ fontSize: 20, fontWeight: 700, color: healthScore.color, marginBottom: 8 }}>{healthScore.label}</div>
             <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-              <div style={{ fontSize: 12, color: '#94a3b8' }}>Servicenivå: <b style={{ color: '#f1f5f9' }}>{healthScore.svcAll.toFixed(0)}%</b></div>
-              <div style={{ fontSize: 12, color: '#94a3b8' }}>A-artiklar: <b style={{ color: '#f1f5f9' }}>{healthScore.svcA.toFixed(0)}%</b></div>
-              <div style={{ fontSize: 12, color: '#94a3b8' }}>Kapitaleffektivitet: <b style={{ color: '#f1f5f9' }}>{healthScore.capitalScore.toFixed(0)}%</b></div>
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>Servicenivå: <b style={{ color: '#f1f5f9' }}>{Number(healthScore.svcAll || 0).toFixed(0)}%</b></div>
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>A-artiklar: <b style={{ color: '#f1f5f9' }}>{Number(healthScore.svcA || 0).toFixed(0)}%</b></div>
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>Kapitaleffektivitet: <b style={{ color: '#f1f5f9' }}>{Number(healthScore.capitalScore || 0).toFixed(0)}%</b></div>
               {healthScore.moveScore !== null && (
-                <div style={{ fontSize: 12, color: '#94a3b8' }}>Slotting: <b style={{ color: '#f1f5f9' }}>{healthScore.moveScore.toFixed(0)}%</b></div>
+                <div style={{ fontSize: 12, color: '#94a3b8' }}>Slotting: <b style={{ color: '#f1f5f9' }}>{Number(healthScore.moveScore || 0).toFixed(0)}%</b></div>
               )}
             </div>
           </div>
