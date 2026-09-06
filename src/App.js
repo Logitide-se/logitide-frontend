@@ -459,7 +459,7 @@ function OnboardingGuide({ onClose }) {
       icon: '🟢',
       desc: 'Dessa kolumner låser upp XYZ-analys, slottning och leveransbevak.',
       fields: [
-        { name: 'Historisk förbrukning', note: 'Månadsvis, minst 6 månader → XYZ', ex: 'Jan: 120, Feb: 98…' },
+        { name: 'Historisk förbrukning', note: 'Månadsvis, minst 6 månader → XYZ, helst 12 för säsongsanalys', ex: 'Jan: 120, Feb: 98…' },
         { name: 'Beställt antal', note: 'Pågående order som inte levererats', ex: '500' },
         { name: 'Förväntat leveransdatum', note: 'För pågående inköpsorder', ex: '2025-06-15' },
         { name: 'MOQ / Minsta orderenhet', note: 'Minsta kvantitet att beställa', ex: '100 st' },
