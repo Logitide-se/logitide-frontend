@@ -1274,10 +1274,84 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
     return buckets.map((v, i) => Math.max(0, v - i * 0.5));
   }, [articles]);
 
+  // ─── LAGERHÄLSA — sammansatt poäng 0–100 ──────────────────────────
+  const healthScore = React.useMemo(() => {
+    if (!articles?.length || summary.has_demand_data === false) return null;
+
+    // 1. Servicenivå alla artiklar (40%) — andel med status OK
+    const svcAll = summary.service_level_pct ?? 0;
+
+    // 2. Servicenivå A-artiklar (30%) — viktigast för kunden
+    const svcA = summary.a_service_level_pct ?? svcAll;
+
+    // 3. Kapital i överlager (15%) — inverterat, mindre är bättre
+    const totalStock = summary.total_stock_value_sek || 0;
+    const overstockPct = totalStock > 0 ? (summary.overstock_value_sek || 0) / totalStock * 100 : 0;
+    const capitalScore = Math.max(0, 100 - overstockPct * 4); // 25% överlager → 0 poäng
+
+    // 4. Korrekt slottade (15%) — bara om lagerposition finns
+    const hasLoc = summary.has_location_data;
+    const totalArt = summary.total_articles || 1;
+    const moveScore = hasLoc
+      ? Math.max(0, 100 - (summary.articles_to_move || 0) / totalArt * 100)
+      : null;
+
+    // Om slotting saknas, vikta om proportionerligt mellan de tre andra
+    const weights = moveScore !== null
+      ? { svcAll: 0.40, svcA: 0.30, capital: 0.15, move: 0.15 }
+      : { svcAll: 0.47, svcA: 0.35, capital: 0.18, move: 0 };
+
+    const score = Math.round(
+      svcAll * weights.svcAll +
+      svcA * weights.svcA +
+      capitalScore * weights.capital +
+      (moveScore ?? 0) * weights.move
+    );
+
+    let label, color;
+    if (score >= 85)      { label = 'Utmärkt';  color = '#22c55e'; }
+    else if (score >= 70) { label = 'Bra';      color = '#84cc16'; }
+    else if (score >= 50) { label = 'Behöver åtgärd'; color = '#f97316'; }
+    else                  { label = 'Kritiskt'; color = '#ef4444'; }
+
+    return { score: Math.max(0, Math.min(100, score)), label, color, svcAll, svcA, capitalScore, moveScore };
+  }, [articles, hasDemand, summary]);
+
   return (
     <div className="tab-content">
       <ValidationBanner validation={validation} />
       <DataQualityBanner summary={summary} dataQuality={data_quality} />
+
+      {healthScore && (
+        <div className="section" style={{ display: 'flex', alignItems: 'center', gap: 28, padding: '20px 24px' }}>
+          <div style={{ position: 'relative', width: 96, height: 96, flexShrink: 0 }}>
+            <svg width="96" height="96" viewBox="0 0 96 96" style={{ transform: 'rotate(-90deg)' }}>
+              <circle cx="48" cy="48" r="42" fill="none" stroke="#1e293b" strokeWidth="9" />
+              <circle cx="48" cy="48" r="42" fill="none" stroke={healthScore.color} strokeWidth="9"
+                strokeDasharray={`${2 * Math.PI * 42}`}
+                strokeDashoffset={`${2 * Math.PI * 42 * (1 - healthScore.score / 100)}`}
+                strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.6s ease' }} />
+            </svg>
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ fontSize: 26, fontWeight: 800, color: healthScore.color, lineHeight: 1 }}>{healthScore.score}</div>
+              <div style={{ fontSize: 9, color: '#64748b' }}>/ 100</div>
+            </div>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 2 }}>LAGERHÄLSA</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: healthScore.color, marginBottom: 8 }}>{healthScore.label}</div>
+            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>Servicenivå: <b style={{ color: '#f1f5f9' }}>{healthScore.svcAll.toFixed(0)}%</b></div>
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>A-artiklar: <b style={{ color: '#f1f5f9' }}>{healthScore.svcA.toFixed(0)}%</b></div>
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>Kapitaleffektivitet: <b style={{ color: '#f1f5f9' }}>{healthScore.capitalScore.toFixed(0)}%</b></div>
+              {healthScore.moveScore !== null && (
+                <div style={{ fontSize: 12, color: '#94a3b8' }}>Slotting: <b style={{ color: '#f1f5f9' }}>{healthScore.moveScore.toFixed(0)}%</b></div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {summary.critical > 0 && (
         <div className="alert-banner">
           <Icon name="alert" size={18} />
