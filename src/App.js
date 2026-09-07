@@ -2615,8 +2615,7 @@ function AbcXyzTab({ data }) {
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--color-muted)', marginBottom: 10 }}>SAMMANFATTNING</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {['A','B','C'].map(abc => {
-                const g = { count: ['X','Y','Z'].reduce((s,xyz) => s + (matrix[abc+xyz]?.count||0), 0),
-                            value: ['X','Y','Z'].reduce((s,xyz) => s + (matrix[abc+xyz]?.value||0), 0) };
+                const g = abcGroups[abc] || { count: 0, value: 0 };
                 const pct = Math.round((g.count / totalArticles) * 100);
                 return (
                   <div key={abc} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
