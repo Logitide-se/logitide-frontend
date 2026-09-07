@@ -2417,7 +2417,7 @@ function AbcXyzTab({ data }) {
     ['X','Y','Z'].forEach(xyz => {
       const key = abc + xyz;
       const arts = enrichedArticles.filter(a => a.abc === abc && a.xyz === xyz);
-      const value = arts.reduce((s, a) => s + (a.stock_value || a.annual_value || 0), 0);
+      const value = arts.reduce((s, a) => s + (a.stock_value || 0), 0);
       const critical = arts.filter(a => a.status === 'CRITICAL').length;
       matrix[key] = { arts, count: arts.length, value, critical };
     });
@@ -2427,13 +2427,13 @@ function AbcXyzTab({ data }) {
   const abcGroups = {};
   ['A','B','C'].forEach(abc => {
     const arts = enrichedArticles.filter(a => a.abc === abc);
-    const value = arts.reduce((s, a) => s + (a.stock_value || a.annual_value || 0), 0);
+    const value = arts.reduce((s, a) => s + (a.stock_value || 0), 0);
     const critical = arts.filter(a => a.status === 'CRITICAL').length;
     abcGroups[abc] = { arts, count: arts.length, value, critical };
   });
 
   const totalArticles = enrichedArticles.length || 1;
-  const totalValue = enrichedArticles.reduce((s, a) => s + (a.stock_value || a.annual_value || 0), 0) || 1;
+  const totalValue = enrichedArticles.reduce((s, a) => s + (a.stock_value || 0), 0) || 1;
 
   const abcColor2 = { A: '#22c55e', B: '#f59e0b', C: '#6b7280' };
   const xyzColor  = { X: '#22c55e', Y: '#f59e0b', Z: '#ef4444' };
