@@ -459,7 +459,7 @@ function OnboardingGuide({ onClose }) {
       icon: '🟢',
       desc: 'Dessa kolumner låser upp XYZ-analys, slottning och leveransbevak.',
       fields: [
-        { name: 'Historisk förbrukning', note: 'Månadsvis, minst 6 månader → XYZ, helst 12 för säsongsanalys', ex: 'Jan: 120, Feb: 98…' },
+        { name: 'Historisk förbrukning', note: 'Månadsvis, minst 6 månader → XYZ', ex: 'Jan: 120, Feb: 98…' },
         { name: 'Beställt antal', note: 'Pågående order som inte levererats', ex: '500' },
         { name: 'Förväntat leveransdatum', note: 'För pågående inköpsorder', ex: '2025-06-15' },
         { name: 'MOQ / Minsta orderenhet', note: 'Minsta kvantitet att beställa', ex: '100 st' },
@@ -2417,7 +2417,7 @@ function AbcXyzTab({ data }) {
     ['X','Y','Z'].forEach(xyz => {
       const key = abc + xyz;
       const arts = enrichedArticles.filter(a => a.abc === abc && a.xyz === xyz);
-      const value = arts.reduce((s, a) => s + (a.stock_value || 0), 0);
+      const value = arts.reduce((s, a) => s + (a.stock_value || a.annual_value || 0), 0);
       const critical = arts.filter(a => a.status === 'CRITICAL').length;
       matrix[key] = { arts, count: arts.length, value, critical };
     });
@@ -2427,13 +2427,13 @@ function AbcXyzTab({ data }) {
   const abcGroups = {};
   ['A','B','C'].forEach(abc => {
     const arts = enrichedArticles.filter(a => a.abc === abc);
-    const value = arts.reduce((s, a) => s + (a.stock_value || 0), 0);
+    const value = arts.reduce((s, a) => s + (a.stock_value || a.annual_value || 0), 0);
     const critical = arts.filter(a => a.status === 'CRITICAL').length;
     abcGroups[abc] = { arts, count: arts.length, value, critical };
   });
 
   const totalArticles = enrichedArticles.length || 1;
-  const totalValue = enrichedArticles.reduce((s, a) => s + (a.stock_value || 0), 0) || 1;
+  const totalValue = enrichedArticles.reduce((s, a) => s + (a.stock_value || a.annual_value || 0), 0) || 1;
 
   const abcColor2 = { A: '#22c55e', B: '#f59e0b', C: '#6b7280' };
   const xyzColor  = { X: '#22c55e', Y: '#f59e0b', Z: '#ef4444' };
@@ -2781,6 +2781,7 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
     { id: 'purchasing', label: 'Inköp', icon: 'trending', badge: summary?.articles_to_order },
     { id: 'slotting', label: 'Slotting', icon: 'move', badge: summary?.has_location_data ? summary?.articles_to_move : null },
     { id: 'capital', label: 'Kapital', icon: 'money', badge: summary?.has_cost_data ? (summary?.dead_stock + (summary?.overstock || 0)) : null },
+    { id: 'suppliers', label: 'Leverantörer', icon: 'package', badge: summary?.has_supplier_data ? summary?.supplier_count : null },
     ...(auth ? [{ id: 'history', label: 'Historik', icon: 'trending' }] : []),
   ];
   return (
@@ -2836,7 +2837,7 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
             <span className="data-dot">●</span> Data aktiv<br />
             <span className="data-count">{fmt(summary?.total_articles)} artiklar</span>
           </div>
-          <div className="version">v2.8 · {summary?.analysis_timestamp}</div>
+          <div className="version">v2.5 · {summary?.analysis_timestamp}</div>
           {auth && (
             <div style={{ fontSize: 10, color: '#475569', marginTop: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>{auth.email}</span>
@@ -2874,6 +2875,7 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
         {activeTab === 'purchasing' && <PurchasingTab data={effectiveData} />}
         {activeTab === 'slotting' && <SlottingTab data={effectiveData} />}
         {activeTab === 'capital' && <CapitalTab data={effectiveData} />}
+        {activeTab === 'suppliers' && <SupplierTab data={effectiveData} />}
         {activeTab === 'history' && auth && <HistoryTab token={auth.token} />}
       </div>
     </div>
