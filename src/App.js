@@ -2417,7 +2417,7 @@ function AbcXyzTab({ data }) {
     ['X','Y','Z'].forEach(xyz => {
       const key = abc + xyz;
       const arts = enrichedArticles.filter(a => a.abc === abc && a.xyz === xyz);
-      const value = arts.reduce((s, a) => s + (a.stock_value || 0), 0);
+      const value = arts.reduce((s, a) => s + (a.stock_value || a.annual_value || 0), 0);
       const critical = arts.filter(a => a.status === 'CRITICAL').length;
       matrix[key] = { arts, count: arts.length, value, critical };
     });
@@ -2427,13 +2427,13 @@ function AbcXyzTab({ data }) {
   const abcGroups = {};
   ['A','B','C'].forEach(abc => {
     const arts = enrichedArticles.filter(a => a.abc === abc);
-    const value = arts.reduce((s, a) => s + (a.stock_value || 0), 0);
+    const value = arts.reduce((s, a) => s + (a.stock_value || a.annual_value || 0), 0);
     const critical = arts.filter(a => a.status === 'CRITICAL').length;
     abcGroups[abc] = { arts, count: arts.length, value, critical };
   });
 
   const totalArticles = enrichedArticles.length || 1;
-  const totalValue = enrichedArticles.reduce((s, a) => s + (a.stock_value || 0), 0) || 1;
+  const totalValue = enrichedArticles.reduce((s, a) => s + (a.stock_value || a.annual_value || 0), 0) || 1;
 
   const abcColor2 = { A: '#22c55e', B: '#f59e0b', C: '#6b7280' };
   const xyzColor  = { X: '#22c55e', Y: '#f59e0b', Z: '#ef4444' };
@@ -2615,7 +2615,8 @@ function AbcXyzTab({ data }) {
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--color-muted)', marginBottom: 10 }}>SAMMANFATTNING</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {['A','B','C'].map(abc => {
-                const g = abcGroups[abc] || { count: 0, value: 0 };
+                const g = { count: ['X','Y','Z'].reduce((s,xyz) => s + (matrix[abc+xyz]?.count||0), 0),
+                            value: ['X','Y','Z'].reduce((s,xyz) => s + (matrix[abc+xyz]?.value||0), 0) };
                 const pct = Math.round((g.count / totalArticles) * 100);
                 return (
                   <div key={abc} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -2747,6 +2748,134 @@ function exportCSV(rows) {
 
 
 
+
+// ─── SUPPLIER TAB ──────────────────────────────────────────────────────────
+function exportSupplierCSV(suppliers) {
+  const rows = [];
+  suppliers.forEach(s => {
+    (s.articles || []).forEach(a => {
+      rows.push([s.supplier, a.article, a.name, a.abc, a.coverage_days, a.order_qty, a.order_value, a.status].join(','));
+    });
+  });
+  const csv = ['Leverantör,Artikelnummer,Namn,ABC,Täcktid,Antal,Värde,Status', ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'logitide-leverantorer.csv'; a.click();
+}
+
+function SupplierCard({ supplier, expanded, onToggle }) {
+  const s = supplier;
+  return (
+    <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 10, overflow: 'hidden' }}>
+      <div onClick={onToggle} style={{ padding: '14px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 18 }}>🏭</span>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{s.supplier}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+              {s.articles_count} artiklar att beställa
+            </div>
+          </div>
+          {s.critical_count > 0 && <span style={{ background: '#ef444422', color: '#ef4444', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600 }}>{s.critical_count} KRITISKA</span>}
+          {s.watch_count > 0 && <span style={{ background: '#f9731622', color: '#f97316', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600 }}>{s.watch_count} BEVAKA</span>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          {s.total_order_value > 0 && <span style={{ fontWeight: 700, color: '#6366f1', fontSize: 15 }}>{Math.round(s.total_order_value).toLocaleString('sv-SE')} kr</span>}
+          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>ordervärde</span>
+          <span style={{ color: 'var(--text-muted)' }}>{expanded ? '▲' : '▼'}</span>
+        </div>
+      </div>
+      {expanded && (
+        <div style={{ borderTop: '1px solid var(--border)', padding: '0 18px 14px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 10 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                {['Artikel', 'ABC', 'Täcktid', 'Beställ', 'Värde', 'Status'].map(h => (
+                  <th key={h} style={{ textAlign: 'left', padding: '6px 8px', fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(s.articles || []).map((a, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid var(--border-light)' }}>
+                  <td style={{ padding: '7px 8px', fontSize: 13 }}>
+                    <div style={{ fontWeight: 500 }}>{a.name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{a.article}</div>
+                  </td>
+                  <td style={{ padding: '7px 8px' }}>
+                    <span style={{ background: a.abc === 'A' ? '#22c55e22' : a.abc === 'B' ? '#f59e0b22' : '#6b728022', color: a.abc === 'A' ? '#22c55e' : a.abc === 'B' ? '#f59e0b' : '#6b7280', padding: '2px 7px', borderRadius: 4, fontSize: 11, fontWeight: 700 }}>{a.abc}</span>
+                  </td>
+                  <td style={{ padding: '7px 8px', fontSize: 13, color: a.coverage_days < 14 ? '#ef4444' : a.coverage_days < 30 ? '#f97316' : 'var(--text-primary)' }}>{a.coverage_days} d</td>
+                  <td style={{ padding: '7px 8px', fontSize: 13 }}>{a.order_qty > 0 ? `${a.order_qty.toLocaleString('sv-SE')} st` : '—'}</td>
+                  <td style={{ padding: '7px 8px', fontSize: 13, fontWeight: 600, color: '#6366f1' }}>{a.order_value > 0 ? `${Math.round(a.order_value).toLocaleString('sv-SE')} kr` : '—'}</td>
+                  <td style={{ padding: '7px 8px' }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: a.status === 'CRITICAL' ? '#ef4444' : a.status === 'WATCH' ? '#f97316' : '#22c55e' }}>{a.status === 'CRITICAL' ? 'KRITISK' : a.status === 'WATCH' ? 'BEVAKA' : 'OK'}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SupplierTab({ data }) {
+  const [expandedIdx, setExpandedIdx] = React.useState(0);
+  const suppliers = data?.supplier_summary || [];
+
+  if (!suppliers || suppliers.length === 0) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 300, gap: 12, color: 'var(--text-muted)' }}>
+        <span style={{ fontSize: 40 }}>🏭</span>
+        <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--text-primary)' }}>Leverantörsvy kräver en leverantörskolumn</div>
+        <div style={{ fontSize: 13, textAlign: 'center', maxWidth: 400 }}>
+          Lägg till kolumnen Leverantör i er exportfil och ladda upp på nytt.<br />
+          Kolumnnamn som känns igen: Leverantör, Supplier, Vendor.
+        </div>
+      </div>
+    );
+  }
+
+  const totalOrderValue = suppliers.reduce((s, x) => s + (x.total_order_value || 0), 0);
+  const totalCritical = suppliers.reduce((s, x) => s + (x.critical_count || 0), 0);
+
+  return (
+    <div className="tab-content">
+      <div className="kpi-row" style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
+        <div className="kpi-card" style={{ flex: 1, background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 20px' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', fontWeight: 600 }}>Leverantörer</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)' }}>{suppliers.length}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{totalCritical > 0 ? `${totalCritical} med kritiska brister` : 'inga kritiska'}</div>
+        </div>
+        <div className="kpi-card" style={{ flex: 1, background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 20px' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', fontWeight: 600 }}>Totalt ordervärde</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#6366f1' }}>{Math.round(totalOrderValue).toLocaleString('sv-SE')} kr</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{suppliers.length} leverantörer</div>
+        </div>
+        <div className="kpi-card" style={{ flex: 1, background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 20px' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', fontWeight: 600 }}>Snitt per leverantör</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#f97316' }}>{suppliers.length > 0 ? Math.round(totalOrderValue / suppliers.length).toLocaleString('sv-SE') : 0} kr</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>ordervärde</div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <button onClick={() => exportSupplierCSV(suppliers)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          ⬇ Exportera CSV
+        </button>
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+        Sorterat på flest kritiska brister och högst ordervärde. Klicka på en leverantör för att se artiklarna.
+      </div>
+      {suppliers.map((s, i) => (
+        <SupplierCard key={i} supplier={s} expanded={expandedIdx === i} onToggle={() => setExpandedIdx(expandedIdx === i ? -1 : i)} />
+      ))}
+    </div>
+  );
+}
+
 // ─── DASHBOARD ────────────────────────────────────────────────────────────
 function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
   const [activeTab, setActiveTab] = useState('overview');
@@ -2774,13 +2903,14 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
   }, [data, ledtidOverrides]);
 
   const { summary } = effectiveData;
+  const suppliers = data?.supplier_summary || [];
   const tabs = [
     { id: 'overview', label: 'Översikt', icon: 'home' },
     { id: 'abcxyz', label: 'ABC/XYZ', icon: 'grid' },
     { id: 'purchasing', label: 'Inköp', icon: 'trending', badge: summary?.articles_to_order },
     { id: 'slotting', label: 'Slotting', icon: 'move', badge: summary?.has_location_data ? summary?.articles_to_move : null },
     { id: 'capital', label: 'Kapital', icon: 'money', badge: summary?.has_cost_data ? (summary?.dead_stock + (summary?.overstock || 0)) : null },
-    { id: 'suppliers', label: 'Leverantörer', icon: 'package', badge: summary?.has_supplier_data ? summary?.supplier_count : null },
+    { id: 'suppliers', label: 'Leverantörer', icon: 'package', badge: suppliers.length > 0 ? suppliers.length : null },
     ...(auth ? [{ id: 'history', label: 'Historik', icon: 'trending' }] : []),
   ];
   return (
@@ -3154,187 +3284,6 @@ function ComparePanel({ idA, idB, token, labelA, labelB, onClose }) {
           <ImprovementCards cards={diff.cards} totalSaved={diff.total_saved_sek} />
         )}
       </div>
-    </div>
-  );
-}
-
-// ─── LEVERANTÖRSVY ────────────────────────────────────────────────────────
-function exportSupplierCSV(suppliers) {
-  const headers = ['leverantor', 'artikel', 'namn', 'status', 'tacktid_dagar', 'antal', 'ordervarde_kr'];
-  const rows = [];
-  suppliers.forEach(s => {
-    (s.articles || []).forEach(a => {
-      rows.push([
-        s.supplier, a.article, a.name || '', a.status,
-        a.coverage_days ?? '', a.order_qty ?? 0, Math.round(a.order_value || 0),
-      ]);
-    });
-  });
-  const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))].join('\n');
-  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const today = new Date().toISOString().slice(0, 10);
-  a.href = url; a.download = `logitide_leverantorer_${today}.csv`; a.click();
-  URL.revokeObjectURL(url);
-}
-
-function SupplierCard({ supplier, hasCost, defaultOpen = false }) {
-  const [open, setOpen] = useState(defaultOpen);
-  const isUnknown = supplier.supplier === 'Okänd leverantör';
-  const articleCount = supplier.article_count ?? supplier.articles_count ?? supplier.articles_to_order ?? 0;
-  const accentColor = (supplier.critical_count || supplier.critical || 0) > 0 ? '#ef4444' :
-    (supplier.watch_count || supplier.watch || 0) > 0 ? '#f97316' : '#22c55e';
-  return (
-    <div style={{
-      background: 'var(--color-surface)', border: '1px solid var(--color-border)',
-      borderRadius: 10, marginBottom: 10, overflow: 'hidden', opacity: isUnknown ? 0.8 : 1,
-    }}>
-      <div onClick={() => setOpen(!open)} style={{
-        display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px',
-        cursor: 'pointer', userSelect: 'none',
-      }}>
-        <div style={{ width: 4, height: 36, borderRadius: 2, background: accentColor, flexShrink: 0 }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: isUnknown ? 'var(--color-muted)' : 'var(--color-text)' }}>
-              {isUnknown ? '❓ ' : '🏢 '}{supplier.supplier || supplier.name}
-            </span>
-            {(supplier.critical_count || supplier.critical || 0) > 0 && (
-              <span style={{ fontSize: 10, fontWeight: 700, background: '#ef444422', color: '#ef4444', borderRadius: 4, padding: '2px 7px' }}>
-                {supplier.critical_count || supplier.critical} KRITISKA
-              </span>
-            )}
-            {(supplier.watch_count || supplier.watch || 0) > 0 && (
-              <span style={{ fontSize: 10, fontWeight: 700, background: '#f9731622', color: '#f97316', borderRadius: 4, padding: '2px 7px' }}>
-                {supplier.watch_count || supplier.watch} BEVAKA
-              </span>
-            )}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--color-muted)', marginTop: 3 }}>
-            {articleCount} artiklar att beställa
-          </div>
-        </div>
-        {hasCost && (
-          <div style={{ textAlign: 'right', flexShrink: 0 }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--color-text)' }}>
-              {fmtKr(supplier.total_order_value_sek || supplier.order_value_sek || 0)}
-            </div>
-            <div style={{ fontSize: 10, color: 'var(--color-muted)' }}>ordervärde</div>
-          </div>
-        )}
-        <span style={{ color: 'var(--color-muted)', fontSize: 13, flexShrink: 0 }}>{open ? '▲' : '▼'}</span>
-      </div>
-      {open && (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, borderTop: '1px solid var(--color-border)' }}>
-          <thead>
-            <tr style={{ background: 'var(--color-bg)' }}>
-              <th style={{ padding: '6px 14px', textAlign: 'left', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10, letterSpacing: '0.06em' }}>ARTIKEL</th>
-              <th style={{ padding: '6px 14px', textAlign: 'center', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10 }}>ABC</th>
-              <th style={{ padding: '6px 14px', textAlign: 'right', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10 }}>TÄCKTID</th>
-              <th style={{ padding: '6px 14px', textAlign: 'right', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10 }}>BESTÄLL</th>
-              {hasCost && <th style={{ padding: '6px 14px', textAlign: 'right', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10 }}>VÄRDE</th>}
-              <th style={{ padding: '6px 14px', textAlign: 'center', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10 }}>STATUS</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(supplier.articles || []).map((a, i) => (
-              <tr key={i} style={{ borderTop: '1px solid var(--color-border)' }}>
-                <td style={{ padding: '7px 14px' }}>
-                  <div style={{ color: 'var(--color-text)', fontWeight: 500 }}>{a.name || a.article}</div>
-                  <div style={{ color: 'var(--color-muted)', fontSize: 11 }}>{a.article}</div>
-                </td>
-                <td style={{ padding: '7px 14px', textAlign: 'center' }}>
-                  <span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}</span>
-                </td>
-                <td style={{ padding: '7px 14px', textAlign: 'right', color: a.status === 'CRITICAL' ? '#ef4444' : a.status === 'WATCH' ? '#f97316' : 'var(--color-muted)', fontWeight: 600 }}>
-                  {fmtDays(a.coverage_days)}
-                </td>
-                <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: 700, color: 'var(--color-text)' }}>{fmt(a.order_qty)} st</td>
-                {hasCost && <td style={{ padding: '7px 14px', textAlign: 'right', color: 'var(--color-muted)' }}>{fmtKr(a.order_value)}</td>}
-                <td style={{ padding: '7px 14px', textAlign: 'center' }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: statusColor(a.status) }}>{statusLabel(a.status)}</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
-}
-
-function SupplierTab({ data }) {
-  const { summary, supplier_summary } = data;
-  const hasCost = summary.has_cost_data;
-  const hasSupplierData = summary.has_supplier_data === true;
-  const [search, setSearch] = useState('');
-
-  if (!hasSupplierData) {
-    return (
-      <div className="tab-content">
-        <div style={{ maxWidth: 600, margin: '40px auto', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
-          <div style={{ fontSize: 40 }}>🏢</div>
-          <div>
-            <h3 style={{ color: 'var(--color-text)', marginBottom: 8 }}>Leverantörsvy kräver en leverantörskolumn</h3>
-            <p style={{ color: 'var(--color-muted)', fontSize: 14, lineHeight: 1.7, maxWidth: 480 }}>
-              Lägg till kolumnen <code>Leverantör</code> i er exportfil och ladda upp på nytt.
-              Kolumnnamn som känns igen: Leverantör, Supplier, Vendor.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const suppliers = (supplier_summary || []).filter(s =>
-    !search || s.supplier.toLowerCase().includes(search.toLowerCase())
-  );
-  const totalSuppliers = (supplier_summary || []).length;
-  const criticalSuppliers = (supplier_summary || []).filter(s => (s.critical_count || s.critical || 0) > 0).length;
-  const totalValue = (supplier_summary || []).reduce((sum, s) => sum + (s.total_order_value_sek || s.order_value_sek || 0), 0);
-
-  if (totalSuppliers === 0) {
-    return (
-      <div className="tab-content">
-        <div style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--color-muted)' }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>✓</div>
-          <p>Inga artiklar behöver beställas just nu.</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="tab-content">
-      <div className="purch-kpi" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 16 }}>
-        <KpiCard label="LEVERANTÖRER" value={fmt(totalSuppliers)} sub={`${criticalSuppliers} med kritiska brister`} color="#0ea5e9" />
-        <KpiCard label="TOTALT ORDERVÄRDE"
-          value={hasCost ? fmtKr(totalValue) : null}
-          missingReason={!hasCost ? 'Kräver inköpspris i filen' : null} color="#3b82f6" />
-        <KpiCard label="SNITT PER LEVERANTÖR"
-          value={hasCost ? fmtKr(Math.round(totalValue / Math.max(totalSuppliers, 1))) : null}
-          missingReason={!hasCost ? 'Kräver inköpspris i filen' : null} color="#8b5cf6" />
-      </div>
-      <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center' }}>
-        <input placeholder="Sök leverantör..." value={search} onChange={e => setSearch(e.target.value)}
-          style={{ flex: 1, minWidth: 160, background: 'var(--color-surface)', border: '1px solid var(--color-border)',
-            borderRadius: 6, padding: '6px 10px', color: 'var(--color-text)', fontSize: 13, outline: 'none' }} />
-        <button className="export-btn" onClick={() => exportSupplierCSV(supplier_summary || [])}>
-          <Icon name="download" size={14} /> Exportera CSV
-        </button>
-      </div>
-      <p style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 12, lineHeight: 1.5 }}>
-        Sorterat på flest kritiska brister och högst ordervärde. Klicka på en leverantör för att se artiklarna.
-      </p>
-      {suppliers.length === 0 && (
-        <div style={{ textAlign: 'center', padding: 32, color: 'var(--color-muted)', fontSize: 14 }}>
-          Inga leverantörer matchar "{search}"
-        </div>
-      )}
-      {suppliers.map((s, i) => (
-        <SupplierCard key={s.supplier || i} supplier={s} hasCost={hasCost} defaultOpen={i === 0 && suppliers.length <= 3} />
-      ))}
     </div>
   );
 }
