@@ -2807,7 +2807,7 @@ function SettingsTab({ globalSettings, supplierSettings, articleOverrides, onGlo
     suppliers.forEach(sup => {
       bySupplier[sup] = articles.filter(a => a.supplier === sup).length;
     });
-    return { total, withOverride, withSupplier, withoutSupplier, bySupplier };
+    return { total, withOverride, withoutSupplier, bySupplier };
   }, [articles, suppliers, articleOverrides]);
 
   // Synka om settings ändras utifrån
