@@ -1289,6 +1289,42 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider, o
     <div className="tab-content">
       <ValidationBanner validation={validation} />
       <DataQualityBanner summary={summary} dataQuality={data_quality} />
+      {/* Hero-banner — viktigaste affärssiffran direkt */}
+      {(hasCost && summary.total_order_value_sek > 0) && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: '#0f172a', border: '1px solid #1e293b',
+          borderLeft: `4px solid ${summary.critical > 0 ? '#ef4444' : '#f97316'}`,
+          borderRadius: 10, padding: '14px 20px', marginBottom: 16,
+        }}>
+          <div>
+            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 4 }}>
+              INKÖPSBEHOV JUST NU
+            </div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: '#f1f5f9', lineHeight: 1 }}>
+              {fmtKr(summary.total_order_value_sek)}
+            </div>
+            <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+              {fmt(summary.articles_to_order)} artiklar att beställa
+              {summary.critical > 0 && <span style={{ color: '#ef4444', marginLeft: 8 }}>· {summary.critical} kritiska</span>}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 4 }}>
+              BUNDET KAPITAL
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#a855f7', lineHeight: 1 }}>
+              {fmtKr(summary.total_stock_value_sek)}
+            </div>
+            {summary.dead_stock > 0 && (
+              <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+                {summary.dead_stock} dött lager · {summary.overstock || 0} överlager
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {summary.critical > 0 && (
         <div className="alert-banner">
           <Icon name="alert" size={18} />
@@ -1371,9 +1407,12 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider, o
           </div>
         </div>
       </div>
-      <div className="section">
-        <div className="section-header">
-          <h3>Alla artiklar</h3>
+      <div className="section" style={{ marginTop: 8 }}>
+        <div className="section-header" style={{ borderTop: '2px solid #1e293b', paddingTop: 20, marginTop: 8 }}>
+          <div>
+            <h3 style={{ margin: 0 }}>Alla artiklar</h3>
+            <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>Sök, filtrera och klicka på en artikel för detaljer</div>
+          </div>
           <span className="badge">{fmt(summary.total_articles)} st</span>
         </div>
         <ArticleTable articles={articles} hasCost={hasCost} hasLoc={hasLoc} onLedtidChange={onLedtidChange} ledtidOverrides={ledtidOverrides} onResetLedtider={onResetLedtider} onArticleOverride={onArticleOverride} />
@@ -3192,7 +3231,7 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div className="top-tabs">
-              {tabs.filter(t => t.id !== 'overview').map(t => (
+              {tabs.filter(t => t.id !== 'overview' && t.id !== 'settings' && t.id !== 'history').map(t => (
                 <button key={t.id} className={`top-tab ${activeTab === t.id ? 'active' : ''}`} onClick={() => setActiveTab(t.id)}>{t.label}</button>
               ))}
             </div>
