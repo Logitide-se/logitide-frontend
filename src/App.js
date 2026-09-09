@@ -3255,10 +3255,39 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
 
       // Om ledtid skiljer sig från original eller loc ändrats — räkna om
       if (effectiveLT !== a.lead_time_days || mappedLoc !== a.loc) {
-        const updated = effectiveLT !== a.lead_time_days
+        const base = effectiveLT !== a.lead_time_days
           ? recalcArticle({ ...a, loc: mappedLoc }, effectiveLT, globalSettings)
           : { ...a, loc: mappedLoc };
-        return updated;
+
+        // Räkna om slotting-fält om loc remappades
+        if (mappedLoc !== a.loc && ['A','B','C'].includes(mappedLoc)) {
+          const abcToZone = { A: 'A', B: 'B', C: 'C' };
+          const recommendedZone = abcToZone[base.abc] || 'C';
+          const correctlyPlaced = mappedLoc === recommendedZone;
+          const zoneRank = { A: 0, B: 1, C: 2 };
+          const currentRank = zoneRank[mappedLoc] ?? 999;
+          const recommendedRank = zoneRank[recommendedZone] ?? 999;
+          const zoneGap = currentRank - recommendedRank;
+          const wrongDirection = zoneGap > 0;
+          const suggestMove = !correctlyPlaced && wrongDirection && (
+            base.abc === 'A' ||
+            (base.abc === 'B' && Math.abs(zoneGap) >= 2) ||
+            (base.abc === 'C' && Math.abs(zoneGap) >= 3)
+          );
+          const movePriority = !correctlyPlaced
+            ? (base.abc === 'A' ? 'CRITICAL' : base.abc === 'B' ? 'MEDIUM' : 'LOW')
+            : 'NONE';
+          return {
+            ...base,
+            correctly_placed: correctlyPlaced,
+            recommend_zone: recommendedZone,
+            recommended_zone: recommendedZone,
+            zone_gap: zoneGap,
+            suggest_move: suggestMove,
+            move_priority: movePriority,
+          };
+        }
+        return base;
       }
       return a;
     });
