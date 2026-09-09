@@ -2792,10 +2792,23 @@ function exportCSV(rows) {
 
 
 // ─── SETTINGS TAB ─────────────────────────────────────────────────────────
-function SettingsTab({ globalSettings, supplierSettings, articleOverrides, onGlobalChange, onSupplierChange, onRemoveArticleOverride, onResetAll, suppliers }) {
+function SettingsTab({ globalSettings, supplierSettings, articleOverrides, onGlobalChange, onSupplierChange, onRemoveArticleOverride, onResetAll, suppliers, articles }) {
   const [localGlobal, setLocalGlobal] = React.useState({ ...globalSettings });
   const [localSupplier, setLocalSupplier] = React.useState({ ...supplierSettings });
   const [saved, setSaved] = React.useState(false);
+
+  // Täckningsberäkning — hur många artiklar får vilken ledtid?
+  const coverage = React.useMemo(() => {
+    if (!articles || articles.length === 0) return null;
+    const total = articles.length;
+    const withOverride = articles.filter(a => articleOverrides[a.article]).length;
+    const withoutSupplier = articles.filter(a => !a.supplier && !articleOverrides[a.article]).length;
+    const bySupplier = {};
+    suppliers.forEach(sup => {
+      bySupplier[sup] = articles.filter(a => a.supplier === sup).length;
+    });
+    return { total, withOverride, withSupplier, withoutSupplier, bySupplier };
+  }, [articles, suppliers, articleOverrides]);
 
   // Synka om settings ändras utifrån
   React.useEffect(() => { setLocalGlobal({ ...globalSettings }); }, [JSON.stringify(globalSettings)]);
@@ -2871,6 +2884,58 @@ function SettingsTab({ globalSettings, supplierSettings, articleOverrides, onGlo
         <div style={{ fontSize: 12, color: '#64748b', marginBottom: 16 }}>
           Åsidosätter global standard för alla artiklar med respektive leverantör.
         </div>
+
+        {/* Täckningsöversikt */}
+        {coverage && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700, letterSpacing: '0.06em', marginBottom: 10 }}>TÄCKNING — {coverage.total} ARTIKLAR TOTALT</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+
+              {/* Artikel-overrides */}
+              {coverage.withOverride > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: `${Math.round((coverage.withOverride / coverage.total) * 100)}%`, minWidth: 4, height: 8, background: '#6366f1', borderRadius: 4, transition: 'width 0.4s' }} />
+                  <span style={{ fontSize: 12, color: '#a5b4fc', whiteSpace: 'nowrap' }}>
+                    {coverage.withOverride} art. — artikelspecifik ledtid (högsta prioritet)
+                  </span>
+                </div>
+              )}
+
+              {/* Per leverantör */}
+              {suppliers.map(sup => {
+                const count = coverage.bySupplier[sup] || 0;
+                if (count === 0) return null;
+                const lt = localSupplier[sup]?.leadTimeDays ?? localGlobal.defaultLeadTime ?? 14;
+                const hasCustom = !!localSupplier[sup]?.leadTimeDays;
+                return (
+                  <div key={sup} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: `${Math.round((count / coverage.total) * 100)}%`, minWidth: 4, height: 8, background: hasCustom ? '#22c55e' : '#334155', borderRadius: 4, transition: 'width 0.4s' }} />
+                    <span style={{ fontSize: 12, color: hasCustom ? '#86efac' : '#64748b', whiteSpace: 'nowrap' }}>
+                      {count} art. — {sup} → {lt} d{!hasCustom ? ' (global)' : ''}
+                    </span>
+                  </div>
+                );
+              })}
+
+              {/* Utan leverantör */}
+              {coverage.withoutSupplier > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: `${Math.round((coverage.withoutSupplier / coverage.total) * 100)}%`, minWidth: 4, height: 8, background: '#f97316', borderRadius: 4, transition: 'width 0.4s' }} />
+                  <span style={{ fontSize: 12, color: '#fdba74', whiteSpace: 'nowrap' }}>
+                    {coverage.withoutSupplier} art. — ingen leverantör i data → {localGlobal.defaultLeadTime ?? 14} d (global)
+                  </span>
+                </div>
+              )}
+
+            </div>
+            {coverage.withoutSupplier > 0 && (
+              <div style={{ marginTop: 10, padding: '8px 12px', background: '#f9731618', border: '1px solid #f9731630', borderRadius: 6, fontSize: 12, color: '#fdba74', lineHeight: 1.5 }}>
+                ⚠️ {coverage.withoutSupplier} artiklar saknar leverantörsinformation i ERP-datan. De använder global standard ({localGlobal.defaultLeadTime ?? 14} dagar). Justera globalt värde ovan eller lägg till ledtid per artikel via Artikeldetaljer.
+              </div>
+            )}
+          </div>
+        )}
+
         {suppliers.length === 0 && (
           <div style={{ fontSize: 12, color: '#475569', fontStyle: 'italic' }}>Inga leverantörer hittades i data.</div>
         )}
@@ -3150,6 +3215,7 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
             onRemoveArticleOverride={handleRemoveArticleOverride}
             onResetAll={handleResetAllArticleOverrides}
             suppliers={suppliersInData}
+            articles={data.articles}
           />
         )}
       </div>
