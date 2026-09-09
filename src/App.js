@@ -2831,10 +2831,14 @@ function exportCSV(rows) {
 
 
 // ─── SETTINGS TAB ─────────────────────────────────────────────────────────
-function SettingsTab({ globalSettings, supplierSettings, articleOverrides, onGlobalChange, onSupplierChange, onRemoveArticleOverride, onResetAll, suppliers, articles }) {
+function SettingsTab({ globalSettings, supplierSettings, articleOverrides, onGlobalChange, onSupplierChange, onRemoveArticleOverride, onResetAll, suppliers, articles, slottingConfig, onSlottingConfig, locations }) {
   const [localGlobal, setLocalGlobal] = React.useState({ ...globalSettings });
   const [localSupplier, setLocalSupplier] = React.useState({ ...supplierSettings });
+  const _defSlot = { zoneA: { from: '', to: '' }, zoneB: { from: '', to: '' }, zoneC: { from: '', to: '' }, configured: false };
+  const [localSlotting, setLocalSlotting] = React.useState(slottingConfig && typeof slottingConfig.zoneA === 'object' ? slottingConfig : _defSlot);
   const [saved, setSaved] = React.useState(false);
+
+  React.useEffect(() => { setLocalSlotting(slottingConfig && typeof slottingConfig.zoneA === 'object' ? slottingConfig : _defSlot); }, [JSON.stringify(slottingConfig)]);
 
   // Täckningsberäkning — hur många artiklar får vilken ledtid?
   const coverage = React.useMemo(() => {
@@ -2856,6 +2860,11 @@ function SettingsTab({ globalSettings, supplierSettings, articleOverrides, onGlo
   const handleSave = () => {
     onGlobalChange(localGlobal);
     Object.entries(localSupplier).forEach(([sup, val]) => onSupplierChange(sup, val));
+    const configuredSlotting = {
+      ...localSlotting,
+      configured: !!(localSlotting.zoneA?.from || localSlotting.zoneB?.from || localSlotting.zoneC?.from),
+    };
+    onSlottingConfig(configuredSlotting);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -3048,6 +3057,82 @@ function SettingsTab({ globalSettings, supplierSettings, articleOverrides, onGlo
         )}
       </div>
 
+      {/* Sektion 4: Lagerkonfiguration */}
+      {locations.length > 0 && (
+        <div style={card}>
+          <div style={sectionHead}>🗺️ LAGERKARTA — ZONKONFIGURATION</div>
+          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 16 }}>
+            Ange vilket intervall av era lagerpositioner som tillhör respektive zon. Krävs för korrekta slottingrekommendationer när positioner är numeriska (ex: 1–8) eller koordinatbaserade (ex: 1-12-11).
+          </div>
+
+          {slottingConfig.configured && (
+            <div style={{ marginBottom: 14, padding: '8px 12px', background: '#22c55e18', border: '1px solid #22c55e30', borderRadius: 6, fontSize: 12, color: '#86efac' }}>
+              ✓ Lagerkarta konfigurerad — slottingfliken använder era zoninställningar.
+            </div>
+          )}
+
+          {/* Positionsexempel från datan */}
+          <div style={{ marginBottom: 14, padding: '8px 12px', background: '#1e293b', borderRadius: 6 }}>
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6, fontWeight: 600 }}>POSITIONER I ER DATA ({locations.length} unika)</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {locations.slice(0, 20).map(loc => (
+                <span key={loc} style={{ fontSize: 11, background: '#334155', color: '#94a3b8', padding: '2px 7px', borderRadius: 4 }}>{loc}</span>
+              ))}
+              {locations.length > 20 && <span style={{ fontSize: 11, color: '#475569' }}>+{locations.length - 20} till</span>}
+            </div>
+          </div>
+
+          {/* Range-inmatning per zon */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+            {[
+              { key: 'zoneA', label: 'Zon A — Guldzon', sub: 'Närmast plockytan', color: '#22c55e' },
+              { key: 'zoneB', label: 'Zon B — Silverzon', sub: 'Mitten av lagret', color: '#f59e0b' },
+              { key: 'zoneC', label: 'Zon C — Bronszon', sub: 'Längst från plock', color: '#6b7280' },
+            ].map(({ key, label, sub, color }) => (
+              <div key={key} style={{ display: 'grid', gridTemplateColumns: '200px 1fr 1fr', gap: 10, alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color }}>{label}</div>
+                  <div style={{ fontSize: 11, color: '#475569' }}>{sub}</div>
+                </div>
+                <div>
+                  <label style={labelStyle}>FRÅN (stallage/sektion)</label>
+                  <input
+                    type="text"
+                    placeholder="ex: 1"
+                    value={localSlotting[key]?.from || ''}
+                    onChange={e => setLocalSlotting(s => ({ ...s, [key]: { ...s[key], from: e.target.value } }))}
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>TILL (lämna tomt = bara ett)</label>
+                  <input
+                    type="text"
+                    placeholder="ex: 2"
+                    value={localSlotting[key]?.to || ''}
+                    onChange={e => setLocalSlotting(s => ({ ...s, [key]: { ...s[key], to: e.target.value } }))}
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ fontSize: 11, color: '#475569', lineHeight: 1.6, marginBottom: 10 }}>
+            <strong style={{ color: '#64748b' }}>Numeriska positioner:</strong> Ange siffror — ex. "1" till "2" för Zon A, "3" till "5" för Zon B, "6" till "8" för Zon C.<br/>
+            <strong style={{ color: '#64748b' }}>Koordinater (1-12-11):</strong> Ange bara första segmentet — ex. "1" matchar alla positioner som börjar med 1.<br/>
+            <strong style={{ color: '#64748b' }}>Bokstäver (A, B, C):</strong> Ingen konfiguration behövs — systemet känner igen dem automatiskt.
+          </div>
+
+          {slottingConfig.configured && (
+            <button
+              onClick={() => setLocalSlotting(_defSlot)}
+              style={{ background: 'none', border: '1px solid #334155', borderRadius: 5, color: '#94a3b8', cursor: 'pointer', fontSize: 11, padding: '3px 10px' }}
+            >Återställ zonkonfiguration</button>
+          )}
+        </div>
+      )}
+
       {/* Spara-knapp */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <button
@@ -3078,10 +3163,21 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
     try { return JSON.parse(localStorage.getItem('logitide-articleOverrides')) || {}; }
     catch { return {}; }
   });
+  const [slottingConfig, setSlottingConfig] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('logitide-slottingConfig'));
+      if (saved && typeof saved.zoneA === 'object') return saved;
+      return { zoneA: { from: '', to: '' }, zoneB: { from: '', to: '' }, zoneC: { from: '', to: '' }, configured: false };
+    }
+    catch { return { zoneA: { from: '', to: '' }, zoneB: { from: '', to: '' }, zoneC: { from: '', to: '' }, configured: false }; }
+  });
 
   useEffect(() => { try { localStorage.setItem('logitide-globalSettings', JSON.stringify(globalSettings)); } catch {} }, [globalSettings]);
   useEffect(() => { try { localStorage.setItem('logitide-supplierSettings', JSON.stringify(supplierSettings)); } catch {} }, [supplierSettings]);
   useEffect(() => { try { localStorage.setItem('logitide-articleOverrides', JSON.stringify(articleOverrides)); } catch {} }, [articleOverrides]);
+  useEffect(() => { try { localStorage.setItem('logitide-slottingConfig', JSON.stringify(slottingConfig)); } catch {} }, [slottingConfig]);
+
+  const handleSlottingConfig = (cfg) => setSlottingConfig(cfg);
 
   const handleGlobalChange = (newGlobal) => setGlobalSettings(newGlobal);
   const handleSupplierChange = (sup, val) => setSupplierSettings(prev => {
@@ -3101,6 +3197,12 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
   // Unika leverantörer ur data
   const suppliersInData = React.useMemo(() => {
     const set = new Set((data.articles || []).map(a => a.supplier).filter(Boolean));
+    return Array.from(set).sort();
+  }, [data]);
+
+  // Unika lagerpositioner ur data (för slotting-konfiguration)
+  const locationsInData = React.useMemo(() => {
+    const set = new Set((data.articles || []).map(a => a.loc).filter(v => v && v !== 'Okänd'));
     return Array.from(set).sort();
   }, [data]);
 
@@ -3131,16 +3233,39 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
         effectiveLT = globalSettings.defaultLeadTime ?? 14;
       }
 
-      // Om ledtid skiljer sig från original — räkna om
-      if (effectiveLT !== a.lead_time_days) {
-        return recalcArticle(a, effectiveLT, globalSettings);
+      // Zonremappning baserat på slottingConfig (range-baserad)
+      let mappedLoc = a.loc;
+      if (slottingConfig.configured && a.loc && a.loc !== 'Okänd') {
+        const locStr = String(a.loc);
+        // Extrahera första segmentet (prefix) ur koordinater som "1-12-11" → "1"
+        const prefix = locStr.split(/[-_.\/]/)[0];
+        const num = parseFloat(prefix);
+        const inRange = (zone) => {
+          if (!zone || !zone.from) return false;
+          const f = parseFloat(zone.from);
+          const t = zone.to ? parseFloat(zone.to) : f;
+          if (!isNaN(num) && !isNaN(f)) return num >= f && num <= t;
+          // Strängmatchning om inte numerisk
+          return locStr === zone.from || locStr.startsWith(zone.from);
+        };
+        if (inRange(slottingConfig.zoneA)) mappedLoc = 'A';
+        else if (inRange(slottingConfig.zoneB)) mappedLoc = 'B';
+        else if (inRange(slottingConfig.zoneC)) mappedLoc = 'C';
+      }
+
+      // Om ledtid skiljer sig från original eller loc ändrats — räkna om
+      if (effectiveLT !== a.lead_time_days || mappedLoc !== a.loc) {
+        const updated = effectiveLT !== a.lead_time_days
+          ? recalcArticle({ ...a, loc: mappedLoc }, effectiveLT, globalSettings)
+          : { ...a, loc: mappedLoc };
+        return updated;
       }
       return a;
     });
     // Kontrollera om något ändrades
     const changed = articles.some((a, i) => a !== (data.articles || [])[i]);
     return changed ? { ...data, articles } : data;
-  }, [data, ledtidOverrides, articleOverrides, supplierSettings, globalSettings]);
+  }, [data, ledtidOverrides, articleOverrides, supplierSettings, globalSettings, slottingConfig]);
 
   const { summary } = effectiveData;
   const tabs = [
@@ -3255,6 +3380,9 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
             onResetAll={handleResetAllArticleOverrides}
             suppliers={suppliersInData}
             articles={data.articles}
+            slottingConfig={slottingConfig}
+            onSlottingConfig={handleSlottingConfig}
+            locations={locationsInData}
           />
         )}
       </div>
