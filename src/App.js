@@ -60,13 +60,24 @@ const statusLabel = (s) => ({
 }[s] || s);
 const abcColor = (abc) => ({ A: '#22c55e', B: '#f59e0b', C: '#6b7280' }[abc] || '#6b7280');
 
-// ─── LOKAL OMRÄKNING NÄR LEDTID ÄNDRAS ───────────────────────────────────
-function recalcArticle(a, newLeadTime) {
+// ─── LOKAL OMRÄKNING NÄR LEDTID/SERVICENIVÅ ÄNDRAS ──────────────────────
+// settings är valfritt: { slA, slB, slC } — servicenivåmål per ABC-klass
+function recalcArticle(a, newLeadTime, settings = {}) {
   const lt = newLeadTime;
   const cov = a.coverage_days ?? 0;
   const demand = a.demand_per_day ?? 0;
   const hasDemand = demand > 0;
-  const abcFactor = { A: 2.0, B: 1.5, C: 1.2 }[a.abc] ?? 1.5;
+
+  // ABC-faktor baserat på servicenivåmål: sl=95 → faktor 2.0, sl=90 → 1.5, sl=85 → 1.2
+  const slToFactor = (sl) => {
+    if (sl >= 97) return 2.5;
+    if (sl >= 95) return 2.0;
+    if (sl >= 90) return 1.5;
+    return 1.2;
+  };
+  const slDefaults = { A: settings.slA ?? 95, B: settings.slB ?? 90, C: settings.slC ?? 85 };
+  const sl = slDefaults[a.abc] ?? 90;
+  const abcFactor = slToFactor(sl);
 
   let status = a.status;
   if (hasDemand) {
@@ -1221,7 +1232,7 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
 }
 
 // ─── OVERVIEW TAB ─────────────────────────────────────────────────────────
-function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider }) {
+function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider, onArticleOverride }) {
   const { summary, top_actions, abc_distribution, articles, data_quality, validation } = data;
   const hasCost = summary.has_cost_data;
   const hasLoc = summary.has_location_data;
@@ -1365,17 +1376,22 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
           <h3>Alla artiklar</h3>
           <span className="badge">{fmt(summary.total_articles)} st</span>
         </div>
-        <ArticleTable articles={articles} hasCost={hasCost} hasLoc={hasLoc} onLedtidChange={onLedtidChange} ledtidOverrides={ledtidOverrides} onResetLedtider={onResetLedtider} />
+        <ArticleTable articles={articles} hasCost={hasCost} hasLoc={hasLoc} onLedtidChange={onLedtidChange} ledtidOverrides={ledtidOverrides} onResetLedtider={onResetLedtider} onArticleOverride={onArticleOverride} />
       </div>
     </div>
   );
 }
 
 // ─── ARTICLE DETAIL PANEL ─────────────────────────────────────────────────
-function ArticleDetailPanel({ article, onClose }) {
+function ArticleDetailPanel({ article, onClose, onArticleOverride }) {
   const [explanation, setExplanation] = useState(null);
   const [loadingAI, setLoadingAI] = useState(false);
+  const [overrideLT, setOverrideLT] = useState('');
+  const [overrideSaved, setOverrideSaved] = useState(false);
   const a = article;
+
+  // Återställ override-fält när artikel byts
+  useEffect(() => { setOverrideLT(''); setOverrideSaved(false); }, [a?.article]);
 
   useEffect(() => {
     if (!a) return;
@@ -1478,6 +1494,33 @@ function ArticleDetailPanel({ article, onClose }) {
           )}
         </div>
 
+        {/* Artikel-override ledtid */}
+        {onArticleOverride && (
+          <div style={{ padding: '14px 20px', borderBottom: '1px solid #1e293b', background: '#0a111c' }}>
+            <div style={{ fontSize: 10, color: '#6366f1', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 8 }}>📌 ARTIKELSPECIFIK LEDTID</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="number" min="1" max="730"
+                value={overrideLT}
+                onChange={e => { setOverrideLT(e.target.value); setOverrideSaved(false); }}
+                placeholder={`${Math.round(lt)} (nuvarande)`}
+                style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 6, color: '#f1f5f9', padding: '6px 10px', fontSize: 13, width: 90, fontFamily: 'inherit' }}
+              />
+              <span style={{ fontSize: 12, color: '#64748b' }}>dagar</span>
+              <button
+                onClick={() => {
+                  const val = Number(overrideLT);
+                  if (val > 0) { onArticleOverride(a.article, val); setOverrideSaved(true); }
+                }}
+                disabled={!overrideLT || Number(overrideLT) <= 0}
+                style={{ background: overrideLT && Number(overrideLT) > 0 ? '#6366f1' : '#1e293b', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: overrideLT ? 'pointer' : 'default', fontFamily: 'inherit' }}
+              >Sätt</button>
+              {overrideSaved && <span style={{ fontSize: 12, color: '#22c55e' }}>✓ Sparad!</span>}
+            </div>
+            <div style={{ fontSize: 11, color: '#475569', marginTop: 5 }}>Sparas i Inställningar → Artikelspecifika ledtider.</div>
+          </div>
+        )}
+
         {/* Key metrics */}
         <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b' }}>
           <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>NYCKELDATA</div>
@@ -1539,7 +1582,7 @@ function ArticleDetailPanel({ article, onClose }) {
 }
 
 // ─── ARTICLE TABLE ────────────────────────────────────────────────────────
-function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc = true, onLedtidChange, ledtidOverrides = {}, onResetLedtider }) {
+function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc = true, onLedtidChange, ledtidOverrides = {}, onResetLedtider, onArticleOverride }) {
   const [filter, setFilter] = useState('Alla');
   const [abcFilter, setAbcFilter] = useState('Alla');
   const [search, setSearch] = useState('');
@@ -1574,7 +1617,7 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
   }) || [];
   return (
     <div>
-      {selectedArticle && <ArticleDetailPanel article={selectedArticle} onClose={() => setSelectedArticle(null)} />}
+      {selectedArticle && <ArticleDetailPanel article={selectedArticle} onClose={() => setSelectedArticle(null)} onArticleOverride={onArticleOverride} />}
       <div className="table-filters">
         <input className="search-input" placeholder="Sök på artikelnamn eller ID..." value={search} onChange={e => setSearch(e.target.value)} />
         <div className="filter-group">
@@ -2748,130 +2791,167 @@ function exportCSV(rows) {
 
 
 
+// ─── SETTINGS TAB ─────────────────────────────────────────────────────────
+function SettingsTab({ globalSettings, supplierSettings, articleOverrides, onGlobalChange, onSupplierChange, onRemoveArticleOverride, onResetAll, suppliers }) {
+  const [localGlobal, setLocalGlobal] = React.useState({ ...globalSettings });
+  const [localSupplier, setLocalSupplier] = React.useState({ ...supplierSettings });
+  const [saved, setSaved] = React.useState(false);
 
-// ─── SUPPLIER TAB ──────────────────────────────────────────────────────────
-function exportSupplierCSV(suppliers) {
-  const rows = [];
-  suppliers.forEach(s => {
-    (s.articles || []).forEach(a => {
-      rows.push([s.supplier, a.article, a.name, a.abc, a.coverage_days, a.order_qty, a.order_value, a.status].join(','));
-    });
-  });
-  const csv = ['Leverantör,Artikelnummer,Namn,ABC,Täcktid,Antal,Värde,Status', ...rows].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = 'logitide-leverantorer.csv'; a.click();
-}
+  // Synka om settings ändras utifrån
+  React.useEffect(() => { setLocalGlobal({ ...globalSettings }); }, [JSON.stringify(globalSettings)]);
+  React.useEffect(() => { setLocalSupplier({ ...supplierSettings }); }, [JSON.stringify(supplierSettings)]);
 
-function SupplierCard({ supplier, expanded, onToggle }) {
-  const s = supplier;
+  const handleSave = () => {
+    onGlobalChange(localGlobal);
+    Object.entries(localSupplier).forEach(([sup, val]) => onSupplierChange(sup, val));
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const inputStyle = {
+    background: '#1e293b', border: '1px solid #334155', borderRadius: 6,
+    color: '#f1f5f9', padding: '6px 10px', fontSize: 13, width: '100%', fontFamily: 'inherit',
+  };
+  const labelStyle = { fontSize: 11, color: '#94a3b8', marginBottom: 4, display: 'block', fontWeight: 600, letterSpacing: '0.05em' };
+  const sectionHead = { fontSize: 12, fontWeight: 700, color: '#f1f5f9', letterSpacing: '0.08em', marginBottom: 14, paddingBottom: 8, borderBottom: '1px solid #1e293b' };
+  const card = { background: '#0f172a', border: '1px solid #1e293b', borderRadius: 10, padding: '20px 24px', marginBottom: 20 };
+
   return (
-    <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 10, overflow: 'hidden' }}>
-      <div onClick={onToggle} style={{ padding: '14px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 18 }}>🏭</span>
+    <div style={{ maxWidth: 700, padding: '24px 28px' }}>
+      {/* Sektion 1: Globala defaults */}
+      <div style={card}>
+        <div style={sectionHead}>⚙️ GLOBALA STANDARDVÄRDEN</div>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 16 }}>
+          Används för alla artiklar som saknar leverantörs- eller artikelspecifik inställning.
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           <div>
-            <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{s.supplier}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-              {s.articles_count} artiklar att beställa
-            </div>
+            <label style={labelStyle}>STANDARD LEDTID (DAGAR)</label>
+            <input
+              type="number" min="1" max="365"
+              value={localGlobal.defaultLeadTime ?? 14}
+              onChange={e => setLocalGlobal(g => ({ ...g, defaultLeadTime: Number(e.target.value) }))}
+              style={inputStyle}
+            />
           </div>
-          {s.critical_count > 0 && <span style={{ background: '#ef444422', color: '#ef4444', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600 }}>{s.critical_count} KRITISKA</span>}
-          {s.watch_count > 0 && <span style={{ background: '#f9731622', color: '#f97316', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600 }}>{s.watch_count} BEVAKA</span>}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          {s.total_order_value > 0 && <span style={{ fontWeight: 700, color: '#6366f1', fontSize: 15 }}>{Math.round(s.total_order_value).toLocaleString('sv-SE')} kr</span>}
-          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>ordervärde</span>
-          <span style={{ color: 'var(--text-muted)' }}>{expanded ? '▲' : '▼'}</span>
+          <div />
+          <div>
+            <label style={labelStyle}>SERVICENIVÅ A-ARTIKLAR (%)</label>
+            <input
+              type="number" min="50" max="100"
+              value={localGlobal.slA ?? 95}
+              onChange={e => setLocalGlobal(g => ({ ...g, slA: Number(e.target.value) }))}
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>SERVICENIVÅ B-ARTIKLAR (%)</label>
+            <input
+              type="number" min="50" max="100"
+              value={localGlobal.slB ?? 90}
+              onChange={e => setLocalGlobal(g => ({ ...g, slB: Number(e.target.value) }))}
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>SERVICENIVÅ C-ARTIKLAR (%)</label>
+            <input
+              type="number" min="50" max="100"
+              value={localGlobal.slC ?? 85}
+              onChange={e => setLocalGlobal(g => ({ ...g, slC: Number(e.target.value) }))}
+              style={inputStyle}
+            />
+          </div>
         </div>
       </div>
-      {expanded && (
-        <div style={{ borderTop: '1px solid var(--border)', padding: '0 18px 14px' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 10 }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                {['Artikel', 'ABC', 'Täcktid', 'Beställ', 'Värde', 'Status'].map(h => (
-                  <th key={h} style={{ textAlign: 'left', padding: '6px 8px', fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {(s.articles || []).map((a, i) => (
-                <tr key={i} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                  <td style={{ padding: '7px 8px', fontSize: 13 }}>
-                    <div style={{ fontWeight: 500 }}>{a.name}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{a.article}</div>
-                  </td>
-                  <td style={{ padding: '7px 8px' }}>
-                    <span style={{ background: a.abc === 'A' ? '#22c55e22' : a.abc === 'B' ? '#f59e0b22' : '#6b728022', color: a.abc === 'A' ? '#22c55e' : a.abc === 'B' ? '#f59e0b' : '#6b7280', padding: '2px 7px', borderRadius: 4, fontSize: 11, fontWeight: 700 }}>{a.abc}</span>
-                  </td>
-                  <td style={{ padding: '7px 8px', fontSize: 13, color: a.coverage_days < 14 ? '#ef4444' : a.coverage_days < 30 ? '#f97316' : 'var(--text-primary)' }}>{a.coverage_days} d</td>
-                  <td style={{ padding: '7px 8px', fontSize: 13 }}>{a.order_qty > 0 ? `${a.order_qty.toLocaleString('sv-SE')} st` : '—'}</td>
-                  <td style={{ padding: '7px 8px', fontSize: 13, fontWeight: 600, color: '#6366f1' }}>{a.order_value > 0 ? `${Math.round(a.order_value).toLocaleString('sv-SE')} kr` : '—'}</td>
-                  <td style={{ padding: '7px 8px' }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: a.status === 'CRITICAL' ? '#ef4444' : a.status === 'WATCH' ? '#f97316' : '#22c55e' }}>{a.status === 'CRITICAL' ? 'KRITISK' : a.status === 'WATCH' ? 'BEVAKA' : 'OK'}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
 
-function SupplierTab({ data }) {
-  const [expandedIdx, setExpandedIdx] = React.useState(0);
-  const suppliers = data?.supplier_summary || [];
+      {/* Sektion 2: Leverantörsinställningar */}
+      <div style={card}>
+        <div style={sectionHead}>🏭 LEDTID PER LEVERANTÖR</div>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 16 }}>
+          Åsidosätter global standard för alla artiklar med respektive leverantör.
+        </div>
+        {suppliers.length === 0 && (
+          <div style={{ fontSize: 12, color: '#475569', fontStyle: 'italic' }}>Inga leverantörer hittades i data.</div>
+        )}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          {suppliers.map(sup => (
+            <div key={sup}>
+              <label style={{ ...labelStyle, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }} title={sup}>{sup.toUpperCase()}</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <input
+                  type="number" min="1" max="730" placeholder={`${localGlobal.defaultLeadTime ?? 14} (global)`}
+                  value={localSupplier[sup]?.leadTimeDays ?? ''}
+                  onChange={e => {
+                    const val = e.target.value === '' ? null : Number(e.target.value);
+                    setLocalSupplier(s => {
+                      const next = { ...s };
+                      if (val == null) delete next[sup];
+                      else next[sup] = { leadTimeDays: val };
+                      return next;
+                    });
+                  }}
+                  style={{ ...inputStyle, flex: 1 }}
+                />
+                <span style={{ fontSize: 11, color: '#64748b', flexShrink: 0 }}>d</span>
+                {localSupplier[sup]?.leadTimeDays && (
+                  <button
+                    onClick={() => setLocalSupplier(s => { const n = { ...s }; delete n[sup]; return n; })}
+                    style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 14, padding: '0 2px' }}
+                    title="Rensa"
+                  >✕</button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
-  if (!suppliers || suppliers.length === 0) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 300, gap: 12, color: 'var(--text-muted)' }}>
-        <span style={{ fontSize: 40 }}>🏭</span>
-        <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--text-primary)' }}>Leverantörsvy kräver en leverantörskolumn</div>
-        <div style={{ fontSize: 13, textAlign: 'center', maxWidth: 400 }}>
-          Lägg till kolumnen Leverantör i er exportfil och ladda upp på nytt.<br />
-          Kolumnnamn som känns igen: Leverantör, Supplier, Vendor.
+      {/* Sektion 3: Artikel-overrides */}
+      <div style={card}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', ...sectionHead }}>
+          <span>📌 ARTIKELSPECIFIKA LEDTIDER</span>
+          {Object.keys(articleOverrides).length > 0 && (
+            <button
+              onClick={() => { if (window.confirm('Ta bort alla artikelspecifika ledtider?')) onResetAll(); }}
+              style={{ background: 'none', border: '1px solid #334155', borderRadius: 5, color: '#94a3b8', cursor: 'pointer', fontSize: 11, padding: '3px 10px' }}
+            >Rensa alla</button>
+          )}
         </div>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 16 }}>
+          Sätts via Artikeldetaljer (klicka på en artikel). Har högsta prioritet.
+        </div>
+        {Object.keys(articleOverrides).length === 0 ? (
+          <div style={{ fontSize: 12, color: '#475569', fontStyle: 'italic' }}>Inga artikelspecifika ledtider inställda ännu.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {Object.entries(articleOverrides).map(([artId, val]) => (
+              <div key={artId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#1e293b', borderRadius: 6, padding: '8px 12px' }}>
+                <div>
+                  <span style={{ fontSize: 13, color: '#f1f5f9', fontWeight: 600 }}>{artId}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 13, color: '#6366f1', fontWeight: 700 }}>{val.leadTimeDays} dagar</span>
+                  <button
+                    onClick={() => onRemoveArticleOverride(artId)}
+                    style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 14, padding: 0 }}
+                    title="Ta bort override"
+                  >✕</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-    );
-  }
 
-  const totalOrderValue = suppliers.reduce((s, x) => s + (x.total_order_value || 0), 0);
-  const totalCritical = suppliers.reduce((s, x) => s + (x.critical_count || 0), 0);
-
-  return (
-    <div className="tab-content">
-      <div className="kpi-row" style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
-        <div className="kpi-card" style={{ flex: 1, background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 20px' }}>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', fontWeight: 600 }}>Leverantörer</div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)' }}>{suppliers.length}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{totalCritical > 0 ? `${totalCritical} med kritiska brister` : 'inga kritiska'}</div>
-        </div>
-        <div className="kpi-card" style={{ flex: 1, background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 20px' }}>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', fontWeight: 600 }}>Totalt ordervärde</div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: '#6366f1' }}>{Math.round(totalOrderValue).toLocaleString('sv-SE')} kr</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{suppliers.length} leverantörer</div>
-        </div>
-        <div className="kpi-card" style={{ flex: 1, background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 20px' }}>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', fontWeight: 600 }}>Snitt per leverantör</div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: '#f97316' }}>{suppliers.length > 0 ? Math.round(totalOrderValue / suppliers.length).toLocaleString('sv-SE') : 0} kr</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>ordervärde</div>
-        </div>
+      {/* Spara-knapp */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button
+          onClick={handleSave}
+          style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 28px', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+        >Spara inställningar</button>
+        {saved && <span style={{ fontSize: 13, color: '#22c55e', fontWeight: 600 }}>✓ Sparade!</span>}
       </div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-        <button onClick={() => exportSupplierCSV(suppliers)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-          ⬇ Exportera CSV
-        </button>
-      </div>
-      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-        Sorterat på flest kritiska brister och högst ordervärde. Klicka på en leverantör för att se artiklarna.
-      </div>
-      {suppliers.map((s, i) => (
-        <SupplierCard key={i} supplier={s} expanded={expandedIdx === i} onToggle={() => setExpandedIdx(expandedIdx === i ? -1 : i)} />
-      ))}
     </div>
   );
 }
@@ -2880,6 +2960,45 @@ function SupplierTab({ data }) {
 function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [ledtidOverrides, setLedtidOverrides] = useState({});
+
+  // ─── INSTÄLLNINGAR (localStorage) ──────────────────────────────────────
+  const [globalSettings, setGlobalSettings] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('logitide-globalSettings')) || { defaultLeadTime: 14, slA: 95, slB: 90, slC: 85 }; }
+    catch { return { defaultLeadTime: 14, slA: 95, slB: 90, slC: 85 }; }
+  });
+  const [supplierSettings, setSupplierSettings] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('logitide-supplierSettings')) || {}; }
+    catch { return {}; }
+  });
+  const [articleOverrides, setArticleOverrides] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('logitide-articleOverrides')) || {}; }
+    catch { return {}; }
+  });
+
+  useEffect(() => { try { localStorage.setItem('logitide-globalSettings', JSON.stringify(globalSettings)); } catch {} }, [globalSettings]);
+  useEffect(() => { try { localStorage.setItem('logitide-supplierSettings', JSON.stringify(supplierSettings)); } catch {} }, [supplierSettings]);
+  useEffect(() => { try { localStorage.setItem('logitide-articleOverrides', JSON.stringify(articleOverrides)); } catch {} }, [articleOverrides]);
+
+  const handleGlobalChange = (newGlobal) => setGlobalSettings(newGlobal);
+  const handleSupplierChange = (sup, val) => setSupplierSettings(prev => {
+    const next = { ...prev };
+    if (val == null || val.leadTimeDays == null) delete next[sup];
+    else next[sup] = val;
+    return next;
+  });
+  const handleArticleOverride = (articleId, leadTimeDays) => {
+    setArticleOverrides(prev => ({ ...prev, [articleId]: { leadTimeDays } }));
+  };
+  const handleRemoveArticleOverride = (articleId) => {
+    setArticleOverrides(prev => { const n = { ...prev }; delete n[articleId]; return n; });
+  };
+  const handleResetAllArticleOverrides = () => setArticleOverrides({});
+
+  // Unika leverantörer ur data
+  const suppliersInData = React.useMemo(() => {
+    const set = new Set((data.articles || []).map(a => a.supplier).filter(Boolean));
+    return Array.from(set).sort();
+  }, [data]);
 
   const handleLedtidChange = (articleId, newDays) => {
     setLedtidOverrides(prev => ({ ...prev, [articleId]: newDays }));
@@ -2891,27 +3010,43 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
     }
   };
 
-  // Bygg effectiveData med omräknade artiklar där ledtid overridats
+  // Bygg effectiveData med tre lager: artikel > leverantör > global > original
   const effectiveData = React.useMemo(() => {
-    if (Object.keys(ledtidOverrides).length === 0) return data;
     const articles = (data.articles || []).map(a => {
-      const override = ledtidOverrides[a.article];
-      if (override == null) return a;
-      return recalcArticle(a, override);
+      // Bestäm effektiv ledtid (prioritetsordning)
+      let effectiveLT = null;
+      if (articleOverrides[a.article]?.leadTimeDays != null) {
+        effectiveLT = articleOverrides[a.article].leadTimeDays;
+      } else if (ledtidOverrides[a.article] != null) {
+        effectiveLT = ledtidOverrides[a.article];
+      } else if (a.supplier && supplierSettings[a.supplier]?.leadTimeDays != null) {
+        effectiveLT = supplierSettings[a.supplier].leadTimeDays;
+      } else if (a.lead_time_days != null) {
+        effectiveLT = a.lead_time_days;
+      } else {
+        effectiveLT = globalSettings.defaultLeadTime ?? 14;
+      }
+
+      // Om ledtid skiljer sig från original — räkna om
+      if (effectiveLT !== a.lead_time_days) {
+        return recalcArticle(a, effectiveLT, globalSettings);
+      }
+      return a;
     });
-    return { ...data, articles };
-  }, [data, ledtidOverrides]);
+    // Kontrollera om något ändrades
+    const changed = articles.some((a, i) => a !== (data.articles || [])[i]);
+    return changed ? { ...data, articles } : data;
+  }, [data, ledtidOverrides, articleOverrides, supplierSettings, globalSettings]);
 
   const { summary } = effectiveData;
-  const suppliers = data?.supplier_summary || [];
   const tabs = [
     { id: 'overview', label: 'Översikt', icon: 'home' },
     { id: 'abcxyz', label: 'ABC/XYZ', icon: 'grid' },
     { id: 'purchasing', label: 'Inköp', icon: 'trending', badge: summary?.articles_to_order },
     { id: 'slotting', label: 'Slotting', icon: 'move', badge: summary?.has_location_data ? summary?.articles_to_move : null },
     { id: 'capital', label: 'Kapital', icon: 'money', badge: summary?.has_cost_data ? (summary?.dead_stock + (summary?.overstock || 0)) : null },
-    { id: 'suppliers', label: 'Leverantörer', icon: 'package', badge: suppliers.length > 0 ? suppliers.length : null },
     ...(auth ? [{ id: 'history', label: 'Historik', icon: 'trending' }] : []),
+    { id: 'settings', label: 'Inställningar', icon: 'info' },
   ];
   return (
     <div className="dashboard">
@@ -2999,13 +3134,24 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
             <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           </div>
         </div>
-        {activeTab === 'overview' && <OverviewTab data={effectiveData} onLedtidChange={handleLedtidChange} ledtidOverrides={ledtidOverrides} onResetLedtider={Object.keys(ledtidOverrides).length > 0 ? handleResetLedtider : null} />}
+        {activeTab === 'overview' && <OverviewTab data={effectiveData} onLedtidChange={handleLedtidChange} ledtidOverrides={ledtidOverrides} onResetLedtider={Object.keys(ledtidOverrides).length > 0 ? handleResetLedtider : null} onArticleOverride={handleArticleOverride} />}
         {activeTab === 'abcxyz' && <AbcXyzTab data={effectiveData} />}
         {activeTab === 'purchasing' && <PurchasingTab data={effectiveData} />}
         {activeTab === 'slotting' && <SlottingTab data={effectiveData} />}
         {activeTab === 'capital' && <CapitalTab data={effectiveData} />}
-        {activeTab === 'suppliers' && <SupplierTab data={effectiveData} />}
         {activeTab === 'history' && auth && <HistoryTab token={auth.token} />}
+        {activeTab === 'settings' && (
+          <SettingsTab
+            globalSettings={globalSettings}
+            supplierSettings={supplierSettings}
+            articleOverrides={articleOverrides}
+            onGlobalChange={handleGlobalChange}
+            onSupplierChange={handleSupplierChange}
+            onRemoveArticleOverride={handleRemoveArticleOverride}
+            onResetAll={handleResetAllArticleOverrides}
+            suppliers={suppliersInData}
+          />
+        )}
       </div>
     </div>
   );
