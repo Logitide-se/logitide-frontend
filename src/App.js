@@ -632,6 +632,11 @@ function ImportWizard({ onAnalysis, onClose, auth }) {
       const form = new FormData();
       files.forEach(f => form.append('files', f));
       form.append('mapping', JSON.stringify(confirmedMapping));
+      // Skicka zone_config från localStorage — backend gör ALL zonmappning
+      try {
+        const savedCfg = localStorage.getItem('logitide-slottingConfig');
+        if (savedCfg) form.append('zone_config', savedCfg);
+      } catch {}
       const headers = {};
       if (auth?.token) headers['Authorization'] = `Bearer ${auth.token}`;
       const res = await fetch(`${API_URL}/import/run`, { method: 'POST', body: form, headers });
