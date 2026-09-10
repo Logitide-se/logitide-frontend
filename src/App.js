@@ -104,30 +104,58 @@ const statusLabel = (s) => ({
 const abcColor = (abc) => ({ A: '#22c55e', B: '#f59e0b', C: '#6b7280' }[abc] || '#6b7280');
 
 // ─── LOKAL OMRÄKNING NÄR LEDTID ÄNDRAS ───────────────────────────────────
+// Matchar backend _calculate_safety_stock_unit + calculate_order_recommendation exakt:
+// SS  = Z × sqrt(LT × σ_d² + d² × σ_LT²)  [statistisk om CV finns]
+// SS  = demand × safety_days[XYZ]            [statisk fallback: X=7, Y=14, Z=21 dagar]
+// ROP = demand × LT + SS                     [beställningspunkt]
+// Order = max(0, ROP − saldo)                [hur mycket saknas]
+// Beställ = ⌈Order / MOQ⌉ × MOQ             [avrunda uppåt till MOQ]
 function recalcArticle(a, newLeadTime) {
-  const lt = newLeadTime;
-  const cov = a.coverage_days ?? 0;
-  const demand = a.demand_per_day ?? 0;
+  const lt        = newLeadTime;
+  const demand    = a.demand_per_day ?? 0;
+  const stock     = a.effective_stock ?? a.stock ?? 0;
   const hasDemand = demand > 0;
   const abcFactor = { A: 2.0, B: 1.5, C: 1.2 }[a.abc] ?? 1.5;
+  const xyz       = ((a.xyz || 'Y') + '').toUpperCase();
+  const moq       = Math.max(1, a.moq ?? a.min_order ?? 1);
 
+  // ── Status (identisk med backend classify_status) ──────────────────────
+  const cov = hasDemand ? stock / demand : 999;
   let status = a.status;
   if (hasDemand) {
-    if (cov < lt) status = 'CRITICAL';
+    if (cov < lt)                  status = 'CRITICAL';
     else if (cov < lt * abcFactor) status = 'WATCH';
-    else if (cov > 365) status = 'OVERSTOCK';
-    else status = 'OK';
+    else if (cov > 365)            status = 'OVERSTOCK';
+    else                           status = 'OK';
   } else {
-    status = (a.stock ?? 0) > 0 ? 'DEAD_STOCK' : 'OK';
+    status = stock > 0 ? 'DEAD_STOCK' : 'OK';
   }
 
-  // Omräkna rekommenderad orderkvantitet
+  // ── Säkerhetslager (matchar _calculate_safety_stock_unit i backend) ────
+  let ss = 0;
+  if (hasDemand && lt > 0) {
+    const z  = { X: 1.282, Y: 1.645, Z: 2.054 }[xyz] ?? 1.645;
+    const cv = a.demand_cv ?? a.xyz_cv ?? null;
+    if (cv != null && !isNaN(Number(cv))) {
+      // Statistisk formel: SS = Z × sqrt(LT × σ_d² + d² × σ_LT²)
+      const sigma_d  = Number(cv) * demand;
+      const sigma_lt = lt * 0.10;          // 10% av LT (backend-standard)
+      const variance = lt * sigma_d ** 2 + demand ** 2 * sigma_lt ** 2;
+      ss = Math.min(z * Math.sqrt(Math.max(variance, 0)), demand * 180);
+      ss = Math.max(ss, 1);
+    } else {
+      // Statisk fallback = STATIC_SAFETY_DAYS_FALLBACK i backend
+      const safetyDays = { X: 7, Y: 14, Z: 21 }[xyz] ?? 14;
+      ss = Math.max(demand * safetyDays, 1);
+    }
+  }
+
+  // ── Orderkvantitet ──────────────────────────────────────────────────────
   let order_qty = 0;
-  if (status === 'CRITICAL' || status === 'WATCH') {
-    const targetDays = lt * 2; // fyll upp till 2× ledtid
-    const needed = Math.max(0, (targetDays - cov) * demand);
-    const minOrd = a.min_order ?? 1;
-    order_qty = Math.ceil(needed / minOrd) * minOrd;
+  if ((status === 'CRITICAL' || status === 'WATCH') && hasDemand) {
+    const rop    = demand * lt + ss;         // beställningspunkt
+    const needed = Math.max(0, rop - stock); // saknas för att nå ROP
+    order_qty    = needed > 0 ? Math.ceil(needed / moq) * moq : 0;
   }
 
   return { ...a, lead_time_days: lt, status, order_qty };
