@@ -1032,6 +1032,13 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
       setLoadingMsg(loadingMessages[0]);
       const formData = new FormData();
       formData.append('file', file);
+      // Skicka zone_config från localStorage — backend gör ALL zonmappning
+      try {
+        const savedCfg = localStorage.getItem('logitide-slottingConfig');
+        if (savedCfg) {
+          formData.append('zone_config', savedCfg);
+        }
+      } catch {}
       let res;
       try {
         const headers = {};
@@ -2993,97 +3000,17 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
     }
   };
 
-  // Läs slottingConfig från localStorage för remappning
-  const slottingCfg = React.useMemo(() => {
-    try { return JSON.parse(localStorage.getItem('logitide-slottingConfig') || 'null'); } catch { return null; }
-  }, []);
-
-  // Mappa numerisk lagerposition → zon (A/B/C) baserat på inställningarna
-  // Hanterar: "1-12-3" → stallage=1 → jämför med zoneA.from/to
-  const remapLocToZone = (loc, cfg) => {
-    if (!cfg || !loc || loc === 'Okänd') return loc;
-    const locStr = String(loc);
-    // Extrahera första segmentet: "10-18-5" → "10", "A-12" → "A"
-    const firstSeg = locStr.split(/[-_./]/)[0];
-    const num = parseInt(firstSeg, 10);
-    // Bokstavszon — känns igen direkt
-    if (isNaN(num)) {
-      const letter = firstSeg.toUpperCase();
-      if (['A','B','C'].includes(letter)) return letter;
-      return loc;
-    }
-    // Numerisk — jämför mot zonkonfigurationen
-    for (const [zone, letter] of [['zoneA','A'],['zoneB','B'],['zoneC','C']]) {
-      const from = parseInt(cfg[zone]?.from, 10);
-      const to   = cfg[zone]?.to ? parseInt(cfg[zone].to, 10) : from;
-      if (!isNaN(from) && num >= from && num <= to) return letter;
-    }
-    return loc; // okänd zon — behåll original
-  };
-
-  // Beräkna slotting-rekommendationer i frontend baserat på remappade zoner
-  const recalcSlotting = (articles, cfg) => {
-    if (!cfg || !articles) return articles;
-    const abcToZone = { A: 'A', B: 'B', C: 'C' };
-    return articles.map(a => {
-      const rawLoc = a.loc_original || a.loc || 'Okänd';
-      const mappedZone = remapLocToZone(rawLoc, cfg);
-      const recommendedZone = abcToZone[a.abc] || 'C';
-      const correctlyPlaced = mappedZone === recommendedZone;
-      // Beräkna zone_gap: A=0, B=1, C=2
-      const zoneRank = { A: 0, B: 1, C: 2 };
-      const currentRank = zoneRank[mappedZone] ?? 9;
-      const recommendedRank = zoneRank[recommendedZone] ?? 9;
-      const zoneGap = currentRank - recommendedRank;
-      // Trigger: A=alltid om fel, B=gap≥2, C=gap≥3, och fel riktning (för långt bort)
-      const wrongDir = zoneGap > 0;
-      const suggestMove = !correctlyPlaced && wrongDir && mappedZone !== 'Okänd' && (
-        a.abc === 'A' ||
-        (a.abc === 'B' && Math.abs(zoneGap) >= 2) ||
-        (a.abc === 'C' && Math.abs(zoneGap) >= 3)
-      );
-      return {
-        ...a,
-        loc: mappedZone,
-        loc_original: rawLoc,
-        recommended_zone: recommendedZone,
-        correctly_placed: correctlyPlaced,
-        suggest_move: suggestMove,
-        zone_gap: zoneGap,
-        move_priority: !correctlyPlaced ? (a.abc === 'A' ? 'CRITICAL' : a.abc === 'B' ? 'MEDIUM' : 'LOW') : 'NONE',
-      };
-    });
-  };
-
-  // Bygg effectiveData: ledtids-overrides + slottingremappning + summary-uppdatering
+  // Bygg effectiveData — bara ledtids-overrides.
+  // All zonmappning och slottinglogik hanteras av backend vid uppladdning.
+  // zone_config skickas med i formData vid /analyze och bearbetas där.
   const effectiveData = React.useMemo(() => {
-    let articles = data.articles || [];
-
-    // 1. Ledtids-overrides
-    if (Object.keys(ledtidOverrides).length > 0) {
-      articles = articles.map(a => {
-        const override = ledtidOverrides[a.article];
-        return override != null ? recalcArticle(a, override) : a;
-      });
-    }
-
-    // 2. Slotting-remappning om zonkonfig finns
-    if (slottingCfg) {
-      articles = recalcSlotting(articles, slottingCfg);
-    }
-
-    // 3. Räkna om summary-värden som beror på slotting
-    const articlesToMove = articles.filter(a => a.suggest_move).length;
-    const hasLocationData = articles.some(a => a.loc && a.loc !== 'Okänd');
-
-    const newSummary = {
-      ...data.summary,
-      articles_to_move: articlesToMove,
-      has_location_data: hasLocationData,
-    };
-
-    return { ...data, articles, summary: newSummary };
-  }, [data, ledtidOverrides, slottingCfg]);
+    if (Object.keys(ledtidOverrides).length === 0) return data;
+    const articles = (data.articles || []).map(a => {
+      const override = ledtidOverrides[a.article];
+      return override != null ? recalcArticle(a, override) : a;
+    });
+    return { ...data, articles };
+  }, [data, ledtidOverrides]);
 
   const { summary } = effectiveData;
   const tabs = [
