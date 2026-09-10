@@ -1491,7 +1491,7 @@ function ArticleDetailPanel({ article, onClose }) {
               ...(a.order_qty > 0 ? [{ label: 'Rekommenderad order', val: `${fmt(a.order_qty)} st`, highlight: true }] : []),
               ...(a.ordered_qty > 0 ? [{ label: 'Beställt (på väg)', val: `${fmt(a.ordered_qty)} st` }] : []),
               ...(a.eta_date && !['NaT', 'nat', 'null', 'None', 'undefined', ''].includes(String(a.eta_date).trim()) ? [{ label: 'Förväntat leverans', val: String(a.eta_date).slice(0, 10) }] : []),
-              ...(a.loc && a.loc !== a.abc && a.loc.length > 1 ? [{ label: 'Lagerplats', val: a.loc }] : []),
+              ...(((a.loc_original || a.loc) && (a.loc_original || a.loc) !== a.abc && (a.loc_original || a.loc).length > 1) ? [{ label: 'Lagerplats', val: a.loc_original || a.loc }] : []),
               ...(a.recommended_zone && a.suggest_move ? [{ label: 'Rekomm. zon', val: `Zon ${a.recommended_zone}`, highlight: true }] : []),
             ].map((row, i) => (
               <div key={i} style={{ background: row.highlight ? '#3b82f618' : '#1e293b', borderRadius: 6, padding: '8px 10px', border: row.highlight ? '1px solid #3b82f640' : 'none' }}>
@@ -1917,6 +1917,90 @@ function PurchasingTab({ data }) {
   );
 }
 
+// ─── SLOTTING MOVE LIST (egen komponent — hooks får ej anropas i IIFE) ───
+function SlottingMoveList({ filteredMoves, priorityColor, priorityLabel }) {
+  const [slotSearch, setSlotSearch] = useState('');
+  const [checked, setChecked] = useState({});
+
+  const displayed = filteredMoves.filter(a =>
+    !slotSearch || a.article?.toLowerCase().includes(slotSearch.toLowerCase()) || a.name?.toLowerCase().includes(slotSearch.toLowerCase())
+  );
+  const critMoves = displayed.filter(a => a.move_priority === 'CRITICAL');
+  const medMoves  = displayed.filter(a => a.move_priority === 'MEDIUM');
+  const lowMoves  = displayed.filter(a => a.move_priority === 'LOW');
+
+  const MoveRow = ({ a }) => {
+    const pc = priorityColor[a.move_priority] || '#6b7280';
+    const isDone = checked[a.article];
+    return (
+      <div className="slot-row" style={{ opacity: isDone ? 0.4 : 1 }}>
+        <div className="slot-bar" style={{ background: pc }} />
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: isDone ? 'line-through' : 'none' }}>{a.name || a.article}</div>
+          <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>{a.article}</div>
+        </div>
+        <div><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}{a.xyz ? `/${a.xyz}` : ''}</span></div>
+        <div className="slot-zone-from" style={{ fontSize: 13 }}>
+          Zon <b>{a.loc}</b>
+          {a.loc_original && a.loc_original !== a.loc && <span style={{ fontSize: 10, color: '#475569', marginLeft: 4 }}>({a.loc_original})</span>}
+        </div>
+        <div className="slot-arrow">
+          <span style={{ color: 'var(--color-muted)' }}>→</span>
+          <span className="slot-zone-to">Zon <b>{a.recommended_zone}</b></span>
+        </div>
+        <div><span className="slot-priority-chip" style={{ background: pc + '20', color: pc }}>{priorityLabel[a.move_priority] || a.move_priority}</span></div>
+        <div>
+          <button className="slot-check-btn"
+            onClick={() => setChecked(c => ({ ...c, [a.article]: !c[a.article] }))}
+            style={isDone ? { background: '#22c55e22', color: '#22c55e', borderColor: '#22c55e44' } : {}}>
+            {isDone ? '✓' : '○'}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <>
+      <div className="slot-toolbar">
+        <input className="slot-search" placeholder="Sök artikel..." value={slotSearch} onChange={e => setSlotSearch(e.target.value)} />
+        <button className="export-btn" onClick={() => exportCSV(filteredMoves)}>
+          <Icon name="download" size={14} /> Exportera CSV
+        </button>
+      </div>
+      <p style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 12, lineHeight: 1.5 }}>
+        Rekommendationer baserade på ABC-klass vs. nuvarande position. Lageransvarig avgör när plats finns.
+      </p>
+      <div className="slot-col-hdr">
+        <div /> <div>Artikel</div> <div>ABC</div> <div>Nuvarande</div> <div>Flytta till</div> <div>Prioritet</div> <div>Klar</div>
+      </div>
+      {critMoves.length > 0 && (
+        <>
+          <div className="purch-section-label">🔴 Kritiska flytt <span style={{ background: '#ef444422', color: '#ef4444' }}>{critMoves.length} artiklar</span></div>
+          {critMoves.map((a, i) => <MoveRow key={`c${i}`} a={a} />)}
+        </>
+      )}
+      {medMoves.length > 0 && (
+        <>
+          <div className="purch-section-label" style={{ marginTop: 12 }}>🟡 Medelprioritet <span style={{ background: '#f59e0b22', color: '#f59e0b' }}>{medMoves.length} artiklar</span></div>
+          {medMoves.map((a, i) => <MoveRow key={`m${i}`} a={a} />)}
+        </>
+      )}
+      {lowMoves.length > 0 && (
+        <>
+          <div className="purch-section-label" style={{ marginTop: 12 }}>⚪ Lågprioriterade <span style={{ background: '#6b728022', color: '#6b7280' }}>{lowMoves.length} artiklar</span></div>
+          {lowMoves.map((a, i) => <MoveRow key={`l${i}`} a={a} />)}
+        </>
+      )}
+      {displayed.length === 0 && (
+        <div style={{ textAlign: 'center', padding: 32, color: 'var(--color-muted)', fontSize: 14 }}>
+          {filteredMoves.length === 0 ? '✓ Alla artiklar är korrekt placerade' : 'Inga träffar på sökning'}
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── SLOTTING TAB ────────────────────────────────────────────────────────
 function SlottingTab({ data }) {
   const { summary, articles } = data;
@@ -2129,86 +2213,7 @@ function SlottingTab({ data }) {
           .slot-priority-chip { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; letter-spacing: .04em; }
         `}</style>
 
-        {(() => {
-          const [slotSearch, setSlotSearch] = React.useState('');
-          const [checked, setChecked] = React.useState({});
-          const displayed = filteredMoves.filter(a =>
-            !slotSearch || a.article?.toLowerCase().includes(slotSearch.toLowerCase()) || a.name?.toLowerCase().includes(slotSearch.toLowerCase())
-          );
-          const critMoves = displayed.filter(a => a.move_priority === 'CRITICAL');
-          const medMoves = displayed.filter(a => a.move_priority === 'MEDIUM');
-          const lowMoves = displayed.filter(a => a.move_priority === 'LOW');
-
-          const MoveRow = ({ a, i }) => {
-            const pc = priorityColor[a.move_priority] || '#6b7280';
-            const isDone = checked[a.article];
-            return (
-              <div className="slot-row" key={i} style={{ opacity: isDone ? 0.4 : 1 }}>
-                <div className="slot-bar" style={{ background: pc }} />
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: isDone ? 'line-through' : 'none' }}>{a.name || a.article}</div>
-                  <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>{a.article}</div>
-                </div>
-                <div><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}{a.xyz ? `/${a.xyz}` : ''}</span></div>
-                <div className="slot-zone-from" style={{ fontSize: 13 }}>Zon <b>{a.loc}</b></div>
-                <div className="slot-arrow">
-                  <span style={{ color: 'var(--color-muted)' }}>→</span>
-                  <span className="slot-zone-to">Zon <b>{a.recommended_zone}</b></span>
-                </div>
-                <div><span className="slot-priority-chip" style={{ background: pc + '20', color: pc }}>{priorityLabel[a.move_priority] || a.move_priority}</span></div>
-                <div>
-                  <button className="slot-check-btn" onClick={() => setChecked(c => ({ ...c, [a.article]: !c[a.article] }))}
-                    style={isDone ? { background: '#22c55e22', color: '#22c55e', borderColor: '#22c55e44' } : {}}>
-                    {isDone ? '✓' : '○'}
-                  </button>
-                </div>
-              </div>
-            );
-          };
-
-          return (
-            <>
-              <div className="slot-toolbar">
-                <input className="slot-search" placeholder="Sök artikel..." value={slotSearch} onChange={e => setSlotSearch(e.target.value)} />
-                <button className="export-btn" onClick={() => exportCSV(filteredMoves)}>
-                  <Icon name="download" size={14} /> Exportera CSV
-                </button>
-              </div>
-              <p style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 12, lineHeight: 1.5 }}>
-                Rekommendationer baserade på ABC-klass vs. nuvarande position. Lageransvarig avgör när plats finns.
-              </p>
-
-              {/* Column headers */}
-              <div className="slot-col-hdr">
-                <div /> <div>Artikel</div> <div>ABC</div> <div>Nuvarande</div> <div>Flytta till</div> <div>Prioritet</div> <div>Klar</div>
-              </div>
-
-              {critMoves.length > 0 && (
-                <>
-                  <div className="purch-section-label">🔴 Kritiska flytt <span style={{ background: '#ef444422', color: '#ef4444' }}>{critMoves.length} artiklar</span></div>
-                  {critMoves.map((a, i) => <MoveRow key={`c${i}`} a={a} i={i} />)}
-                </>
-              )}
-              {medMoves.length > 0 && (
-                <>
-                  <div className="purch-section-label" style={{ marginTop: 12 }}>🟡 Medelprioritet <span style={{ background: '#f59e0b22', color: '#f59e0b' }}>{medMoves.length} artiklar</span></div>
-                  {medMoves.map((a, i) => <MoveRow key={`m${i}`} a={a} i={i} />)}
-                </>
-              )}
-              {lowMoves.length > 0 && (
-                <>
-                  <div className="purch-section-label" style={{ marginTop: 12 }}>⚪ Lågprioriterade <span style={{ background: '#6b728022', color: '#6b7280' }}>{lowMoves.length} artiklar</span></div>
-                  {lowMoves.map((a, i) => <MoveRow key={`l${i}`} a={a} i={i} />)}
-                </>
-              )}
-              {displayed.length === 0 && (
-                <div style={{ textAlign: 'center', padding: 32, color: 'var(--color-muted)', fontSize: 14 }}>
-                  {filteredMoves.length === 0 ? '✓ Alla artiklar är korrekt placerade' : 'Inga träffar på sökning'}
-                </div>
-              )}
-            </>
-          );
-        })()}
+        <SlottingMoveList filteredMoves={filteredMoves} priorityColor={priorityColor} priorityLabel={priorityLabel} />
       </div>
     );
   }
@@ -2774,7 +2779,8 @@ function remapLocToZone(locStr, cfg) {
   return locStr;
 }
 
-// Räkna om suggest_move/move_priority baserat på remappad loc
+// Räkna om suggest_move/move_priority baserat på remappad loc.
+// Bevarar originalposition i loc_original så att UI kan visa den verkliga hyllplatsen.
 function recalcSlotting(a, mappedLoc) {
   const zoneRank = { A: 0, B: 1, C: 2 };
   const recommended = a.abc === 'A' ? 'A' : a.abc === 'B' ? 'B' : 'C';
@@ -2786,12 +2792,16 @@ function recalcSlotting(a, mappedLoc) {
   const sigGap = Math.abs(zoneGap) >= (a.abc === 'C' ? 3 : a.abc === 'B' ? 2 : 1);
   const suggestMove = !correctlyPlaced && wrongDir && mappedLoc !== 'Okänd' && sigGap;
   const movePriority = suggestMove ? (a.abc === 'A' ? 'CRITICAL' : a.abc === 'B' ? 'MEDIUM' : 'LOW') : 'NONE';
-  return { ...a, loc: mappedLoc, recommended_zone: recommended, correctly_placed: correctlyPlaced, suggest_move: suggestMove, move_priority: movePriority };
+  // loc_original = den verkliga hyllplatsen ("2-16-3"), loc = zon för slotting-logik ("C")
+  const loc_original = a.loc_original || a.loc; // bevara redan satt original
+  return { ...a, loc: mappedLoc, loc_original, recommended_zone: recommended, correctly_placed: correctlyPlaced, suggest_move: suggestMove, move_priority: movePriority };
 }
 
 // ─── INSTÄLLNINGAR TAB ────────────────────────────────────────────────────
-function SettingsTab({ data, globalSettings, onGlobalChange, supplierSettings, onSupplierChange, articleOverrides, onArticleOverrideRemove, slottingConfig, onSlottingChange }) {
+function SettingsTab({ data, rawData, globalSettings, onGlobalChange, supplierSettings, onSupplierChange, articleOverrides, onArticleOverrideRemove, slottingConfig, onSlottingChange }) {
   const { summary, articles } = data;
+  // rawArticles = oremappade artiklar, för att visa verkliga positioner i Lagerkarta-preview
+  const rawArticles = (rawData || data).articles || [];
   const [saved, setSaved] = useState(false);
 
   // Unika leverantörer från artikeldata
@@ -2807,11 +2817,11 @@ function SettingsTab({ data, globalSettings, onGlobalChange, supplierSettings, o
     return counts;
   }, [articles]);
 
-  // Unika positioner för lagerkarta-preview
+  // Unika positioner för lagerkarta-preview — använd rådata så att originala positioner visas
   const uniqueLocs = React.useMemo(() => {
-    const locs = new Set((articles || []).map(a => a.loc).filter(l => l && l !== 'Okänd'));
+    const locs = new Set(rawArticles.map(a => a.loc_original || a.loc).filter(l => l && l !== 'Okänd'));
     return [...locs].slice(0, 30);
-  }, [articles]);
+  }, [rawArticles]);
 
   const handleSave = () => {
     saveLS('logitide-globalSettings', globalSettings);
@@ -3219,7 +3229,7 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
         {activeTab === 'slotting' && <SlottingTab data={effectiveData} />}
         {activeTab === 'capital' && <CapitalTab data={effectiveData} />}
         {activeTab === 'history' && auth && <HistoryTab token={auth.token} />}
-        {activeTab === 'settings' && <SettingsTab data={effectiveData} globalSettings={globalSettings} onGlobalChange={handleGlobalChange} supplierSettings={supplierSettings} onSupplierChange={handleSupplierChange} articleOverrides={{...articleOverrides,...ledtidOverrides}} onArticleOverrideRemove={handleArticleOverrideRemove} slottingConfig={slottingConfig} onSlottingChange={handleSlottingChange} />}
+        {activeTab === 'settings' && <SettingsTab data={effectiveData} rawData={data} globalSettings={globalSettings} onGlobalChange={handleGlobalChange} supplierSettings={supplierSettings} onSupplierChange={handleSupplierChange} articleOverrides={{...articleOverrides,...ledtidOverrides}} onArticleOverrideRemove={handleArticleOverrideRemove} slottingConfig={slottingConfig} onSlottingChange={handleSlottingChange} />}
       </div>
     </div>
   );
