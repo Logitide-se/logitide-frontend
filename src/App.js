@@ -443,7 +443,7 @@ function OnboardingGuide({ onClose }) {
       fields: [
         { name: 'Artikelnummer', note: 'Unikt ID per artikel', ex: 'ART-1001' },
         { name: 'Lagersaldo', note: 'Aktuellt lager i antal enheter', ex: '250' },
-        { name: 'Förbrukning / Försäljning', note: 'Per dag, vecka eller månad', ex: '12 st/dag' },
+        { name: 'Förbrukning / Försäljning', note: 'Per dag', ex: '12 st/dag' },
       ]
     },
     {
@@ -470,7 +470,7 @@ function OnboardingGuide({ onClose }) {
       icon: '🟢',
       desc: 'Dessa kolumner låser upp XYZ-analys, slottning och leveransbevak.',
       fields: [
-        { name: 'Historisk förbrukning', note: 'Månadsvis, minst 6 månader → XYZ', ex: 'Jan: 120, Feb: 98…' },
+        { name: 'Historisk förbrukning', note: 'Månadsvis, minst 12 månader för bäst resultat → XYZ', ex: 'Jan: 120, Feb: 98…' },
         { name: 'Beställt antal', note: 'Pågående order som inte levererats', ex: '500' },
         { name: 'Förväntat leveransdatum', note: 'För pågående inköpsorder', ex: '2025-06-15' },
         { name: 'MOQ / Minsta orderenhet', note: 'Minsta kvantitet att beställa', ex: '100 st' },
