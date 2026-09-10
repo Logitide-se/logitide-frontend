@@ -2756,7 +2756,26 @@ function exportCSV(rows) {
 
 // ─── INSTÄLLNINGAR — HJÄLPFUNKTIONER ─────────────────────────────────────
 function loadLS(key, fallback) {
-  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
+  try {
+    const v = localStorage.getItem(key);
+    if (!v) return fallback;
+    const parsed = JSON.parse(v);
+    // Sanera supplierSettings — värden ska vara tal eller null, inte objekt
+    if (key === 'logitide-supplierSettings' && parsed && typeof parsed === 'object') {
+      const sanitized = {};
+      Object.entries(parsed).forEach(([k, val]) => {
+        if (typeof val === 'number') sanitized[k] = val;
+        else if (val && typeof val === 'object') {
+          // Gammalt format {leadTimeDays: X} eller {days: X}
+          const num = val.leadTimeDays ?? val.days ?? val.lead_time_days ?? null;
+          if (num != null) sanitized[k] = Number(num);
+        }
+        // null/undefined = ignorera
+      });
+      return sanitized;
+    }
+    return parsed;
+  } catch { return fallback; }
 }
 function saveLS(key, val) {
   try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
@@ -2903,7 +2922,7 @@ function SettingsTab({ data, rawData, globalSettings, onGlobalChange, supplierSe
                       <div style={{ width: `${pct}%`, height: '100%', background: hasOverride ? '#6366f1' : '#334155', borderRadius: 2 }} />
                     </div>
                     <span style={{ fontSize: 11, color: '#94a3b8', width: 160, flexShrink: 0 }}>{count} art. — {sup}</span>
-                    {hasOverride && <span style={{ fontSize: 10, color: '#6366f1' }}>→ {supplierSettings[sup]} d</span>}
+                    {hasOverride && <span style={{ fontSize: 10, color: '#6366f1' }}>→ {Number(supplierSettings[sup])} d</span>}
                   </div>
                 );
               })}
