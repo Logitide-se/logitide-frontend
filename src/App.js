@@ -134,7 +134,10 @@ function recalcArticle(a, newLeadTime) {
   // ── Säkerhetslager (matchar _calculate_safety_stock_unit i backend) ────
   let ss = 0;
   if (hasDemand && lt > 0) {
-    const z  = { X: 1.282, Y: 1.645, Z: 2.054 }[xyz] ?? 1.645;
+    // Z baserat på ABC (servicenivåmål) — branschstandard
+    // A=~98% (Z=2.054), B=95% (Z=1.645), C=90% (Z=1.282)
+    const abc_key = ((a.abc || 'B') + '').toUpperCase();
+    const z  = { A: 2.054, B: 1.645, C: 1.282 }[abc_key] ?? 1.645;
     const cv = a.demand_cv ?? a.xyz_cv ?? null;
     if (cv != null && !isNaN(Number(cv))) {
       // Statistisk formel: SS = Z × sqrt(LT × σ_d² + d² × σ_LT²)
