@@ -1416,9 +1416,11 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
 }
 
 // ─── ARTICLE DETAIL PANEL ─────────────────────────────────────────────────
-function ArticleDetailPanel({ article, onClose }) {
+function ArticleDetailPanel({ article, onClose, onLedtidChange }) {
   const [explanation, setExplanation] = useState(null);
   const [loadingAI, setLoadingAI] = useState(false);
+  const [editingLt, setEditingLt] = useState(false);
+  const [ltVal, setLtVal] = useState('');
   const a = article;
 
   useEffect(() => {
@@ -1511,9 +1513,33 @@ function ArticleDetailPanel({ article, onClose }) {
             {/* Coverage bar */}
             <div style={{ width: `${covPct}%`, height: '100%', background: gaugeColor, borderRadius: 5, transition: 'width 0.5s', position: 'relative', zIndex: 1 }} />
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, alignItems: 'center' }}>
             <span style={{ color: gaugeColor, fontWeight: 700 }}>Täcktid: {fmtDays(cov)}</span>
-            <span style={{ color: '#f97316' }}>Ledtid: {Math.round(lt)} d</span>
+            <span style={{ color: '#f97316', display: 'flex', alignItems: 'center', gap: 6 }}>
+              Ledtid:&nbsp;
+              {editingLt ? (
+                <input autoFocus type="number" min="1" max="730" value={ltVal}
+                  onChange={e => setLtVal(e.target.value)}
+                  onBlur={() => {
+                    const d = parseInt(ltVal, 10);
+                    if (!isNaN(d) && d > 0 && onLedtidChange) onLedtidChange(a.article, d);
+                    setEditingLt(false);
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { const d = parseInt(ltVal,10); if (!isNaN(d) && d > 0 && onLedtidChange) onLedtidChange(a.article, d); setEditingLt(false); }
+                    if (e.key === 'Escape') setEditingLt(false);
+                  }}
+                  style={{ width: 52, background: '#1e293b', border: '1px solid #6366f1', borderRadius: 4, color: '#f1f5f9', fontSize: 11, padding: '2px 6px', textAlign: 'center' }}
+                />
+              ) : (
+                <span
+                  onClick={() => { if (onLedtidChange) { setLtVal(String(Math.round(lt))); setEditingLt(true); } }}
+                  title={onLedtidChange ? 'Klicka för att redigera ledtid' : ''}
+                  style={{ cursor: onLedtidChange ? 'pointer' : 'default', borderBottom: onLedtidChange ? '1px dashed #f97316' : 'none' }}>
+                  {Math.round(lt)} d {onLedtidChange && <span style={{ fontSize: 9 }}>✎</span>}
+                </span>
+              )}
+            </span>
           </div>
           {cov < lt && (
             <div style={{ marginTop: 8, padding: '6px 10px', background: '#ef444418', border: '1px solid #ef444430', borderRadius: 6, fontSize: 11, color: '#fca5a5' }}>
@@ -1618,7 +1644,7 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
   }) || [];
   return (
     <div>
-      {selectedArticle && <ArticleDetailPanel article={selectedArticle} onClose={() => setSelectedArticle(null)} />}
+      {selectedArticle && <ArticleDetailPanel article={selectedArticle} onClose={() => setSelectedArticle(null)} onLedtidChange={onLedtidChange} />}
       <div className="table-filters">
         <input className="search-input" placeholder="Sök på artikelnamn eller ID..." value={search} onChange={e => setSearch(e.target.value)} />
         <div className="filter-group">
