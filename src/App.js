@@ -2,6 +2,49 @@ import React, { useState, useCallback, useEffect } from 'react';
 import './App.css';
 const API_URL = 'https://web-production-2ab93.up.railway.app';
 
+// ─── ERROR BOUNDARY — rensar localStorage och laddar om vid krasch ────────
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, clearing: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error) {
+    // Om felet liknar React #31 (objekt som JSX-barn) — rensa localStorage automatiskt
+    const msg = error?.message || '';
+    if (msg.includes('Objects are not valid') || msg.includes('Minified React error #31')) {
+      try {
+        localStorage.removeItem('logitide-supplierSettings');
+        localStorage.removeItem('logitide-globalSettings');
+        localStorage.removeItem('logitide-articleOverrides');
+        localStorage.removeItem('logitide-slottingConfig');
+      } catch {}
+      setTimeout(() => window.location.reload(), 800);
+      this.setState({ clearing: true });
+    }
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0a1628', color: '#f1f5f9', gap: 16 }}>
+          <div style={{ fontSize: 32 }}>📦</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>
+            {this.state.clearing ? 'Rensar gamla inställningar och laddar om…' : 'Något gick fel — laddar om…'}
+          </div>
+          <div style={{ fontSize: 12, color: '#64748b' }}>Det tar några sekunder</div>
+          <button onClick={() => { localStorage.clear(); window.location.reload(); }}
+            style={{ marginTop: 8, padding: '8px 20px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+            Ladda om nu
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // ─── THEME ────────────────────────────────────────────────────────────────
 function useTheme() {
   const [theme, setTheme] = useState(() => {
@@ -2755,24 +2798,42 @@ function exportCSV(rows) {
 
 
 // ─── INSTÄLLNINGAR — HJÄLPFUNKTIONER ─────────────────────────────────────
+// Konverterar ett värde till tal — hanterar gamla objekt-format {leadTimeDays: X} etc.
+function toNum(val) {
+  if (val == null) return null;
+  if (typeof val === 'number') return val;
+  if (typeof val === 'string') { const n = parseFloat(val); return isNaN(n) ? null : n; }
+  if (typeof val === 'object') {
+    // Gamla format som kan finnas i localStorage
+    const n = val.leadTimeDays ?? val.lead_time_days ?? val.days ?? val.value ?? null;
+    return n != null ? Number(n) : null;
+  }
+  return null;
+}
+
 function loadLS(key, fallback) {
   try {
     const v = localStorage.getItem(key);
     if (!v) return fallback;
     const parsed = JSON.parse(v);
-    // Sanera supplierSettings — värden ska vara tal eller null, inte objekt
-    if (key === 'logitide-supplierSettings' && parsed && typeof parsed === 'object') {
+    // Sanera alla dictionary-settings där värden ska vara tal
+    if ((key === 'logitide-supplierSettings' || key === 'logitide-articleOverrides') &&
+        parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       const sanitized = {};
       Object.entries(parsed).forEach(([k, val]) => {
-        if (typeof val === 'number') sanitized[k] = val;
-        else if (val && typeof val === 'object') {
-          // Gammalt format {leadTimeDays: X} eller {days: X}
-          const num = val.leadTimeDays ?? val.days ?? val.lead_time_days ?? null;
-          if (num != null) sanitized[k] = Number(num);
-        }
-        // null/undefined = ignorera
+        const num = toNum(val);
+        if (num != null) sanitized[k] = num;
       });
       return sanitized;
+    }
+    // Sanera globalSettings — alla värden ska vara tal
+    if (key === 'logitide-globalSettings' && parsed && typeof parsed === 'object') {
+      return {
+        defaultLeadTime: toNum(parsed.defaultLeadTime) ?? 14,
+        slA: toNum(parsed.slA) ?? 95,
+        slB: toNum(parsed.slB) ?? 90,
+        slC: toNum(parsed.slC) ?? 85,
+      };
     }
     return parsed;
   } catch { return fallback; }
@@ -2966,7 +3027,7 @@ function SettingsTab({ data, rawData, globalSettings, onGlobalChange, supplierSe
           {Object.entries(articleOverrides).map(([artId, days]) => (
             <div key={artId} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1e293b', border: '1px solid #334155', borderRadius: 20, padding: '4px 12px', fontSize: 12 }}>
               <span style={{ color: '#94a3b8', fontFamily: 'monospace' }}>{artId}</span>
-              <span style={{ color: '#6366f1', fontWeight: 700 }}>{days} dagar</span>
+              <span style={{ color: '#6366f1', fontWeight: 700 }}>{typeof days === 'object' ? JSON.stringify(days) : days} dagar</span>
               <span onClick={() => onArticleOverrideRemove(artId)} style={{ color: '#475569', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>×</span>
             </div>
           ))}
@@ -3767,7 +3828,7 @@ function HistoryTab({ token }) {
 }
 
 // ─── APP ──────────────────────────────────────────────────────────────────
-export default function App() {
+function AppInner() {
   const [theme, toggleTheme] = useTheme();
   const [analysisData, setAnalysisData] = useState(null);
   const [auth, setAuth] = useState(() => {
@@ -3788,4 +3849,12 @@ export default function App() {
   if (!auth) return <LoginPage onLogin={setAuth} />;
   if (analysisData) return <Dashboard data={analysisData} auth={auth} onReset={() => setAnalysisData(null)} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />;
   return <UploadPage onAnalysis={setAnalysisData} auth={auth} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />;
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppInner />
+    </ErrorBoundary>
+  );
 }
