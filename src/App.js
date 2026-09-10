@@ -2822,12 +2822,30 @@ async function openPDFReport() {
 
 // ─── CSV EXPORT ────────────────────────────────────────────────────────
 function exportCSV(rows) {
-  const headers = ['article', 'name', 'abc', 'xyz', 'loc', 'recommended_zone', 'move_priority'];
-  const csv = [headers.join(','), ...rows.map(r => headers.map(h => r[h] ?? '').join(','))].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
+  // Bygg Excel-kompatibel TSV med UTF-8 BOM och svenska kolumnnamn
+  const colMap = [
+    { key: 'article',          label: 'Artikelnummer' },
+    { key: 'name',             label: 'Artikelnamn' },
+    { key: 'abc',              label: 'ABC-klass' },
+    { key: 'xyz',              label: 'XYZ-klass' },
+    { key: 'loc',              label: 'Nuvarande position' },
+    { key: 'recommended_zone', label: 'Rekommenderad zon' },
+    { key: 'move_priority',    label: 'Prioritet' },
+  ];
+  const escape = v => {
+    const s = String(v ?? '');
+    return s.includes('\t') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g,'""')}"` : s;
+  };
+  const header = colMap.map(c => c.label).join('\t');
+  const dataRows = rows.map(r => colMap.map(c => escape(r[c.key] ?? '')).join('\t'));
+  const tsv = '\uFEFF' + [header, ...dataRows].join('\n'); // BOM för Excel UTF-8
+  const blob = new Blob([tsv], { type: 'text/tab-separated-values;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = 'logitide-slotting.csv'; a.click();
+  a.href = url;
+  a.download = 'logitide-slotting.tsv';
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 
