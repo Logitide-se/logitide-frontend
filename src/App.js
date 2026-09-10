@@ -60,24 +60,13 @@ const statusLabel = (s) => ({
 }[s] || s);
 const abcColor = (abc) => ({ A: '#22c55e', B: '#f59e0b', C: '#6b7280' }[abc] || '#6b7280');
 
-// ─── LOKAL OMRÄKNING NÄR LEDTID/SERVICENIVÅ ÄNDRAS ──────────────────────
-// settings är valfritt: { slA, slB, slC } — servicenivåmål per ABC-klass
-function recalcArticle(a, newLeadTime, settings = {}) {
+// ─── LOKAL OMRÄKNING NÄR LEDTID ÄNDRAS ───────────────────────────────────
+function recalcArticle(a, newLeadTime) {
   const lt = newLeadTime;
   const cov = a.coverage_days ?? 0;
   const demand = a.demand_per_day ?? 0;
   const hasDemand = demand > 0;
-
-  // ABC-faktor baserat på servicenivåmål: sl=95 → faktor 2.0, sl=90 → 1.5, sl=85 → 1.2
-  const slToFactor = (sl) => {
-    if (sl >= 97) return 2.5;
-    if (sl >= 95) return 2.0;
-    if (sl >= 90) return 1.5;
-    return 1.2;
-  };
-  const slDefaults = { A: settings.slA ?? 95, B: settings.slB ?? 90, C: settings.slC ?? 85 };
-  const sl = slDefaults[a.abc] ?? 90;
-  const abcFactor = slToFactor(sl);
+  const abcFactor = { A: 2.0, B: 1.5, C: 1.2 }[a.abc] ?? 1.5;
 
   let status = a.status;
   if (hasDemand) {
@@ -443,7 +432,7 @@ function OnboardingGuide({ onClose }) {
       fields: [
         { name: 'Artikelnummer', note: 'Unikt ID per artikel', ex: 'ART-1001' },
         { name: 'Lagersaldo', note: 'Aktuellt lager i antal enheter', ex: '250' },
-        { name: 'Förbrukning / Försäljning', note: 'Per dag', ex: '12 st/dag' },
+        { name: 'Förbrukning / Försäljning', note: 'Per dag, vecka eller månad', ex: '12 st/dag' },
       ]
     },
     {
@@ -470,7 +459,7 @@ function OnboardingGuide({ onClose }) {
       icon: '🟢',
       desc: 'Dessa kolumner låser upp XYZ-analys, slottning och leveransbevak.',
       fields: [
-        { name: 'Historisk förbrukning', note: 'Månadsvis, minst 12 månader för bäst resultat → XYZ', ex: 'Jan: 120, Feb: 98…' },
+        { name: 'Historisk förbrukning', note: 'Månadsvis, minst 6 månader → XYZ', ex: 'Jan: 120, Feb: 98…' },
         { name: 'Beställt antal', note: 'Pågående order som inte levererats', ex: '500' },
         { name: 'Förväntat leveransdatum', note: 'För pågående inköpsorder', ex: '2025-06-15' },
         { name: 'MOQ / Minsta orderenhet', note: 'Minsta kvantitet att beställa', ex: '100 st' },
@@ -571,11 +560,9 @@ const LOGITIDE_FIELDS = [
   { key: 'Artikelnummer', label: 'Artikelnummer', required: true },
   { key: 'Artikelnamn',   label: 'Artikelnamn',   required: false },
   { key: 'Lagersaldo',    label: 'Lagersaldo',     required: true },
-  { key: 'Förbrukning',   label: 'Förbrukning/dag', required: false },
   { key: 'Inköpspris',    label: 'Inköpspris',     required: false },
   { key: 'Ledtid',        label: 'Ledtid (dagar)', required: false },
   { key: 'MOQ',           label: 'MOQ',            required: false },
-  { key: 'Leverantör',   label: 'Leverantör',     required: false },
   { key: 'Lagerposition', label: 'Lagerposition',  required: false },
   { key: 'Beställt antal',label: 'Beställt antal', required: false },
   { key: 'Förväntat leveransdatum', label: 'Förväntat lev.datum', required: false },
@@ -1234,10 +1221,16 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
 }
 
 // ─── OVERVIEW TAB ─────────────────────────────────────────────────────────
-function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider, onArticleOverride }) {
+function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider }) {
   const { summary, top_actions, abc_distribution, articles, data_quality, validation } = data;
   const hasCost = summary.has_cost_data;
   const hasLoc = summary.has_location_data;
+  // Räkna flytt från artikeldata (samma källa som Slotting-fliken) — inte backend-värdet
+  // som saknar kännedom om zonkonfigurationen satt i Inställningar.
+  const articlesToMove = React.useMemo(
+    () => (articles || []).filter(a => a.suggest_move).length,
+    [articles]
+  );
 
   // Derive sparkline shapes from article coverage distribution — gives real data-based curves
   // We bucket articles by coverage bucket and use counts as sparkline points
@@ -1291,42 +1284,6 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider, o
     <div className="tab-content">
       <ValidationBanner validation={validation} />
       <DataQualityBanner summary={summary} dataQuality={data_quality} />
-      {/* Hero-banner — viktigaste affärssiffran direkt */}
-      {(hasCost && summary.total_order_value_sek > 0) && (
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          background: '#0f172a', border: '1px solid #1e293b',
-          borderLeft: `4px solid ${summary.critical > 0 ? '#ef4444' : '#f97316'}`,
-          borderRadius: 10, padding: '14px 20px', marginBottom: 16,
-        }}>
-          <div>
-            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 4 }}>
-              INKÖPSBEHOV JUST NU
-            </div>
-            <div style={{ fontSize: 28, fontWeight: 700, color: '#f1f5f9', lineHeight: 1 }}>
-              {fmtKr(summary.total_order_value_sek)}
-            </div>
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
-              {fmt(summary.articles_to_order)} artiklar att beställa
-              {summary.critical > 0 && <span style={{ color: '#ef4444', marginLeft: 8 }}>· {summary.critical} kritiska</span>}
-            </div>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 4 }}>
-              BUNDET KAPITAL
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#a855f7', lineHeight: 1 }}>
-              {fmtKr(summary.total_stock_value_sek)}
-            </div>
-            {summary.dead_stock > 0 && (
-              <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
-                {summary.dead_stock} dött lager · {summary.overstock || 0} överlager
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {summary.critical > 0 && (
         <div className="alert-banner">
           <Icon name="alert" size={18} />
@@ -1354,7 +1311,7 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider, o
         />
         <KpiCard
           label="ATT FLYTTA"
-          value={hasLoc ? fmt(summary.articles_to_move) : null}
+          value={hasLoc ? fmt(articlesToMove) : null}
           sub={hasLoc ? 'snabbare plock' : null}
           color="#3b82f6"
           missingReason={!hasLoc ? 'Kräver lagerposition (loc) i filen' : null}
@@ -1404,35 +1361,27 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider, o
           <div className="quick-actions">
             <div className="qa-row"><Icon name="alert" size={16} /><div><b>Kritiska brister</b><p>{summary.critical} artiklar</p></div></div>
             <div className="qa-row"><Icon name="trending" size={16} /><div><b>Inköpsförslag</b><p>{summary.articles_to_order} att beställa{hasCost ? ` · ${fmtKr(summary.total_order_value_sek)}` : ''}</p></div></div>
-            <div className="qa-row"><Icon name="move" size={16} /><div><b>Slotting</b><p>{hasLoc ? `${summary.articles_to_move} att flytta` : 'Lagerposition saknas i filen'}</p></div></div>
+            <div className="qa-row"><Icon name="move" size={16} /><div><b>Slotting</b><p>{hasLoc ? `${articlesToMove} att flytta` : 'Lagerposition saknas i filen'}</p></div></div>
             <div className="qa-row"><Icon name="grid" size={16} /><div><b>ABC/XYZ-analys</b><p>{summary.total_articles} artiklar</p></div></div>
           </div>
         </div>
       </div>
-      <div className="section" style={{ marginTop: 8 }}>
-        <div className="section-header" style={{ borderTop: '2px solid #1e293b', paddingTop: 20, marginTop: 8 }}>
-          <div>
-            <h3 style={{ margin: 0 }}>Alla artiklar</h3>
-            <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>Sök, filtrera och klicka på en artikel för detaljer</div>
-          </div>
+      <div className="section">
+        <div className="section-header">
+          <h3>Alla artiklar</h3>
           <span className="badge">{fmt(summary.total_articles)} st</span>
         </div>
-        <ArticleTable articles={articles} hasCost={hasCost} hasLoc={hasLoc} onLedtidChange={onLedtidChange} ledtidOverrides={ledtidOverrides} onResetLedtider={onResetLedtider} onArticleOverride={onArticleOverride} />
+        <ArticleTable articles={articles} hasCost={hasCost} hasLoc={hasLoc} onLedtidChange={onLedtidChange} ledtidOverrides={ledtidOverrides} onResetLedtider={onResetLedtider} />
       </div>
     </div>
   );
 }
 
 // ─── ARTICLE DETAIL PANEL ─────────────────────────────────────────────────
-function ArticleDetailPanel({ article, onClose, onArticleOverride }) {
+function ArticleDetailPanel({ article, onClose }) {
   const [explanation, setExplanation] = useState(null);
   const [loadingAI, setLoadingAI] = useState(false);
-  const [overrideLT, setOverrideLT] = useState('');
-  const [overrideSaved, setOverrideSaved] = useState(false);
   const a = article;
-
-  // Återställ override-fält när artikel byts
-  useEffect(() => { setOverrideLT(''); setOverrideSaved(false); }, [a?.article]);
 
   useEffect(() => {
     if (!a) return;
@@ -1535,33 +1484,6 @@ function ArticleDetailPanel({ article, onClose, onArticleOverride }) {
           )}
         </div>
 
-        {/* Artikel-override ledtid */}
-        {onArticleOverride && (
-          <div style={{ padding: '14px 20px', borderBottom: '1px solid #1e293b', background: '#0a111c' }}>
-            <div style={{ fontSize: 10, color: '#6366f1', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 8 }}>📌 ARTIKELSPECIFIK LEDTID</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input
-                type="number" min="1" max="730"
-                value={overrideLT}
-                onChange={e => { setOverrideLT(e.target.value); setOverrideSaved(false); }}
-                placeholder={`${Math.round(lt)} (nuvarande)`}
-                style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 6, color: '#f1f5f9', padding: '6px 10px', fontSize: 13, width: 90, fontFamily: 'inherit' }}
-              />
-              <span style={{ fontSize: 12, color: '#64748b' }}>dagar</span>
-              <button
-                onClick={() => {
-                  const val = Number(overrideLT);
-                  if (val > 0) { onArticleOverride(a.article, val); setOverrideSaved(true); }
-                }}
-                disabled={!overrideLT || Number(overrideLT) <= 0}
-                style={{ background: overrideLT && Number(overrideLT) > 0 ? '#6366f1' : '#1e293b', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: overrideLT ? 'pointer' : 'default', fontFamily: 'inherit' }}
-              >Sätt</button>
-              {overrideSaved && <span style={{ fontSize: 12, color: '#22c55e' }}>✓ Sparad!</span>}
-            </div>
-            <div style={{ fontSize: 11, color: '#475569', marginTop: 5 }}>Sparas i Inställningar → Artikelspecifika ledtider.</div>
-          </div>
-        )}
-
         {/* Key metrics */}
         <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b' }}>
           <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>NYCKELDATA</div>
@@ -1623,7 +1545,7 @@ function ArticleDetailPanel({ article, onClose, onArticleOverride }) {
 }
 
 // ─── ARTICLE TABLE ────────────────────────────────────────────────────────
-function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc = true, onLedtidChange, ledtidOverrides = {}, onResetLedtider, onArticleOverride }) {
+function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc = true, onLedtidChange, ledtidOverrides = {}, onResetLedtider }) {
   const [filter, setFilter] = useState('Alla');
   const [abcFilter, setAbcFilter] = useState('Alla');
   const [search, setSearch] = useState('');
@@ -1658,7 +1580,7 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
   }) || [];
   return (
     <div>
-      {selectedArticle && <ArticleDetailPanel article={selectedArticle} onClose={() => setSelectedArticle(null)} onArticleOverride={onArticleOverride} />}
+      {selectedArticle && <ArticleDetailPanel article={selectedArticle} onClose={() => setSelectedArticle(null)} />}
       <div className="table-filters">
         <input className="search-input" placeholder="Sök på artikelnamn eller ID..." value={search} onChange={e => setSearch(e.target.value)} />
         <div className="filter-group">
@@ -2181,7 +2103,7 @@ function SlottingTab({ data }) {
 
         {/* ── KPI-rad ── */}
         <div className="kpi-grid-4" style={{ margin: '16px 0 12px' }}>
-          <KpiCard label="KORREKT PLACERADE" value={fmt(summary.total_articles - summary.articles_to_move)} color="#22c55e" />
+          <KpiCard label="KORREKT PLACERADE" value={fmt(summary.total_articles - moves.length)} color="#22c55e" />
           <KpiCard label="KRITISKA FLYTT" value={fmt(moves.filter(a => a.move_priority === 'CRITICAL').length)} color="#ef4444" />
           <KpiCard label="MEDELPRIORITET" value={fmt(moves.filter(a => a.move_priority === 'MEDIUM').length)} color="#f59e0b" />
           <KpiCard label="LÅGPRIORITERADE" value={fmt(moves.filter(a => a.move_priority === 'LOW').length)} color="#6b7280" />
@@ -2822,409 +2744,20 @@ async function openPDFReport() {
 
 // ─── CSV EXPORT ────────────────────────────────────────────────────────
 function exportCSV(rows) {
-  // Bygg Excel-kompatibel TSV med UTF-8 BOM och svenska kolumnnamn
-  const colMap = [
-    { key: 'article',          label: 'Artikelnummer' },
-    { key: 'name',             label: 'Artikelnamn' },
-    { key: 'abc',              label: 'ABC-klass' },
-    { key: 'xyz',              label: 'XYZ-klass' },
-    { key: 'loc',              label: 'Nuvarande position' },
-    { key: 'recommended_zone', label: 'Rekommenderad zon' },
-    { key: 'move_priority',    label: 'Prioritet' },
-  ];
-  const escape = v => {
-    const s = String(v ?? '');
-    return s.includes('\t') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g,'""')}"` : s;
-  };
-  const header = colMap.map(c => c.label).join('\t');
-  const dataRows = rows.map(r => colMap.map(c => escape(r[c.key] ?? '')).join('\t'));
-  const tsv = '\uFEFF' + [header, ...dataRows].join('\n'); // BOM för Excel UTF-8
-  const blob = new Blob([tsv], { type: 'text/tab-separated-values;charset=utf-8' });
+  const headers = ['article', 'name', 'abc', 'xyz', 'loc', 'recommended_zone', 'move_priority'];
+  const csv = [headers.join(','), ...rows.map(r => headers.map(h => r[h] ?? '').join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url;
-  a.download = 'logitide-slotting.tsv';
-  a.click();
-  URL.revokeObjectURL(url);
+  a.href = url; a.download = 'logitide-slotting.csv'; a.click();
 }
 
 
-
-// ─── SETTINGS TAB ─────────────────────────────────────────────────────────
-function SettingsTab({ globalSettings, supplierSettings, articleOverrides, onGlobalChange, onSupplierChange, onRemoveArticleOverride, onResetAll, suppliers, articles, slottingConfig, onSlottingConfig, locations }) {
-  const [localGlobal, setLocalGlobal] = React.useState({ ...globalSettings });
-  const [localSupplier, setLocalSupplier] = React.useState({ ...supplierSettings });
-  const _defSlot = { zoneA: { from: '', to: '' }, zoneB: { from: '', to: '' }, zoneC: { from: '', to: '' }, configured: false };
-  const [localSlotting, setLocalSlotting] = React.useState(slottingConfig && typeof slottingConfig.zoneA === 'object' ? slottingConfig : _defSlot);
-  const [saved, setSaved] = React.useState(false);
-
-  React.useEffect(() => { setLocalSlotting(slottingConfig && typeof slottingConfig.zoneA === 'object' ? slottingConfig : _defSlot); }, [JSON.stringify(slottingConfig)]);
-
-  // Täckningsberäkning — hur många artiklar får vilken ledtid?
-  const coverage = React.useMemo(() => {
-    if (!articles || articles.length === 0) return null;
-    const total = articles.length;
-    const withOverride = articles.filter(a => articleOverrides[a.article]).length;
-    const withoutSupplier = articles.filter(a => !a.supplier && !articleOverrides[a.article]).length;
-    const bySupplier = {};
-    suppliers.forEach(sup => {
-      bySupplier[sup] = articles.filter(a => a.supplier === sup).length;
-    });
-    return { total, withOverride, withoutSupplier, bySupplier };
-  }, [articles, suppliers, articleOverrides]);
-
-  // Synka om settings ändras utifrån
-  React.useEffect(() => { setLocalGlobal({ ...globalSettings }); }, [JSON.stringify(globalSettings)]);
-  React.useEffect(() => { setLocalSupplier({ ...supplierSettings }); }, [JSON.stringify(supplierSettings)]);
-
-  const handleSave = () => {
-    onGlobalChange(localGlobal);
-    Object.entries(localSupplier).forEach(([sup, val]) => onSupplierChange(sup, val));
-    const configuredSlotting = {
-      ...localSlotting,
-      configured: !!(localSlotting.zoneA?.from || localSlotting.zoneB?.from || localSlotting.zoneC?.from),
-    };
-    onSlottingConfig(configuredSlotting);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
-
-  const inputStyle = {
-    background: '#1e293b', border: '1px solid #334155', borderRadius: 6,
-    color: '#f1f5f9', padding: '6px 10px', fontSize: 13, width: '100%', fontFamily: 'inherit',
-  };
-  const labelStyle = { fontSize: 11, color: '#94a3b8', marginBottom: 4, display: 'block', fontWeight: 600, letterSpacing: '0.05em' };
-  const sectionHead = { fontSize: 12, fontWeight: 700, color: '#f1f5f9', letterSpacing: '0.08em', marginBottom: 14, paddingBottom: 8, borderBottom: '1px solid #1e293b' };
-  const card = { background: '#0f172a', border: '1px solid #1e293b', borderRadius: 10, padding: '20px 24px', marginBottom: 20 };
-
-  return (
-    <div style={{ maxWidth: 700, padding: '24px 28px' }}>
-      {/* Sektion 1: Globala defaults */}
-      <div style={card}>
-        <div style={sectionHead}>⚙️ GLOBALA STANDARDVÄRDEN</div>
-        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 16 }}>
-          Används för alla artiklar som saknar leverantörs- eller artikelspecifik inställning.
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <div>
-            <label style={labelStyle}>STANDARD LEDTID (DAGAR)</label>
-            <input
-              type="number" min="1" max="365"
-              value={localGlobal.defaultLeadTime ?? 14}
-              onChange={e => setLocalGlobal(g => ({ ...g, defaultLeadTime: Number(e.target.value) }))}
-              style={inputStyle}
-            />
-          </div>
-          <div />
-          <div>
-            <label style={labelStyle}>SERVICENIVÅ A-ARTIKLAR (%)</label>
-            <input
-              type="number" min="50" max="100"
-              value={localGlobal.slA ?? 95}
-              onChange={e => setLocalGlobal(g => ({ ...g, slA: Number(e.target.value) }))}
-              style={inputStyle}
-            />
-          </div>
-          <div>
-            <label style={labelStyle}>SERVICENIVÅ B-ARTIKLAR (%)</label>
-            <input
-              type="number" min="50" max="100"
-              value={localGlobal.slB ?? 90}
-              onChange={e => setLocalGlobal(g => ({ ...g, slB: Number(e.target.value) }))}
-              style={inputStyle}
-            />
-          </div>
-          <div>
-            <label style={labelStyle}>SERVICENIVÅ C-ARTIKLAR (%)</label>
-            <input
-              type="number" min="50" max="100"
-              value={localGlobal.slC ?? 85}
-              onChange={e => setLocalGlobal(g => ({ ...g, slC: Number(e.target.value) }))}
-              style={inputStyle}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Sektion 2: Leverantörsinställningar */}
-      <div style={card}>
-        <div style={sectionHead}>🏭 LEDTID PER LEVERANTÖR</div>
-        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 16 }}>
-          Åsidosätter global standard för alla artiklar med respektive leverantör.
-        </div>
-
-        {/* Täckningsöversikt */}
-        {coverage && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700, letterSpacing: '0.06em', marginBottom: 10 }}>TÄCKNING — {coverage.total} ARTIKLAR TOTALT</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-
-              {/* Artikel-overrides */}
-              {coverage.withOverride > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ width: `${Math.round((coverage.withOverride / coverage.total) * 100)}%`, minWidth: 4, height: 8, background: '#6366f1', borderRadius: 4, transition: 'width 0.4s' }} />
-                  <span style={{ fontSize: 12, color: '#a5b4fc', whiteSpace: 'nowrap' }}>
-                    {coverage.withOverride} art. — artikelspecifik ledtid (högsta prioritet)
-                  </span>
-                </div>
-              )}
-
-              {/* Per leverantör */}
-              {suppliers.map(sup => {
-                const count = coverage.bySupplier[sup] || 0;
-                if (count === 0) return null;
-                const lt = localSupplier[sup]?.leadTimeDays ?? localGlobal.defaultLeadTime ?? 14;
-                const hasCustom = !!localSupplier[sup]?.leadTimeDays;
-                return (
-                  <div key={sup} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{ width: `${Math.round((count / coverage.total) * 100)}%`, minWidth: 4, height: 8, background: hasCustom ? '#22c55e' : '#334155', borderRadius: 4, transition: 'width 0.4s' }} />
-                    <span style={{ fontSize: 12, color: hasCustom ? '#86efac' : '#64748b', whiteSpace: 'nowrap' }}>
-                      {count} art. — {sup} → {lt} d{!hasCustom ? ' (global)' : ''}
-                    </span>
-                  </div>
-                );
-              })}
-
-              {/* Utan leverantör */}
-              {coverage.withoutSupplier > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ width: `${Math.round((coverage.withoutSupplier / coverage.total) * 100)}%`, minWidth: 4, height: 8, background: '#f97316', borderRadius: 4, transition: 'width 0.4s' }} />
-                  <span style={{ fontSize: 12, color: '#fdba74', whiteSpace: 'nowrap' }}>
-                    {coverage.withoutSupplier} art. — ingen leverantör i data → {localGlobal.defaultLeadTime ?? 14} d (global)
-                  </span>
-                </div>
-              )}
-
-            </div>
-            {coverage.withoutSupplier > 0 && (
-              <div style={{ marginTop: 10, padding: '8px 12px', background: '#f9731618', border: '1px solid #f9731630', borderRadius: 6, fontSize: 12, color: '#fdba74', lineHeight: 1.5 }}>
-                ⚠️ {coverage.withoutSupplier} artiklar saknar leverantörsinformation i ERP-datan. De använder global standard ({localGlobal.defaultLeadTime ?? 14} dagar). Justera globalt värde ovan eller lägg till ledtid per artikel via Artikeldetaljer.
-              </div>
-            )}
-          </div>
-        )}
-
-        {suppliers.length === 0 && (
-          <div style={{ fontSize: 12, color: '#475569', fontStyle: 'italic' }}>Inga leverantörer hittades i data.</div>
-        )}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          {suppliers.map(sup => (
-            <div key={sup}>
-              <label style={{ ...labelStyle, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }} title={sup}>{sup.toUpperCase()}</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <input
-                  type="number" min="1" max="730" placeholder={`${localGlobal.defaultLeadTime ?? 14} (global)`}
-                  value={localSupplier[sup]?.leadTimeDays ?? ''}
-                  onChange={e => {
-                    const val = e.target.value === '' ? null : Number(e.target.value);
-                    setLocalSupplier(s => {
-                      const next = { ...s };
-                      if (val == null) delete next[sup];
-                      else next[sup] = { leadTimeDays: val };
-                      return next;
-                    });
-                  }}
-                  style={{ ...inputStyle, flex: 1 }}
-                />
-                <span style={{ fontSize: 11, color: '#64748b', flexShrink: 0 }}>d</span>
-                {localSupplier[sup]?.leadTimeDays && (
-                  <button
-                    onClick={() => setLocalSupplier(s => { const n = { ...s }; delete n[sup]; return n; })}
-                    style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 14, padding: '0 2px' }}
-                    title="Rensa"
-                  >✕</button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Sektion 3: Artikel-overrides */}
-      <div style={card}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', ...sectionHead }}>
-          <span>📌 ARTIKELSPECIFIKA LEDTIDER</span>
-          {Object.keys(articleOverrides).length > 0 && (
-            <button
-              onClick={() => { if (window.confirm('Ta bort alla artikelspecifika ledtider?')) onResetAll(); }}
-              style={{ background: 'none', border: '1px solid #334155', borderRadius: 5, color: '#94a3b8', cursor: 'pointer', fontSize: 11, padding: '3px 10px' }}
-            >Rensa alla</button>
-          )}
-        </div>
-        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 16 }}>
-          Sätts via Artikeldetaljer (klicka på en artikel). Har högsta prioritet.
-        </div>
-        {Object.keys(articleOverrides).length === 0 ? (
-          <div style={{ fontSize: 12, color: '#475569', fontStyle: 'italic' }}>Inga artikelspecifika ledtider inställda ännu.</div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {Object.entries(articleOverrides).map(([artId, val]) => (
-              <div key={artId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#1e293b', borderRadius: 6, padding: '8px 12px' }}>
-                <div>
-                  <span style={{ fontSize: 13, color: '#f1f5f9', fontWeight: 600 }}>{artId}</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 13, color: '#6366f1', fontWeight: 700 }}>{val.leadTimeDays} dagar</span>
-                  <button
-                    onClick={() => onRemoveArticleOverride(artId)}
-                    style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 14, padding: 0 }}
-                    title="Ta bort override"
-                  >✕</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Sektion 4: Lagerkonfiguration */}
-      {locations.length > 0 && (
-        <div style={card}>
-          <div style={sectionHead}>🗺️ LAGERKARTA — ZONKONFIGURATION</div>
-          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 16 }}>
-            Ange vilket intervall av era lagerpositioner som tillhör respektive zon. Krävs för korrekta slottingrekommendationer när positioner är numeriska (ex: 1–8) eller koordinatbaserade (ex: 1-12-11).
-          </div>
-
-          {slottingConfig.configured && (
-            <div style={{ marginBottom: 14, padding: '8px 12px', background: '#22c55e18', border: '1px solid #22c55e30', borderRadius: 6, fontSize: 12, color: '#86efac' }}>
-              ✓ Lagerkarta konfigurerad — slottingfliken använder era zoninställningar.
-            </div>
-          )}
-
-          {/* Positionsexempel från datan */}
-          <div style={{ marginBottom: 14, padding: '8px 12px', background: '#1e293b', borderRadius: 6 }}>
-            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6, fontWeight: 600 }}>POSITIONER I ER DATA ({locations.length} unika)</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {locations.slice(0, 20).map(loc => (
-                <span key={loc} style={{ fontSize: 11, background: '#334155', color: '#94a3b8', padding: '2px 7px', borderRadius: 4 }}>{loc}</span>
-              ))}
-              {locations.length > 20 && <span style={{ fontSize: 11, color: '#475569' }}>+{locations.length - 20} till</span>}
-            </div>
-          </div>
-
-          {/* Range-inmatning per zon */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-            {[
-              { key: 'zoneA', label: 'Zon A — Guldzon', sub: 'Närmast plockytan', color: '#22c55e' },
-              { key: 'zoneB', label: 'Zon B — Silverzon', sub: 'Mitten av lagret', color: '#f59e0b' },
-              { key: 'zoneC', label: 'Zon C — Bronszon', sub: 'Längst från plock', color: '#6b7280' },
-            ].map(({ key, label, sub, color }) => (
-              <div key={key} style={{ display: 'grid', gridTemplateColumns: '200px 1fr 1fr', gap: 10, alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color }}>{label}</div>
-                  <div style={{ fontSize: 11, color: '#475569' }}>{sub}</div>
-                </div>
-                <div>
-                  <label style={labelStyle}>FRÅN (stallage/sektion)</label>
-                  <input
-                    type="text"
-                    placeholder="ex: 1"
-                    value={localSlotting[key]?.from || ''}
-                    onChange={e => setLocalSlotting(s => ({ ...s, [key]: { ...s[key], from: e.target.value } }))}
-                    style={inputStyle}
-                  />
-                </div>
-                <div>
-                  <label style={labelStyle}>TILL (lämna tomt = bara ett)</label>
-                  <input
-                    type="text"
-                    placeholder="ex: 2"
-                    value={localSlotting[key]?.to || ''}
-                    onChange={e => setLocalSlotting(s => ({ ...s, [key]: { ...s[key], to: e.target.value } }))}
-                    style={inputStyle}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ fontSize: 11, color: '#475569', lineHeight: 1.6, marginBottom: 10 }}>
-            <strong style={{ color: '#64748b' }}>Numeriska positioner:</strong> Ange siffror — ex. "1" till "2" för Zon A, "3" till "5" för Zon B, "6" till "8" för Zon C.<br/>
-            <strong style={{ color: '#64748b' }}>Koordinater (1-12-11):</strong> Ange bara första segmentet — ex. "1" matchar alla positioner som börjar med 1.<br/>
-            <strong style={{ color: '#64748b' }}>Bokstäver (A, B, C):</strong> Ingen konfiguration behövs — systemet känner igen dem automatiskt.
-          </div>
-
-          {slottingConfig.configured && (
-            <button
-              onClick={() => setLocalSlotting(_defSlot)}
-              style={{ background: 'none', border: '1px solid #334155', borderRadius: 5, color: '#94a3b8', cursor: 'pointer', fontSize: 11, padding: '3px 10px' }}
-            >Återställ zonkonfiguration</button>
-          )}
-        </div>
-      )}
-
-      {/* Spara-knapp */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <button
-          onClick={handleSave}
-          style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 28px', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
-        >Spara inställningar</button>
-        {saved && <span style={{ fontSize: 13, color: '#22c55e', fontWeight: 600 }}>✓ Sparade!</span>}
-      </div>
-    </div>
-  );
-}
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────
 function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [ledtidOverrides, setLedtidOverrides] = useState({});
-
-  // ─── INSTÄLLNINGAR (localStorage) ──────────────────────────────────────
-  const [globalSettings, setGlobalSettings] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('logitide-globalSettings')) || { defaultLeadTime: 14, slA: 95, slB: 90, slC: 85 }; }
-    catch { return { defaultLeadTime: 14, slA: 95, slB: 90, slC: 85 }; }
-  });
-  const [supplierSettings, setSupplierSettings] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('logitide-supplierSettings')) || {}; }
-    catch { return {}; }
-  });
-  const [articleOverrides, setArticleOverrides] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('logitide-articleOverrides')) || {}; }
-    catch { return {}; }
-  });
-  const [slottingConfig, setSlottingConfig] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('logitide-slottingConfig'));
-      if (saved && typeof saved.zoneA === 'object') return saved;
-      return { zoneA: { from: '', to: '' }, zoneB: { from: '', to: '' }, zoneC: { from: '', to: '' }, configured: false };
-    }
-    catch { return { zoneA: { from: '', to: '' }, zoneB: { from: '', to: '' }, zoneC: { from: '', to: '' }, configured: false }; }
-  });
-
-  useEffect(() => { try { localStorage.setItem('logitide-globalSettings', JSON.stringify(globalSettings)); } catch {} }, [globalSettings]);
-  useEffect(() => { try { localStorage.setItem('logitide-supplierSettings', JSON.stringify(supplierSettings)); } catch {} }, [supplierSettings]);
-  useEffect(() => { try { localStorage.setItem('logitide-articleOverrides', JSON.stringify(articleOverrides)); } catch {} }, [articleOverrides]);
-  useEffect(() => { try { localStorage.setItem('logitide-slottingConfig', JSON.stringify(slottingConfig)); } catch {} }, [slottingConfig]);
-
-  const handleSlottingConfig = (cfg) => setSlottingConfig(cfg);
-
-  const handleGlobalChange = (newGlobal) => setGlobalSettings(newGlobal);
-  const handleSupplierChange = (sup, val) => setSupplierSettings(prev => {
-    const next = { ...prev };
-    if (val == null || val.leadTimeDays == null) delete next[sup];
-    else next[sup] = val;
-    return next;
-  });
-  const handleArticleOverride = (articleId, leadTimeDays) => {
-    setArticleOverrides(prev => ({ ...prev, [articleId]: { leadTimeDays } }));
-  };
-  const handleRemoveArticleOverride = (articleId) => {
-    setArticleOverrides(prev => { const n = { ...prev }; delete n[articleId]; return n; });
-  };
-  const handleResetAllArticleOverrides = () => setArticleOverrides({});
-
-  // Unika leverantörer ur data
-  const suppliersInData = React.useMemo(() => {
-    const set = new Set((data.articles || []).map(a => a.supplier).filter(Boolean));
-    return Array.from(set).sort();
-  }, [data]);
-
-  // Unika lagerpositioner ur data (för slotting-konfiguration)
-  const locationsInData = React.useMemo(() => {
-    const set = new Set((data.articles || []).map(a => a.loc).filter(v => v && v !== 'Okänd'));
-    return Array.from(set).sort();
-  }, [data]);
 
   const handleLedtidChange = (articleId, newDays) => {
     setLedtidOverrides(prev => ({ ...prev, [articleId]: newDays }));
@@ -3236,95 +2769,25 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
     }
   };
 
-  // Bygg effectiveData med tre lager: artikel > leverantör > global > original
+  // Bygg effectiveData med omräknade artiklar där ledtid overridats
   const effectiveData = React.useMemo(() => {
+    if (Object.keys(ledtidOverrides).length === 0) return data;
     const articles = (data.articles || []).map(a => {
-      // Bestäm effektiv ledtid (prioritetsordning)
-      let effectiveLT = null;
-      if (articleOverrides[a.article]?.leadTimeDays != null) {
-        effectiveLT = articleOverrides[a.article].leadTimeDays;
-      } else if (ledtidOverrides[a.article] != null) {
-        effectiveLT = ledtidOverrides[a.article];
-      } else if (a.supplier && supplierSettings[a.supplier]?.leadTimeDays != null) {
-        effectiveLT = supplierSettings[a.supplier].leadTimeDays;
-      } else if (a.lead_time_days != null) {
-        effectiveLT = a.lead_time_days;
-      } else {
-        effectiveLT = globalSettings.defaultLeadTime ?? 14;
-      }
-
-      // Zonremappning baserat på slottingConfig (range-baserad)
-      let mappedLoc = a.loc;
-      if (slottingConfig.configured && a.loc && a.loc !== 'Okänd') {
-        const locStr = String(a.loc);
-        // Extrahera första segmentet (prefix) ur koordinater som "1-12-11" → "1"
-        const prefix = locStr.split(/[-_.\/]/)[0];
-        const num = parseFloat(prefix);
-        const inRange = (zone) => {
-          if (!zone || !zone.from) return false;
-          const f = parseFloat(zone.from);
-          const t = zone.to ? parseFloat(zone.to) : f;
-          if (!isNaN(num) && !isNaN(f)) return num >= f && num <= t;
-          // Strängmatchning om inte numerisk
-          return locStr === zone.from || locStr.startsWith(zone.from);
-        };
-        if (inRange(slottingConfig.zoneA)) mappedLoc = 'A';
-        else if (inRange(slottingConfig.zoneB)) mappedLoc = 'B';
-        else if (inRange(slottingConfig.zoneC)) mappedLoc = 'C';
-      }
-
-      // Om ledtid skiljer sig från original eller loc ändrats — räkna om
-      if (effectiveLT !== a.lead_time_days || mappedLoc !== a.loc) {
-        const base = effectiveLT !== a.lead_time_days
-          ? recalcArticle({ ...a, loc: mappedLoc }, effectiveLT, globalSettings)
-          : { ...a, loc: mappedLoc };
-
-        // Räkna om slotting-fält om loc remappades
-        if (mappedLoc !== a.loc && ['A','B','C'].includes(mappedLoc)) {
-          const abcToZone = { A: 'A', B: 'B', C: 'C' };
-          const recommendedZone = abcToZone[base.abc] || 'C';
-          const correctlyPlaced = mappedLoc === recommendedZone;
-          const zoneRank = { A: 0, B: 1, C: 2 };
-          const currentRank = zoneRank[mappedLoc] ?? 999;
-          const recommendedRank = zoneRank[recommendedZone] ?? 999;
-          const zoneGap = currentRank - recommendedRank;
-          const wrongDirection = zoneGap > 0;
-          const suggestMove = !correctlyPlaced && wrongDirection && (
-            base.abc === 'A' ||
-            (base.abc === 'B' && Math.abs(zoneGap) >= 2) ||
-            (base.abc === 'C' && Math.abs(zoneGap) >= 3)
-          );
-          const movePriority = !correctlyPlaced
-            ? (base.abc === 'A' ? 'CRITICAL' : base.abc === 'B' ? 'MEDIUM' : 'LOW')
-            : 'NONE';
-          return {
-            ...base,
-            correctly_placed: correctlyPlaced,
-            recommend_zone: recommendedZone,
-            recommended_zone: recommendedZone,
-            zone_gap: zoneGap,
-            suggest_move: suggestMove,
-            move_priority: movePriority,
-          };
-        }
-        return base;
-      }
-      return a;
+      const override = ledtidOverrides[a.article];
+      if (override == null) return a;
+      return recalcArticle(a, override);
     });
-    // Kontrollera om något ändrades
-    const changed = articles.some((a, i) => a !== (data.articles || [])[i]);
-    return changed ? { ...data, articles } : data;
-  }, [data, ledtidOverrides, articleOverrides, supplierSettings, globalSettings, slottingConfig]);
+    return { ...data, articles };
+  }, [data, ledtidOverrides]);
 
   const { summary } = effectiveData;
   const tabs = [
     { id: 'overview', label: 'Översikt', icon: 'home' },
     { id: 'abcxyz', label: 'ABC/XYZ', icon: 'grid' },
     { id: 'purchasing', label: 'Inköp', icon: 'trending', badge: summary?.articles_to_order },
-    { id: 'slotting', label: 'Slotting', icon: 'move', badge: summary?.has_location_data ? summary?.articles_to_move : null },
+    { id: 'slotting', label: 'Slotting', icon: 'move', badge: summary?.has_location_data ? (data.articles || []).filter(a => a.suggest_move).length : null },
     { id: 'capital', label: 'Kapital', icon: 'money', badge: summary?.has_cost_data ? (summary?.dead_stock + (summary?.overstock || 0)) : null },
     ...(auth ? [{ id: 'history', label: 'Historik', icon: 'trending' }] : []),
-    { id: 'settings', label: 'Inställningar', icon: 'info' },
   ];
   return (
     <div className="dashboard">
@@ -3405,35 +2868,19 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div className="top-tabs">
-              {tabs.filter(t => t.id !== 'overview' && t.id !== 'settings' && t.id !== 'history').map(t => (
+              {tabs.filter(t => t.id !== 'overview').map(t => (
                 <button key={t.id} className={`top-tab ${activeTab === t.id ? 'active' : ''}`} onClick={() => setActiveTab(t.id)}>{t.label}</button>
               ))}
             </div>
             <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           </div>
         </div>
-        {activeTab === 'overview' && <OverviewTab data={effectiveData} onLedtidChange={handleLedtidChange} ledtidOverrides={ledtidOverrides} onResetLedtider={Object.keys(ledtidOverrides).length > 0 ? handleResetLedtider : null} onArticleOverride={handleArticleOverride} />}
+        {activeTab === 'overview' && <OverviewTab data={effectiveData} onLedtidChange={handleLedtidChange} ledtidOverrides={ledtidOverrides} onResetLedtider={Object.keys(ledtidOverrides).length > 0 ? handleResetLedtider : null} />}
         {activeTab === 'abcxyz' && <AbcXyzTab data={effectiveData} />}
         {activeTab === 'purchasing' && <PurchasingTab data={effectiveData} />}
         {activeTab === 'slotting' && <SlottingTab data={effectiveData} />}
         {activeTab === 'capital' && <CapitalTab data={effectiveData} />}
         {activeTab === 'history' && auth && <HistoryTab token={auth.token} />}
-        {activeTab === 'settings' && (
-          <SettingsTab
-            globalSettings={globalSettings}
-            supplierSettings={supplierSettings}
-            articleOverrides={articleOverrides}
-            onGlobalChange={handleGlobalChange}
-            onSupplierChange={handleSupplierChange}
-            onRemoveArticleOverride={handleRemoveArticleOverride}
-            onResetAll={handleResetAllArticleOverrides}
-            suppliers={suppliersInData}
-            articles={data.articles}
-            slottingConfig={slottingConfig}
-            onSlottingConfig={handleSlottingConfig}
-            locations={locationsInData}
-          />
-        )}
       </div>
     </div>
   );
