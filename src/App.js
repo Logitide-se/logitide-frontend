@@ -2755,9 +2755,67 @@ function exportCSV(rows) {
 
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────
+// ─── SLOTTING HJÄLPFUNKTIONER ─────────────────────────────────────────────
+function loadSlottingConfig() {
+  try {
+    const raw = localStorage.getItem('logitide-slottingConfig');
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+
+// Mappa numerisk lagerposition ("2-16-3") till A/B/C via zonkonfig
+function remapLocToZone(locStr, cfg) {
+  if (!cfg || !locStr || locStr === 'Okänd') return locStr;
+  // Redan bokstavszon
+  if (/^[A-Ca-c]$/i.test(locStr.trim())) return locStr.trim().toUpperCase();
+  const firstSeg = parseInt(String(locStr).split('-')[0], 10);
+  if (isNaN(firstSeg)) return locStr;
+  const inRange = (val, from, to) => {
+    const f = parseInt(from, 10);
+    const t = parseInt(to, 10);
+    if (isNaN(f)) return false;
+    return isNaN(t) ? val >= f : val >= f && val <= t;
+  };
+  if (cfg.zoneA && inRange(firstSeg, cfg.zoneA.from, cfg.zoneA.to)) return 'A';
+  if (cfg.zoneB && inRange(firstSeg, cfg.zoneB.from, cfg.zoneB.to)) return 'B';
+  if (cfg.zoneC && inRange(firstSeg, cfg.zoneC.from, cfg.zoneC.to)) return 'C';
+  return locStr;
+}
+
+// Räkna om suggest_move/move_priority baserat på remappad loc
+function recalcSlotting(a, mappedLoc) {
+  const zoneRank = { A: 0, B: 1, C: 2 };
+  const recommended = a.abc === 'A' ? 'A' : a.abc === 'B' ? 'B' : 'C';
+  const correctlyPlaced = mappedLoc === recommended;
+  const curRank = zoneRank[mappedLoc] ?? 999;
+  const recRank = zoneRank[recommended] ?? 999;
+  const zoneGap = curRank - recRank;
+  const wrongDir = zoneGap > 0;
+  const sigGap = Math.abs(zoneGap) >= (a.abc === 'C' ? 3 : a.abc === 'B' ? 2 : 1);
+  const suggestMove = !correctlyPlaced && wrongDir && mappedLoc !== 'Okänd' && sigGap;
+  const movePriority = suggestMove ? (a.abc === 'A' ? 'CRITICAL' : a.abc === 'B' ? 'MEDIUM' : 'LOW') : 'NONE';
+  return { ...a, loc: mappedLoc, recommended_zone: recommended, correctly_placed: correctlyPlaced, suggest_move: suggestMove, move_priority: movePriority };
+}
+
 function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [ledtidOverrides, setLedtidOverrides] = useState({});
+  const [slottingConfig, setSlottingConfig] = useState(() => loadSlottingConfig());
+
+  // Uppdatera slottingConfig när Inställningar sparar till localStorage
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === 'logitide-slottingConfig') setSlottingConfig(loadSlottingConfig());
+    };
+    window.addEventListener('storage', onStorage);
+    // Polling för ändringar i samma flik (storage-event triggas ej i samma flik)
+    const poll = setInterval(() => {
+      const cfg = loadSlottingConfig();
+      setSlottingConfig(prev => JSON.stringify(prev) !== JSON.stringify(cfg) ? cfg : prev);
+    }, 1500);
+    return () => { window.removeEventListener('storage', onStorage); clearInterval(poll); };
+  }, []);
 
   const handleLedtidChange = (articleId, newDays) => {
     setLedtidOverrides(prev => ({ ...prev, [articleId]: newDays }));
@@ -2769,23 +2827,38 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
     }
   };
 
-  // Bygg effectiveData med omräknade artiklar där ledtid overridats
+  // Bygg effectiveData: ledtid-overrides + slotting-remappning
   const effectiveData = React.useMemo(() => {
-    if (Object.keys(ledtidOverrides).length === 0) return data;
-    const articles = (data.articles || []).map(a => {
-      const override = ledtidOverrides[a.article];
-      if (override == null) return a;
-      return recalcArticle(a, override);
-    });
+    let articles = data.articles || [];
+    // 1. Ledtid-overrides
+    if (Object.keys(ledtidOverrides).length > 0) {
+      articles = articles.map(a => {
+        const override = ledtidOverrides[a.article];
+        return override != null ? recalcArticle(a, override) : a;
+      });
+    }
+    // 2. Slotting-remappning: numeriska positioner → A/B/C → ny suggest_move
+    if (slottingConfig) {
+      articles = articles.map(a => {
+        const mappedLoc = remapLocToZone(a.loc, slottingConfig);
+        return recalcSlotting(a, mappedLoc);
+      });
+    }
+    if (articles === (data.articles || [])) return data;
     return { ...data, articles };
-  }, [data, ledtidOverrides]);
+  }, [data, ledtidOverrides, slottingConfig]);
 
   const { summary } = effectiveData;
+  const articlesToMoveCount = React.useMemo(
+    () => (effectiveData.articles || []).filter(a => a.suggest_move).length,
+    [effectiveData.articles]
+  );
+
   const tabs = [
     { id: 'overview', label: 'Översikt', icon: 'home' },
     { id: 'abcxyz', label: 'ABC/XYZ', icon: 'grid' },
     { id: 'purchasing', label: 'Inköp', icon: 'trending', badge: summary?.articles_to_order },
-    { id: 'slotting', label: 'Slotting', icon: 'move', badge: summary?.has_location_data ? (data.articles || []).filter(a => a.suggest_move).length : null },
+    { id: 'slotting', label: 'Slotting', icon: 'move', badge: summary?.has_location_data ? articlesToMoveCount : null },
     { id: 'capital', label: 'Kapital', icon: 'money', badge: summary?.has_cost_data ? (summary?.dead_stock + (summary?.overstock || 0)) : null },
     ...(auth ? [{ id: 'history', label: 'Historik', icon: 'trending' }] : []),
   ];
