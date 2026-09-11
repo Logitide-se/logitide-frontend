@@ -2832,29 +2832,29 @@ function SettingsTab({ data }) {
         <div style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 14 }}>
           Används för alla artiklar som saknar leverantörs- eller artikelspecifik inställning.
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
           <div>
             <label style={labelStyle}>Standard ledtid (dagar)</label>
             <input style={inputStyle} type="number" min="1" max="365"
-              value={globalSettings.defaultLeadTime}
+              value={globalSettings.defaultLeadTime ?? 14}
               onChange={e => setGlobalSettings(s => ({ ...s, defaultLeadTime: parseInt(e.target.value) || 14 }))} />
           </div>
           <div>
             <label style={labelStyle}>Servicenivå A-artiklar (%)</label>
             <input style={inputStyle} type="number" min="50" max="99"
-              value={globalSettings.serviceLevelA}
+              value={globalSettings.serviceLevelA ?? 95}
               onChange={e => setGlobalSettings(s => ({ ...s, serviceLevelA: parseInt(e.target.value) || 95 }))} />
           </div>
           <div>
             <label style={labelStyle}>Servicenivå B-artiklar (%)</label>
             <input style={inputStyle} type="number" min="50" max="99"
-              value={globalSettings.serviceLevelB}
+              value={globalSettings.serviceLevelB ?? 90}
               onChange={e => setGlobalSettings(s => ({ ...s, serviceLevelB: parseInt(e.target.value) || 90 }))} />
           </div>
           <div>
             <label style={labelStyle}>Servicenivå C-artiklar (%)</label>
             <input style={inputStyle} type="number" min="50" max="99"
-              value={globalSettings.serviceLevelC}
+              value={globalSettings.serviceLevelC ?? 85}
               onChange={e => setGlobalSettings(s => ({ ...s, serviceLevelC: parseInt(e.target.value) || 85 }))} />
           </div>
         </div>
