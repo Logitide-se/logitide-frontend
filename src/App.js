@@ -637,12 +637,26 @@ function ImportWizard({ onAnalysis, onClose, auth }) {
         const savedCfg = localStorage.getItem('logitide-slottingConfig');
         if (savedCfg) form.append('zone_config', savedCfg);
       } catch {}
+      // Skicka leverantörsledtider — backend applicerar per artikel
+      try {
+        const supplierSettings = JSON.parse(localStorage.getItem('logitide-supplierSettings') || '{}');
+        const validSupplier = Object.fromEntries(
+          Object.entries(supplierSettings).filter(([, v]) => v != null && v !== '')
+        );
+        if (Object.keys(validSupplier).length > 0) {
+          form.append('supplier_lead_times', JSON.stringify(validSupplier));
+        }
+        const globalSettings = JSON.parse(localStorage.getItem('logitide-globalSettings') || '{}');
+        if (globalSettings.defaultLeadTime) {
+          form.append('global_lead_time', String(globalSettings.defaultLeadTime));
+        }
+      } catch {}
       const headers = {};
       if (auth?.token) headers['Authorization'] = `Bearer ${auth.token}`;
       const res = await fetch(`${API_URL}/import/run`, { method: 'POST', body: form, headers });
       if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Import misslyckades.'); }
       const data = await res.json();
-      window._lastAnalysisData = data; // Spara för månadsrapport
+      window._lastAnalysisData = data;
       onAnalysis(data);
       onClose();
     } catch(e) { setError(e.message); }
@@ -1040,8 +1054,20 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
       // Skicka zone_config från localStorage — backend gör ALL zonmappning
       try {
         const savedCfg = localStorage.getItem('logitide-slottingConfig');
-        if (savedCfg) {
-          formData.append('zone_config', savedCfg);
+        if (savedCfg) formData.append('zone_config', savedCfg);
+      } catch {}
+      // Skicka leverantörsledtider — backend applicerar per artikel
+      try {
+        const supplierSettings = JSON.parse(localStorage.getItem('logitide-supplierSettings') || '{}');
+        const validSupplier = Object.fromEntries(
+          Object.entries(supplierSettings).filter(([, v]) => v != null && v !== '')
+        );
+        if (Object.keys(validSupplier).length > 0) {
+          formData.append('supplier_lead_times', JSON.stringify(validSupplier));
+        }
+        const globalSettings = JSON.parse(localStorage.getItem('logitide-globalSettings') || '{}');
+        if (globalSettings.defaultLeadTime) {
+          formData.append('global_lead_time', String(globalSettings.defaultLeadTime));
         }
       } catch {}
       let res;
