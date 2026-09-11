@@ -2306,7 +2306,7 @@ function SlottingTab({ data }) {
           <h3 style={{ color: '#f1f5f9', marginBottom: 8 }}>Slottinganalys kräver lagerpositioner</h3>
           <p style={{ color: '#94a3b8', fontSize: 14, lineHeight: 1.7, maxWidth: 480 }}>
             För att rekommendera var en artikel ska stå måste systemet veta var den <em>faktiskt</em> står idag.
-            Utan det underlagest kan vi inte beräkna om en flytt är motiverad, hur många rörelser det sparar,
+            Utan det underlaget kan vi inte beräkna om en flytt är motiverad, hur många rörelser det sparar,
             eller vilka artiklar som är felprioriterade.
           </p>
         </div>
@@ -2358,9 +2358,31 @@ function SlottingTab({ data }) {
           </div>
         </div>
 
-        <p style={{ fontSize: 12, color: '#475569' }}>
-          Lägg till positionskolumnen i er exportfil och ladda upp på nytt.
-        </p>
+        {/* Tydlig steg-för-steg guide */}
+        <div style={{
+          background: '#1a2744', border: '1px solid #3b82f633', borderRadius: 12,
+          padding: '16px 20px', width: '100%', textAlign: 'left'
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#3b82f6', letterSpacing: '0.1em', marginBottom: 12 }}>
+            SÅ HÄR KOMMER DU IGÅNG
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[
+              { step: '1', text: 'Lägg till en kolumn "Lagerposition" i er Excel-fil med varje artikels nuvarande plats' },
+              { step: '2', text: 'Gå till Inställningar → Lagerkarta och konfigurera vilka stallage som tillhör Zon A, B och C' },
+              { step: '3', text: 'Ladda upp filen på nytt — slottinganalysen startar automatiskt' },
+            ].map((r, i) => (
+              <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                <span style={{
+                  background: '#3b82f622', color: '#3b82f6', borderRadius: '50%',
+                  width: 22, height: 22, display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0
+                }}>{r.step}</span>
+                <span style={{ fontSize: 13, color: '#94a3b8', paddingTop: 3 }}>{r.text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -2442,9 +2464,14 @@ function CapitalTab({ data }) {
         ))}
         {tab === 'order' && (
           <table className="article-table">
-            <thead><tr><th>ARTIKEL</th><th>ABC</th><th>SALDO</th><th>TÄCKTID</th><th>BESTÄLL</th><th>VÄRDE</th></tr></thead>
+            <thead>
+              <tr>
+                <th>ARTIKEL</th><th>ABC</th><th>SALDO</th>
+                <th>TÄCKTID</th><th>BESTÄLL</th><th>VÄRDE</th>
+              </tr>
+            </thead>
             <tbody>
-              {toOrder.slice(0, 50).map((a, i) => (
+              {toOrder.map((a, i) => (
                 <tr key={i}>
                   <td><div className="art-name">{a.name}</div><div className="art-id">{a.article}</div></td>
                   <td><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}</span></td>
@@ -2544,6 +2571,19 @@ function AbcXyzTab({ data }) {
 
   return (
     <div className="tab-content" style={{ paddingTop: 0 }}>
+      {!xyzAvailable && (
+        <div style={{
+          background: '#f59e0b11', border: '1px solid #f59e0b33',
+          borderRadius: 8, padding: '10px 16px', marginBottom: 12,
+          fontSize: 12, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 8
+        }}>
+          <span>⚠️</span>
+          <span>
+            <strong>XYZ baseras på uppskattning</strong> — filen saknar månadshistorik.
+            Lägg till kolumner för jan–dec (12 månaders förbrukning) för exakt XYZ-klassificering baserad på variationskoefficient.
+          </span>
+        </div>
+      )}
       <style>{`
         .abcxyz-grid { display: grid; grid-template-columns: 1fr 280px; gap: 16px; align-items: start; }
         @media (max-width: 900px) { .abcxyz-grid { grid-template-columns: 1fr; } }
