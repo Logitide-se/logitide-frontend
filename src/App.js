@@ -1389,9 +1389,11 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider })
 }
 
 // ─── ARTICLE DETAIL PANEL ─────────────────────────────────────────────────
-function ArticleDetailPanel({ article, onClose }) {
+function ArticleDetailPanel({ article, onClose, onLedtidChange, ledtidOverride }) {
   const [explanation, setExplanation] = useState(null);
   const [loadingAI, setLoadingAI] = useState(false);
+  const [editingLedtid, setEditingLedtid] = useState(false);
+  const [ledtidInput, setLedtidInput] = useState('');
   const a = article;
 
   useEffect(() => {
@@ -1484,9 +1486,41 @@ function ArticleDetailPanel({ article, onClose }) {
             {/* Coverage bar */}
             <div style={{ width: `${covPct}%`, height: '100%', background: gaugeColor, borderRadius: 5, transition: 'width 0.5s', position: 'relative', zIndex: 1 }} />
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, alignItems: 'center' }}>
             <span style={{ color: gaugeColor, fontWeight: 700 }}>Täcktid: {fmtDays(cov)}</span>
-            <span style={{ color: '#f97316' }}>Ledtid: {Math.round(lt)} d</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {editingLedtid ? (
+                <>
+                  <input
+                    type="number" min="1" max="365"
+                    value={ledtidInput}
+                    onChange={e => setLedtidInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        const days = parseInt(ledtidInput);
+                        if (days > 0 && onLedtidChange) { onLedtidChange(a.article, days); }
+                        setEditingLedtid(false);
+                      }
+                      if (e.key === 'Escape') setEditingLedtid(false);
+                    }}
+                    autoFocus
+                    style={{ width: 60, padding: '2px 6px', background: '#1e293b', border: '1px solid #6366f1', borderRadius: 5, color: '#f1f5f9', fontSize: 11, textAlign: 'right' }}
+                  />
+                  <button onClick={() => {
+                    const days = parseInt(ledtidInput);
+                    if (days > 0 && onLedtidChange) { onLedtidChange(a.article, days); }
+                    setEditingLedtid(false);
+                  }} style={{ background: '#6366f1', border: 'none', borderRadius: 5, color: '#fff', fontSize: 11, padding: '2px 8px', cursor: 'pointer' }}>✓</button>
+                  <button onClick={() => setEditingLedtid(false)} style={{ background: 'none', border: '1px solid #334155', borderRadius: 5, color: '#64748b', fontSize: 11, padding: '2px 6px', cursor: 'pointer' }}>✕</button>
+                </>
+              ) : (
+                <button onClick={() => { setLedtidInput(String(Math.round(lt))); setEditingLedtid(true); }}
+                  style={{ background: 'none', border: 'none', color: ledtidOverride ? '#6366f1' : '#f97316', cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', gap: 3, padding: 0 }}>
+                  Ledtid: {Math.round(lt)} d {onLedtidChange && <span style={{ fontSize: 9 }}>✎</span>}
+                  {ledtidOverride && <span style={{ fontSize: 9, color: '#6366f1' }}>(ändrad)</span>}
+                </button>
+              )}
+            </span>
           </div>
           {cov < lt && (
             <div style={{ marginTop: 8, padding: '6px 10px', background: '#ef444418', border: '1px solid #ef444430', borderRadius: 6, fontSize: 11, color: '#fca5a5' }}>
@@ -1591,7 +1625,12 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
   }) || [];
   return (
     <div>
-      {selectedArticle && <ArticleDetailPanel article={selectedArticle} onClose={() => setSelectedArticle(null)} />}
+      {selectedArticle && <ArticleDetailPanel
+        article={selectedArticle}
+        onClose={() => setSelectedArticle(null)}
+        onLedtidChange={onLedtidChange}
+        ledtidOverride={ledtidOverrides[selectedArticle?.article]}
+      />}
       <div className="table-filters">
         <input className="search-input" placeholder="Sök på artikelnamn eller ID..." value={search} onChange={e => setSearch(e.target.value)} />
         <div className="filter-group">
