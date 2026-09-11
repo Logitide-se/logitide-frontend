@@ -147,8 +147,8 @@ function ActionRow({ a, hasCost, articles }) {
         </div>
         {hasCost && a.value_sek > 0 && <span className="action-value">{Math.round(a.value_sek).toLocaleString('sv-SE')+' kr'}</span>}
         <button onClick={fetchExplanation} title="AI-förklaring" style={{
-          background: 'none', border: '1px solid var(--color-border)', borderRadius: '6px',
-          padding: '3px 8px', cursor: 'pointer', fontSize: '12px', color: 'var(--color-muted)',
+          background: 'none', border: '1px solid var(--border)', borderRadius: '6px',
+          padding: '3px 8px', cursor: 'pointer', fontSize: '12px', color: 'var(--text3)',
           whiteSpace: 'nowrap', flexShrink: 0
         }}>
           {loading ? '...' : open ? '▲ Dölj' : '✦ Förklara'}
@@ -157,8 +157,8 @@ function ActionRow({ a, hasCost, articles }) {
       {open && explanation && (
         <div style={{
           marginTop: '8px', marginLeft: '28px', padding: '10px 14px',
-          background: 'var(--color-bg)', border: '1px solid var(--color-border)',
-          borderRadius: '6px', fontSize: '13px', color: 'var(--color-text)',
+          background: 'var(--bg3)', border: '1px solid var(--border)',
+          borderRadius: '6px', fontSize: '13px', color: 'var(--text)',
           lineHeight: '1.6', borderLeft: '3px solid #2196F3'
         }}>
           {explanation}
@@ -174,8 +174,8 @@ function ValidationBanner({ validation }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div style={{
-      background: 'var(--color-surface)',
-      border: '1px solid var(--color-border)',
+      background: 'var(--bg2)',
+      border: '1px solid var(--border)',
       borderLeft: '4px solid #2196F3',
       borderRadius: '8px',
       padding: '12px 16px',
@@ -184,18 +184,18 @@ function ValidationBanner({ validation }) {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <span style={{ fontSize: '16px' }}>✅</span>
-        <span style={{ color: 'var(--color-text)', flex: 1 }}>{validation.summary}</span>
+        <span style={{ color: 'var(--text)', flex: 1 }}>{validation.summary}</span>
         {hasWarnings && (
           <button onClick={() => setExpanded(!expanded)} style={{
             background: 'none', border: 'none', cursor: 'pointer',
-            color: 'var(--color-muted)', fontSize: '12px', padding: '2px 6px'
+            color: 'var(--text3)', fontSize: '12px', padding: '2px 6px'
           }}>
             {validation.warnings.length} varning{validation.warnings.length > 1 ? 'ar' : ''} {expanded ? '▲' : '▼'}
           </button>
         )}
       </div>
       {expanded && hasWarnings && (
-        <ul style={{ marginTop: '8px', paddingLeft: '24px', color: 'var(--color-muted)', fontSize: '13px' }}>
+        <ul style={{ marginTop: '8px', paddingLeft: '24px', color: 'var(--text3)', fontSize: '13px' }}>
           {validation.warnings.map((w, i) => <li key={i} style={{ marginBottom: '4px' }}>⚠️ {w}</li>)}
         </ul>
       )}
@@ -1657,7 +1657,7 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
         )}
       </div>
       {filtered.length === 0 && search && (
-        <div style={{ padding: '32px', textAlign: 'center', color: 'var(--color-muted)', fontSize: 14 }}>
+        <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text3)', fontSize: 14 }}>
           Ingen artikel matchar "<strong>{search}</strong>" — prova artikelnummer eller delar av namnet.
         </div>
       )}
@@ -1790,30 +1790,30 @@ function PurchasingTab({ data }) {
       <style>{`
         .purch-kpi { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 16px; }
         .purch-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
-        .purch-search { flex: 1; min-width: 160px; background: var(--color-surface); border: 1px solid var(--color-border);
-          border-radius: 6px; padding: 6px 10px; color: var(--color-text); font-size: 13px; outline: none; }
+        .purch-search { flex: 1; min-width: 160px; background: var(--bg2); border: 1px solid var(--border);
+          border-radius: 6px; padding: 6px 10px; color: var(--text); font-size: 13px; outline: none; }
         .purch-search:focus { border-color: #3b82f6; }
         .purch-filters { display: flex; gap: 4px; }
-        .purch-filter-btn { padding: 5px 12px; border-radius: 6px; border: 1px solid var(--color-border);
-          background: var(--color-surface); color: var(--color-muted); font-size: 12px; font-weight: 600;
+        .purch-filter-btn { padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border);
+          background: var(--bg2); color: var(--text3); font-size: 12px; font-weight: 600;
           cursor: pointer; letter-spacing: .04em; }
-        .purch-filter-btn.active { background: var(--color-text); color: var(--color-bg); border-color: var(--color-text); }
-        .purch-section-label { font-size: 11px; font-weight: 700; letter-spacing: .07em; color: var(--color-muted);
+        .purch-filter-btn.active { background: var(--text); color: var(--bg3); border-color: var(--text); }
+        .purch-section-label { font-size: 11px; font-weight: 700; letter-spacing: .07em; color: var(--text3);
           text-transform: uppercase; padding: 10px 0 6px; display: flex; align-items: center; gap: 8px; }
         .purch-section-label span { padding: 1px 7px; border-radius: 10px; font-size: 10px; }
         .purch-row { display: grid; grid-template-columns: 36px 1fr 44px 70px 70px 80px 80px ${hasCost ? '80px ' : ''}90px;
           align-items: center; gap: 0 8px; padding: 7px 10px; border-radius: 7px;
-          border-bottom: 1px solid var(--color-border); transition: background 0.1s; font-size: 13px; }
-        .purch-row:hover { background: var(--color-surface); }
+          border-bottom: 1px solid var(--border); transition: background 0.1s; font-size: 13px; }
+        .purch-row:hover { background: var(--bg2); }
         .purch-row:last-child { border-bottom: none; }
         .purch-urgency-bar { width: 4px; height: 28px; border-radius: 2px; flex-shrink: 0; }
         .purch-col-hdr { display: grid; grid-template-columns: 36px 1fr 44px 70px 70px 80px 80px ${hasCost ? '80px ' : ''}90px;
           gap: 0 8px; padding: 0 10px 6px; font-size: 10px; font-weight: 700; letter-spacing: .06em;
-          color: var(--color-muted); text-transform: uppercase; }
-        .purch-art-id { font-size: 11px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+          color: var(--text3); text-transform: uppercase; }
+        .purch-art-id { font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; }
         .purch-art-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .purch-qty { font-weight: 700; color: var(--color-text); font-variant-numeric: tabular-nums; }
-        .purch-val { font-variant-numeric: tabular-nums; color: var(--color-muted); }
+        .purch-qty { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+        .purch-val { font-variant-numeric: tabular-nums; color: var(--text3); }
         .purch-days { font-variant-numeric: tabular-nums; font-weight: 600; }
         .purch-status-chip { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; letter-spacing: .04em; white-space: nowrap; }
         @media (max-width: 900px) {
@@ -1939,7 +1939,7 @@ function PurchasingTab({ data }) {
               {criticalNoOrder.filter(a => abcFilter==='Alla'||a.abc===abcFilter).length} artiklar
             </span>
           </div>
-          <div style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 8, paddingLeft: 4 }}>
+          <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 8, paddingLeft: 4 }}>
             Kritisk status men lager täcker t.o.m. ledtiden — inget automatiskt orderförslag. Kontrollera manuellt.
           </div>
           {criticalNoOrder.filter(a => (abcFilter==='Alla'||a.abc===abcFilter) && (!search||a.article?.toLowerCase().includes(search.toLowerCase())||a.name?.toLowerCase().includes(search.toLowerCase()))).map((a, i) => (
@@ -1952,10 +1952,10 @@ function PurchasingTab({ data }) {
                 <div className="purch-art-id">{a.article}</div>
               </div>
               <div><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}</span></div>
-              <div className="purch-days" style={{ color: 'var(--color-muted)' }}>{fmtDays(a.coverage_days)}</div>
-              <div className="purch-days" style={{ color: 'var(--color-muted)' }}>—</div>
-              <div style={{ fontSize: 12, color: 'var(--color-muted)' }}>—</div>
-              <div className="purch-qty" style={{ color: 'var(--color-muted)' }}>—</div>
+              <div className="purch-days" style={{ color: 'var(--text3)' }}>{fmtDays(a.coverage_days)}</div>
+              <div className="purch-days" style={{ color: 'var(--text3)' }}>—</div>
+              <div style={{ fontSize: 12, color: 'var(--text3)' }}>—</div>
+              <div className="purch-qty" style={{ color: 'var(--text3)' }}>—</div>
               {hasCost && <div className="purch-val">—</div>}
               <div><span className="purch-status-chip" style={{ background:'#ef444415', color:'#ef4444' }}>BEVAKA</span></div>
             </div>
@@ -1964,7 +1964,7 @@ function PurchasingTab({ data }) {
       )}
 
       {filtered.length === 0 && criticalNoOrder.filter(a => abcFilter === 'Alla' || a.abc === abcFilter).length === 0 && (
-        <div style={{ textAlign: 'center', padding: '32px', color: 'var(--color-muted)', fontSize: 14 }}>
+        <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text3)', fontSize: 14 }}>
           Inga artiklar matchar filtret
         </div>
       )}
@@ -2162,23 +2162,23 @@ function SlottingTab({ data }) {
         {/* ── Toolbar ── */}
         <style>{`
           .slot-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-          .slot-search { flex: 1; min-width: 160px; background: var(--color-surface); border: 1px solid var(--color-border);
-            border-radius: 6px; padding: 6px 10px; color: var(--color-text); font-size: 13px; outline: none; }
+          .slot-search { flex: 1; min-width: 160px; background: var(--bg2); border: 1px solid var(--border);
+            border-radius: 6px; padding: 6px 10px; color: var(--text); font-size: 13px; outline: none; }
           .slot-search:focus { border-color: #3b82f6; }
           .slot-col-hdr { display: grid; grid-template-columns: 8px 1fr 50px 90px 100px 90px 40px;
             gap: 0 10px; padding: 0 10px 6px; font-size: 10px; font-weight: 700; letter-spacing: .06em;
-            color: var(--color-muted); text-transform: uppercase; align-items: center; }
+            color: var(--text3); text-transform: uppercase; align-items: center; }
           .slot-row { display: grid; grid-template-columns: 8px 1fr 50px 90px 100px 90px 40px;
             align-items: center; gap: 0 10px; padding: 7px 10px; border-radius: 7px;
-            border-bottom: 1px solid var(--color-border); transition: background 0.1s; font-size: 13px; }
-          .slot-row:hover { background: var(--color-surface); }
+            border-bottom: 1px solid var(--border); transition: background 0.1s; font-size: 13px; }
+          .slot-row:hover { background: var(--bg2); }
           .slot-row:last-child { border-bottom: none; }
           .slot-bar { width: 4px; height: 28px; border-radius: 2px; }
           .slot-arrow { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; }
-          .slot-zone-from { color: var(--color-muted); }
+          .slot-zone-from { color: var(--text3); }
           .slot-zone-to { color: #3b82f6; }
-          .slot-check-btn { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--color-border);
-            background: var(--color-surface); color: var(--color-muted); cursor: pointer; font-size: 13px;
+          .slot-check-btn { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border);
+            background: var(--bg2); color: var(--text3); cursor: pointer; font-size: 13px;
             display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
           .slot-check-btn:hover { background: #22c55e22; color: #22c55e; border-color: #22c55e44; }
           .slot-priority-chip { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; letter-spacing: .04em; }
@@ -2202,12 +2202,12 @@ function SlottingTab({ data }) {
                 <div className="slot-bar" style={{ background: pc }} />
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: isDone ? 'line-through' : 'none' }}>{a.name || a.article}</div>
-                  <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>{a.article}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)' }}>{a.article}</div>
                 </div>
                 <div><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}{a.xyz ? `/${a.xyz}` : ''}</span></div>
                 <div className="slot-zone-from" style={{ fontSize: 13 }}>Zon <b>{a.loc}</b></div>
                 <div className="slot-arrow">
-                  <span style={{ color: 'var(--color-muted)' }}>→</span>
+                  <span style={{ color: 'var(--text3)' }}>→</span>
                   <span className="slot-zone-to">Zon <b>{a.recommended_zone}</b></span>
                 </div>
                 <div><span className="slot-priority-chip" style={{ background: pc + '20', color: pc }}>{priorityLabel[a.move_priority] || a.move_priority}</span></div>
@@ -2229,7 +2229,7 @@ function SlottingTab({ data }) {
                   <Icon name="download" size={14} /> Exportera CSV
                 </button>
               </div>
-              <p style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 12, lineHeight: 1.5 }}>
+              <p style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 12, lineHeight: 1.5 }}>
                 Rekommendationer baserade på ABC-klass vs. nuvarande position. Lageransvarig avgör när plats finns.
               </p>
 
@@ -2257,7 +2257,7 @@ function SlottingTab({ data }) {
                 </>
               )}
               {displayed.length === 0 && (
-                <div style={{ textAlign: 'center', padding: 32, color: 'var(--color-muted)', fontSize: 14 }}>
+                <div style={{ textAlign: 'center', padding: 32, color: 'var(--text3)', fontSize: 14 }}>
                   {filteredMoves.length === 0 ? '✓ Alla artiklar är korrekt placerade' : 'Inga träffar på sökning'}
                 </div>
               )}
@@ -2535,12 +2535,12 @@ function AbcXyzTab({ data }) {
         .abc-only-card { border-radius: 10px; padding: 12px 16px; cursor: pointer; transition: all 0.12s; border: 1.5px solid transparent; display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
         .abc-only-card:hover { filter: brightness(1.1); }
         .abc-only-card.selected { border-color: currentColor !important; }
-        .art-chip-sm { display: inline-flex; align-items: center; gap: 4px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 5px; padding: 3px 8px; font-size: 11px; color: var(--color-text); margin: 2px; }
+        .art-chip-sm { display: inline-flex; align-items: center; gap: 4px; background: var(--bg2); border: 1px solid var(--border); border-radius: 5px; padding: 3px 8px; font-size: 11px; color: var(--text); margin: 2px; }
       `}</style>
 
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '12px 0 16px' }}>
-        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: 'var(--color-text)' }}>ABC/XYZ-matris</h3>
-        <span style={{ fontSize: 12, color: 'var(--color-muted)' }}>Klicka cell för artiklar och strategi</span>
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: 'var(--text)' }}>ABC/XYZ-matris</h3>
+        <span style={{ fontSize: 12, color: 'var(--text3)' }}>Klicka cell för artiklar och strategi</span>
         {!xyzAvailable && (
           <span style={{ fontSize: 11, background: '#f59e0b22', color: '#f59e0b', border: '1px solid #f59e0b44', borderRadius: 5, padding: '1px 7px', fontWeight: 600 }}>Estimerad</span>
         )}
@@ -2551,9 +2551,9 @@ function AbcXyzTab({ data }) {
         <div>
           {/* Estimerad-banner */}
           {!xyzAvailable && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: '#f59e0b0a', border: '1px solid #f59e0b33', borderLeft: '3px solid #f59e0b', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: 'var(--color-muted)' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: '#f59e0b0a', border: '1px solid #f59e0b33', borderLeft: '3px solid #f59e0b', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: 'var(--text3)' }}>
               <Icon name="info" size={14} />
-              <span>XYZ estimeras från lagerstatus (OK→X, Bevaka→Y, Dött/Överlager→Z). Lägg till <b style={{ color: 'var(--color-text)' }}>månadskolumner jan–dec</b> i filen för exakt variabilitetsanalys.</span>
+              <span>XYZ estimeras från lagerstatus (OK→X, Bevaka→Y, Dött/Överlager→Z). Lägg till <b style={{ color: 'var(--text)' }}>månadskolumner jan–dec</b> i filen för exakt variabilitetsanalys.</span>
             </div>
           )}
 
@@ -2561,10 +2561,10 @@ function AbcXyzTab({ data }) {
           <table className="abc-matrix-table">
             <thead>
               <tr>
-                <th style={{ color: 'var(--color-muted)', textAlign: 'left', width: 32 }}></th>
+                <th style={{ color: 'var(--text3)', textAlign: 'left', width: 32 }}></th>
                 {['X','Y','Z'].map(xyz => (
                   <th key={xyz} style={{ color: xyzColor[xyz] }}>
-                    {xyz} <span style={{ color: 'var(--color-muted)', fontWeight: 400 }}>— {xyzLabel[xyz]}</span>
+                    {xyz} <span style={{ color: 'var(--text3)', fontWeight: 400 }}>— {xyzLabel[xyz]}</span>
                   </th>
                 ))}
               </tr>
@@ -2591,7 +2591,7 @@ function AbcXyzTab({ data }) {
                           onClick={() => hasData && setSelectedCell(isSelected ? null : key)}
                         >
                           <div style={{ fontSize: 22, fontWeight: 900, lineHeight: 1 }}>{cell.count}</div>
-                          <div style={{ fontSize: 10, color: 'var(--color-muted)', marginTop: 2 }}>
+                          <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 2 }}>
                             {hasData ? `${Math.round((cell.count/totalArticles)*100)}% av art.` : '—'}
                           </div>
                           {hasCost && cell.value > 0 && (
@@ -2613,41 +2613,41 @@ function AbcXyzTab({ data }) {
           {selectedCell && selectedArts.length > 0 && (
             <div style={{
               marginTop: 12,
-              background: 'var(--color-surface)',
-              border: '1px solid var(--color-border)',
+              background: 'var(--bg2)',
+              border: '1px solid var(--border)',
               borderRadius: 10,
               overflow: 'hidden',
               animation: 'fadeSlideIn 0.15s ease',
             }}>
               <style>{`@keyframes fadeSlideIn { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:translateY(0); } }`}</style>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid var(--color-border)' }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid var(--border)' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>
                   {selectedCell} — {selectedArts.length} artiklar
                   {xyzAvailable && strategy[selectedCell] && (
-                    <span style={{ marginLeft: 10, fontWeight: 400, color: 'var(--color-muted)', fontSize: 11 }}>
+                    <span style={{ marginLeft: 10, fontWeight: 400, color: 'var(--text3)', fontSize: 11 }}>
                       Strategi: {strategy[selectedCell]}
                     </span>
                   )}
                 </span>
-                <button onClick={() => setSelectedCell(null)} style={{ background: 'none', border: 'none', color: 'var(--color-muted)', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>✕</button>
+                <button onClick={() => setSelectedCell(null)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>✕</button>
               </div>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
-                  <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                    <th style={{ padding: '6px 14px', textAlign: 'left', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10, letterSpacing: '0.07em' }}>ART.NR</th>
-                    <th style={{ padding: '6px 14px', textAlign: 'left', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10 }}>NAMN</th>
-                    <th style={{ padding: '6px 14px', textAlign: 'right', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10 }}>SALDO</th>
-                    <th style={{ padding: '6px 14px', textAlign: 'right', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10 }}>TÄCKTID</th>
-                    <th style={{ padding: '6px 14px', textAlign: 'center', color: 'var(--color-muted)', fontWeight: 700, fontSize: 10 }}>STATUS</th>
+                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ padding: '6px 14px', textAlign: 'left', color: 'var(--text3)', fontWeight: 700, fontSize: 10, letterSpacing: '0.07em' }}>ART.NR</th>
+                    <th style={{ padding: '6px 14px', textAlign: 'left', color: 'var(--text3)', fontWeight: 700, fontSize: 10 }}>NAMN</th>
+                    <th style={{ padding: '6px 14px', textAlign: 'right', color: 'var(--text3)', fontWeight: 700, fontSize: 10 }}>SALDO</th>
+                    <th style={{ padding: '6px 14px', textAlign: 'right', color: 'var(--text3)', fontWeight: 700, fontSize: 10 }}>TÄCKTID</th>
+                    <th style={{ padding: '6px 14px', textAlign: 'center', color: 'var(--text3)', fontWeight: 700, fontSize: 10 }}>STATUS</th>
                   </tr>
                 </thead>
                 <tbody>
                   {selectedArts.slice(0, 30).map((a, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid var(--color-border)' }}>
-                      <td style={{ padding: '7px 14px', color: 'var(--color-muted)', fontFamily: 'monospace', fontSize: 11 }}>{a.article}</td>
-                      <td style={{ padding: '7px 14px', color: 'var(--color-text)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name || '—'}</td>
-                      <td style={{ padding: '7px 14px', textAlign: 'right', color: 'var(--color-text)', fontVariantNumeric: 'tabular-nums' }}>{fmt(a.stock)}</td>
-                      <td style={{ padding: '7px 14px', textAlign: 'right', color: a.status === 'CRITICAL' ? '#ef4444' : a.status === 'WATCH' ? '#f97316' : 'var(--color-muted)', fontWeight: a.status === 'CRITICAL' ? 700 : 400 }}>{fmtDays(a.coverage_days)}</td>
+                    <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '7px 14px', color: 'var(--text3)', fontFamily: 'monospace', fontSize: 11 }}>{a.article}</td>
+                      <td style={{ padding: '7px 14px', color: 'var(--text)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name || '—'}</td>
+                      <td style={{ padding: '7px 14px', textAlign: 'right', color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>{fmt(a.stock)}</td>
+                      <td style={{ padding: '7px 14px', textAlign: 'right', color: a.status === 'CRITICAL' ? '#ef4444' : a.status === 'WATCH' ? '#f97316' : 'var(--text3)', fontWeight: a.status === 'CRITICAL' ? 700 : 400 }}>{fmtDays(a.coverage_days)}</td>
                       <td style={{ padding: '7px 14px', textAlign: 'center' }}>
                         <span style={{ fontSize: 10, fontWeight: 700, color: statusColor(a.status) }}>{statusLabel(a.status)}</span>
                       </td>
@@ -2656,7 +2656,7 @@ function AbcXyzTab({ data }) {
                 </tbody>
               </table>
               {selectedArts.length > 30 && (
-                <div style={{ padding: '8px 14px', fontSize: 11, color: 'var(--color-muted)', borderTop: '1px solid var(--color-border)' }}>
+                <div style={{ padding: '8px 14px', fontSize: 11, color: 'var(--text3)', borderTop: '1px solid var(--border)' }}>
                   … och {selectedArts.length - 30} till
                 </div>
               )}
@@ -2667,8 +2667,8 @@ function AbcXyzTab({ data }) {
         {/* ── HÖGER: Insiktskort ── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {/* Sammanfattning */}
-          <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 10, padding: '14px 16px' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--color-muted)', marginBottom: 10 }}>SAMMANFATTNING</div>
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--text3)', marginBottom: 10 }}>SAMMANFATTNING</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {['A','B','C'].map(abc => {
                 const g = { count: ['X','Y','Z'].reduce((s,xyz) => s + (matrix[abc+xyz]?.count||0), 0),
@@ -2677,12 +2677,12 @@ function AbcXyzTab({ data }) {
                 return (
                   <div key={abc} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: 13, fontWeight: 800, color: abcColor2[abc], width: 14 }}>{abc}</span>
-                    <div style={{ flex: 1, height: 6, background: 'var(--color-bg)', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ flex: 1, height: 6, background: 'var(--bg3)', borderRadius: 3, overflow: 'hidden' }}>
                       <div style={{ width: `${pct}%`, height: '100%', background: abcColor2[abc], borderRadius: 3, transition: 'width 0.5s' }} />
                     </div>
-                    <span style={{ fontSize: 12, color: 'var(--color-text)', fontVariantNumeric: 'tabular-nums', minWidth: 24, textAlign: 'right' }}>{g.count}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text)', fontVariantNumeric: 'tabular-nums', minWidth: 24, textAlign: 'right' }}>{g.count}</span>
                     {hasCost && g.value > 0 && (
-                      <span style={{ fontSize: 11, color: 'var(--color-muted)', minWidth: 56, textAlign: 'right' }}>{fmtKr(g.value)}</span>
+                      <span style={{ fontSize: 11, color: 'var(--text3)', minWidth: 56, textAlign: 'right' }}>{fmtKr(g.value)}</span>
                     )}
                   </div>
                 );
@@ -2692,13 +2692,13 @@ function AbcXyzTab({ data }) {
 
           {/* Insikter */}
           {insights.length > 0 && (
-            <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 10, padding: '14px 16px' }}>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--color-muted)', marginBottom: 10 }}>INSIKTER</div>
+            <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--text3)', marginBottom: 10 }}>INSIKTER</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {insights.map((ins, i) => (
                   <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                     <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>{ins.icon}</span>
-                    <span style={{ fontSize: 12, color: 'var(--color-muted)', lineHeight: 1.5 }}>
+                    <span style={{ fontSize: 12, color: 'var(--text3)', lineHeight: 1.5 }}>
                       {ins.text}
                     </span>
                   </div>
@@ -2709,8 +2709,8 @@ function AbcXyzTab({ data }) {
 
           {/* XYZ-förklaring (kompakt) */}
           {(
-            <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 10, padding: '14px 16px' }}>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--color-muted)', marginBottom: 8 }}>KLASSIFICERING</div>
+            <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--text3)', marginBottom: 8 }}>KLASSIFICERING</div>
               {[
                 { key: 'X', label: 'Stabil', desc: 'Låg variationskoefficient', color: '#22c55e' },
                 { key: 'Y', label: 'Varierande', desc: 'Medel variabilitet', color: '#f59e0b' },
@@ -2718,11 +2718,11 @@ function AbcXyzTab({ data }) {
               ].map(r => (
                 <div key={r.key} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
                   <span style={{ fontSize: 12, fontWeight: 800, color: r.color, width: 14 }}>{r.key}</span>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text)' }}>{r.label}</span>
-                  <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>— {r.desc}</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)' }}>{r.label}</span>
+                  <span style={{ fontSize: 11, color: 'var(--text3)' }}>— {r.desc}</span>
                 </div>
               ))}
-              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--color-border)', fontSize: 10, color: 'var(--color-muted)', lineHeight: 1.5 }}>
+              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)', fontSize: 10, color: 'var(--text3)', lineHeight: 1.5 }}>
                 A = topp 80% av årsvolymsvärde · B = 80–95% · C = 95–100%
               </div>
             </div>
@@ -2856,8 +2856,8 @@ function SettingsTab({ data }) {
 
   // ── Stilar ──────────────────────────────────────────────────────────────
   const cardStyle = {
-    background: 'var(--color-surface)',
-    border: '1px solid var(--color-border)',
+    background: 'var(--bg2)',
+    border: '1px solid var(--border)',
     borderRadius: 12,
     marginBottom: 12,
     overflow: 'hidden',
@@ -2866,15 +2866,15 @@ function SettingsTab({ data }) {
   const headerStyle = (isOpen) => ({
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     padding: '14px 20px', cursor: 'pointer',
-    borderBottom: isOpen ? '1px solid var(--color-border)' : 'none',
+    borderBottom: isOpen ? '1px solid var(--border)' : 'none',
     userSelect: 'none',
   });
 
   const inputStyle = {
-    background: 'var(--color-bg)',
-    border: '1.5px solid var(--color-border)',
+    background: 'var(--bg3)',
+    border: '1.5px solid var(--border)',
     borderRadius: 8, padding: '9px 12px',
-    color: 'var(--color-text)', fontSize: 13,
+    color: 'var(--text)', fontSize: 13,
     fontFamily: 'inherit', width: '100%',
     transition: 'border-color 0.15s',
     outline: 'none',
@@ -2882,7 +2882,7 @@ function SettingsTab({ data }) {
 
   const labelStyle = {
     fontSize: 11, fontWeight: 600,
-    color: 'var(--color-muted)',
+    color: 'var(--text3)',
     textTransform: 'uppercase',
     letterSpacing: '0.07em',
     display: 'block', marginBottom: 5,
@@ -2920,13 +2920,13 @@ function SettingsTab({ data }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 16 }}>⚙️</span>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text)' }}>Globala standardvärden</div>
-              <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 1 }}>Används när leverantörs- eller artikelspecifik inställning saknas</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Globala standardvärden</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>Används när leverantörs- eller artikelspecifik inställning saknas</div>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <SavedBadge section="global" />
-            <span style={{ color: 'var(--color-muted)', fontSize: 16, transition: 'transform 0.2s', transform: open.global ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
+            <span style={{ color: 'var(--text3)', fontSize: 16, transition: 'transform 0.2s', transform: open.global ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
           </div>
         </div>
 
@@ -2939,8 +2939,8 @@ function SettingsTab({ data }) {
                   value={globalSettings.defaultLeadTime ?? 14}
                   onChange={e => setGlobalSettings(s => ({ ...s, defaultLeadTime: parseInt(e.target.value) || 14 }))}
                   onFocus={e => e.target.style.borderColor = '#6366f1'}
-                  onBlur={e => e.target.style.borderColor = 'var(--color-border)'} />
-                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 4 }}>Används om filen saknar ledtidskolumn</div>
+                  onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>Används om filen saknar ledtidskolumn</div>
               </div>
               <div>
                 <label style={labelStyle}>Servicenivå A-artiklar (%)</label>
@@ -2948,8 +2948,8 @@ function SettingsTab({ data }) {
                   value={globalSettings.serviceLevelA ?? 95}
                   onChange={e => setGlobalSettings(s => ({ ...s, serviceLevelA: parseInt(e.target.value) || 95 }))}
                   onFocus={e => e.target.style.borderColor = '#6366f1'}
-                  onBlur={e => e.target.style.borderColor = 'var(--color-border)'} />
-                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 4 }}>Rekommenderat: 95–99%</div>
+                  onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>Rekommenderat: 95–99%</div>
               </div>
               <div>
                 <label style={labelStyle}>Servicenivå B-artiklar (%)</label>
@@ -2957,8 +2957,8 @@ function SettingsTab({ data }) {
                   value={globalSettings.serviceLevelB ?? 90}
                   onChange={e => setGlobalSettings(s => ({ ...s, serviceLevelB: parseInt(e.target.value) || 90 }))}
                   onFocus={e => e.target.style.borderColor = '#6366f1'}
-                  onBlur={e => e.target.style.borderColor = 'var(--color-border)'} />
-                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 4 }}>Rekommenderat: 90–95%</div>
+                  onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>Rekommenderat: 90–95%</div>
               </div>
               <div>
                 <label style={labelStyle}>Servicenivå C-artiklar (%)</label>
@@ -2966,8 +2966,8 @@ function SettingsTab({ data }) {
                   value={globalSettings.serviceLevelC ?? 85}
                   onChange={e => setGlobalSettings(s => ({ ...s, serviceLevelC: parseInt(e.target.value) || 85 }))}
                   onFocus={e => e.target.style.borderColor = '#6366f1'}
-                  onBlur={e => e.target.style.borderColor = 'var(--color-border)'} />
-                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 4 }}>Rekommenderat: 85–92%</div>
+                  onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>Rekommenderat: 85–92%</div>
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -2984,32 +2984,32 @@ function SettingsTab({ data }) {
             <span style={{ fontSize: 16 }}>🚚</span>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text)' }}>Ledtid per leverantör</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Ledtid per leverantör</span>
                 {suppliers.length > 0 && (
                   <span style={{ fontSize: 11, background: '#6366f122', color: '#818cf8', borderRadius: 5, padding: '1px 7px', fontWeight: 600 }}>
                     {suppliers.length} leverantörer
                   </span>
                 )}
               </div>
-              <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 1 }}>Åsidosätter global standard per leverantör</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>Åsidosätter global standard per leverantör</div>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <SavedBadge section="supplier" />
-            <span style={{ color: 'var(--color-muted)', fontSize: 16, transition: 'transform 0.2s', transform: open.supplier ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
+            <span style={{ color: 'var(--text3)', fontSize: 16, transition: 'transform 0.2s', transform: open.supplier ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
           </div>
         </div>
 
         {open.supplier && (
           <div style={{ padding: '16px 20px 20px' }}>
             {suppliers.length === 0 ? (
-              <div style={{ background: 'var(--color-bg)', borderRadius: 8, padding: '14px 16px', fontSize: 13, color: 'var(--color-muted)', border: '1px dashed var(--color-border)' }}>
+              <div style={{ background: 'var(--bg3)', borderRadius: 8, padding: '14px 16px', fontSize: 13, color: 'var(--text3)', border: '1px dashed var(--border)' }}>
                 <div style={{ fontWeight: 600, marginBottom: 4 }}>Ingen leverantörsdata i filen</div>
                 <div>Lägg till kolumnen "Leverantör" i din Excel-fil för att konfigurera ledtider per leverantör.</div>
               </div>
             ) : (
               <>
-                <div style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 14 }}>
+                <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 14 }}>
                   Ange specifik ledtid per leverantör. Tomt fält = global standard ({globalSettings.defaultLeadTime ?? 14} dagar).
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
@@ -3019,19 +3019,19 @@ function SettingsTab({ data }) {
                     return (
                       <div key={sup} style={{
                         display: 'flex', alignItems: 'center',
-                        background: isCustom ? '#6366f108' : 'var(--color-bg)',
-                        border: `1.5px solid ${isCustom ? '#6366f144' : 'var(--color-border)'}`,
+                        background: isCustom ? '#6366f108' : 'var(--bg3)',
+                        border: `1.5px solid ${isCustom ? '#6366f144' : 'var(--border)'}`,
                         borderRadius: 8, padding: '10px 12px', gap: 10,
                       }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: isCustom ? '#818cf8' : 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: isCustom ? '#818cf8' : 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {sup}
                           </div>
                           {isCustom && (
                             <div style={{ fontSize: 10, color: '#818cf8', marginTop: 1 }}>Anpassad ledtid</div>
                           )}
                           {!isCustom && (
-                            <div style={{ fontSize: 10, color: 'var(--color-muted)', marginTop: 1 }}>Standard: {globalSettings.defaultLeadTime ?? 14} dagar</div>
+                            <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 1 }}>Standard: {globalSettings.defaultLeadTime ?? 14} dagar</div>
                           )}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
@@ -3044,18 +3044,18 @@ function SettingsTab({ data }) {
                               setSupplierSettings(s => ({ ...s, [sup]: v === '' ? undefined : parseInt(v) || undefined }));
                             }}
                             onFocus={e => e.target.style.borderColor = '#6366f1'}
-                            onBlur={e => e.target.style.borderColor = isCustom ? '#6366f144' : 'var(--color-border)'}
+                            onBlur={e => e.target.style.borderColor = isCustom ? '#6366f144' : 'var(--border)'}
                             style={{
                               width: 64, textAlign: 'center',
-                              background: 'var(--color-surface)',
-                              border: `1.5px solid ${isCustom ? '#6366f166' : 'var(--color-border)'}`,
+                              background: 'var(--bg2)',
+                              border: `1.5px solid ${isCustom ? '#6366f166' : 'var(--border)'}`,
                               borderRadius: 6, padding: '6px 8px',
-                              color: isCustom ? '#818cf8' : 'var(--color-text)',
+                              color: isCustom ? '#818cf8' : 'var(--text)',
                               fontSize: 14, fontWeight: 700,
                               fontFamily: 'inherit', outline: 'none',
                             }}
                           />
-                          <span style={{ fontSize: 11, color: 'var(--color-muted)', minWidth: 28 }}>dagar</span>
+                          <span style={{ fontSize: 11, color: 'var(--text3)', minWidth: 28 }}>dagar</span>
                           {isCustom && (
                             <button
                               onClick={() => setSupplierSettings(s => { const n = { ...s }; delete n[sup]; return n; })}
@@ -3085,23 +3085,23 @@ function SettingsTab({ data }) {
             <span style={{ fontSize: 16 }}>📌</span>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text)' }}>Artikelspecifika ledtider</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Artikelspecifika ledtider</span>
                 {Object.keys(articleOverrides).length > 0 && (
                   <span style={{ fontSize: 11, background: '#6366f122', color: '#818cf8', borderRadius: 5, padding: '1px 7px', fontWeight: 600 }}>
                     {Object.keys(articleOverrides).length} satta
                   </span>
                 )}
               </div>
-              <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 1 }}>Sätts via artikelpanelen — har högsta prioritet</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>Sätts via artikelpanelen — har högsta prioritet</div>
             </div>
           </div>
-          <span style={{ color: 'var(--color-muted)', fontSize: 16, transition: 'transform 0.2s', transform: open.article ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
+          <span style={{ color: 'var(--text3)', fontSize: 16, transition: 'transform 0.2s', transform: open.article ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
         </div>
 
         {open.article && (
           <div style={{ padding: '16px 20px 20px' }}>
             {Object.keys(articleOverrides).length === 0 ? (
-              <div style={{ background: 'var(--color-bg)', borderRadius: 8, padding: '14px 16px', fontSize: 13, color: 'var(--color-muted)', border: '1px dashed var(--color-border)' }}>
+              <div style={{ background: 'var(--bg3)', borderRadius: 8, padding: '14px 16px', fontSize: 13, color: 'var(--text3)', border: '1px dashed var(--border)' }}>
                 <div style={{ fontWeight: 600, marginBottom: 4 }}>Inga artikelspecifika ledtider satta ännu</div>
                 <div>Klicka på en artikel i Inköp- eller Översikt-fliken och redigera ledtiden direkt i artikelpanelen.</div>
               </div>
@@ -3116,7 +3116,7 @@ function SettingsTab({ data }) {
                     }}>
                       <div>
                         <div style={{ fontSize: 12, fontWeight: 700, color: '#818cf8' }}>{art}</div>
-                        <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>{days} dagar</div>
+                        <div style={{ fontSize: 11, color: 'var(--text3)' }}>{days} dagar</div>
                       </div>
                       <button
                         onClick={() => setArticleOverrides(s => { const n = { ...s }; delete n[art]; return n; })}
@@ -3147,17 +3147,17 @@ function SettingsTab({ data }) {
             <span style={{ fontSize: 16 }}>🗺️</span>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text)' }}>Lagerkarta — Zonkonfiguration</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Lagerkarta — Zonkonfiguration</span>
                 {slottingConfig.zoneA?.from && (
                   <span style={{ fontSize: 11, background: '#16a34a22', color: '#4ade80', borderRadius: 5, padding: '1px 7px', fontWeight: 600 }}>Aktiv</span>
                 )}
               </div>
-              <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 1 }}>Mappar lagerpositioner till zoner för slottinganalys</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>Mappar lagerpositioner till zoner för slottinganalys</div>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <SavedBadge section="zone" />
-            <span style={{ color: 'var(--color-muted)', fontSize: 16, transition: 'transform 0.2s', transform: open.zone ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
+            <span style={{ color: 'var(--text3)', fontSize: 16, transition: 'transform 0.2s', transform: open.zone ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
           </div>
         </div>
 
@@ -3165,12 +3165,12 @@ function SettingsTab({ data }) {
           <div style={{ padding: '16px 20px 20px' }}>
             {uniqueLocs.length > 0 && (
               <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 11, color: 'var(--color-muted)', fontWeight: 600, marginBottom: 6 }}>
+                <div style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 600, marginBottom: 6 }}>
                   POSITIONER I ER DATA ({uniqueLocs.length > 29 ? '30+' : uniqueLocs.length} UNIKA)
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                   {uniqueLocs.map(loc => (
-                    <span key={loc} style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 4, padding: '2px 7px', fontSize: 11, color: 'var(--color-muted)' }}>{loc}</span>
+                    <span key={loc} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 4, padding: '2px 7px', fontSize: 11, color: 'var(--text3)' }}>{loc}</span>
                   ))}
                 </div>
               </div>
@@ -3185,13 +3185,13 @@ function SettingsTab({ data }) {
                 <div key={key} style={{
                   display: 'grid', gridTemplateColumns: '1fr 120px 120px',
                   alignItems: 'center', gap: 12,
-                  background: 'var(--color-bg)', borderRadius: 8,
+                  background: 'var(--bg3)', borderRadius: 8,
                   padding: '12px 14px',
                   border: `1.5px solid ${color}33`,
                 }}>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 700, color }}>{label}</div>
-                    <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>{sub}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{sub}</div>
                   </div>
                   <div>
                     <label style={{ ...labelStyle, marginBottom: 4 }}>Från stallage</label>
@@ -3219,14 +3219,14 @@ function SettingsTab({ data }) {
               ))}
             </div>
 
-            <div style={{ fontSize: 11, color: 'var(--color-muted)', lineHeight: 1.7, marginBottom: 14, padding: '10px 12px', background: 'var(--color-bg)', borderRadius: 6 }}>
+            <div style={{ fontSize: 11, color: 'var(--text3)', lineHeight: 1.7, marginBottom: 14, padding: '10px 12px', background: 'var(--bg3)', borderRadius: 6 }}>
               <strong>Numeriska positioner</strong> (ex: "1-12-5"): ange första segmentet, ex. 1 till 3 för Zon A.<br/>
               <strong>Koordinater</strong> (ex: "A-12-3"): ingen konfiguration behövs — känns igen automatiskt.
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <button onClick={() => setSlottingConfig({ zoneA: { from: '1', to: '3' }, zoneB: { from: '4', to: '7' }, zoneC: { from: '8', to: '12' } })}
-                style={{ fontSize: 12, color: 'var(--color-muted)', background: 'none', border: '1px solid var(--color-border)', borderRadius: 6, padding: '5px 12px', cursor: 'pointer' }}>
+                style={{ fontSize: 12, color: 'var(--text3)', background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 12px', cursor: 'pointer' }}>
                 Återställ standard
               </button>
               <SectionSaveBtn section="zone" />
