@@ -2818,212 +2818,433 @@ function SettingsTab({ data }) {
   }));
   const [supplierSettings, setSupplierSettings] = useState(() => loadLS('logitide-supplierSettings', {}));
   const [slottingConfig, setSlottingConfig] = useState(() => loadLS('logitide-slottingConfig', {
-    zoneA: { from: '1', to: '3' },
-    zoneB: { from: '4', to: '7' },
-    zoneC: { from: '8', to: '12' },
+    zoneA: { from: '1', to: '3' }, zoneB: { from: '4', to: '7' }, zoneC: { from: '8', to: '12' },
   }));
   const [articleOverrides, setArticleOverrides] = useState(() => loadLS('logitide-articleOverrides', {}));
-  const [saved, setSaved] = useState(false);
 
-  // Hämta unika leverantörer från data
+  // Sparstatus per sektion
+  const [savedSection, setSavedSection] = useState(null);
+  // Vilka sektioner är öppna (accordion)
+  const [open, setOpen] = useState({ global: true, supplier: true, article: true, zone: true });
+
   const suppliers = React.useMemo(() => {
     const s = new Set();
-    (data?.articles || []).forEach(a => { if (a.supplier && a.supplier !== 'nan') s.add(a.supplier); });
+    (data?.articles || []).forEach(a => { if (a.supplier && a.supplier !== 'nan' && a.supplier !== '') s.add(a.supplier); });
     return [...s].sort();
   }, [data]);
 
-  // Hämta unika lagerpositioner för att visa i zonkonfigurationen
   const uniqueLocs = React.useMemo(() => {
     const locs = new Set();
     (data?.articles || []).forEach(a => { if (a.loc && a.loc !== 'Okänd') locs.add(a.loc); });
     return [...locs].slice(0, 30);
   }, [data]);
 
-  const handleSave = () => {
+  // Spara en sektion och visa bekräftelse
+  const saveSection = (section) => {
     saveLS('logitide-globalSettings', globalSettings);
     saveLS('logitide-supplierSettings', supplierSettings);
     saveLS('logitide-slottingConfig', slottingConfig);
     saveLS('logitide-articleOverrides', articleOverrides);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    setSavedSection(section);
+    setTimeout(() => setSavedSection(null), 2000);
   };
 
-  const handleResetZones = () => {
-    const def = { zoneA: { from: '1', to: '3' }, zoneB: { from: '4', to: '7' }, zoneC: { from: '8', to: '12' } };
-    setSlottingConfig(def);
+  // Spara allt
+  const saveAll = () => saveSection('all');
+
+  const toggleSection = (key) => setOpen(s => ({ ...s, [key]: !s[key] }));
+
+  // ── Stilar ──────────────────────────────────────────────────────────────
+  const cardStyle = {
+    background: 'var(--color-surface)',
+    border: '1px solid var(--color-border)',
+    borderRadius: 12,
+    marginBottom: 12,
+    overflow: 'hidden',
   };
+
+  const headerStyle = (isOpen) => ({
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '14px 20px', cursor: 'pointer',
+    borderBottom: isOpen ? '1px solid var(--color-border)' : 'none',
+    userSelect: 'none',
+  });
 
   const inputStyle = {
-    background: 'var(--color-surface)', border: '1px solid var(--color-border)',
-    borderRadius: 6, padding: '8px 12px', color: 'var(--color-text)',
-    fontSize: 13, width: '100%', fontFamily: 'inherit',
+    background: 'var(--color-bg)',
+    border: '1.5px solid var(--color-border)',
+    borderRadius: 8, padding: '9px 12px',
+    color: 'var(--color-text)', fontSize: 13,
+    fontFamily: 'inherit', width: '100%',
+    transition: 'border-color 0.15s',
+    outline: 'none',
   };
-  const labelStyle = { fontSize: 11, fontWeight: 600, color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 4 };
-  const sectionStyle = { background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 10, padding: '18px 20px', marginBottom: 16 };
-  const sectionTitleStyle = { fontSize: 13, fontWeight: 700, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 };
+
+  const labelStyle = {
+    fontSize: 11, fontWeight: 600,
+    color: 'var(--color-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.07em',
+    display: 'block', marginBottom: 5,
+  };
+
+  const SavedBadge = ({ section }) => savedSection === section || savedSection === 'all' ? (
+    <span style={{ fontSize: 11, color: '#22c55e', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+      ✓ Sparat
+    </span>
+  ) : null;
+
+  const SectionSaveBtn = ({ section }) => (
+    <button
+      onClick={(e) => { e.stopPropagation(); saveSection(section); }}
+      style={{
+        fontSize: 12, fontWeight: 600,
+        background: savedSection === section ? '#16a34a22' : '#6366f122',
+        color: savedSection === section ? '#22c55e' : '#818cf8',
+        border: `1px solid ${savedSection === section ? '#22c55e44' : '#6366f144'}`,
+        borderRadius: 6, padding: '4px 12px',
+        cursor: 'pointer', fontFamily: 'inherit',
+        transition: 'all 0.15s',
+      }}
+    >
+      {savedSection === section ? '✓ Sparat' : 'Spara'}
+    </button>
+  );
 
   return (
-    <div className="tab-content" style={{ maxWidth: 800 }}>
+    <div className="tab-content" style={{ maxWidth: 760 }}>
 
-      {/* ── Globala standardvärden ── */}
-      <div style={sectionStyle}>
-        <div style={sectionTitleStyle}>⚙️ Globala standardvärden</div>
-        <div style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 14 }}>
-          Används för alla artiklar som saknar leverantörs- eller artikelspecifik inställning.
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
-          <div>
-            <label style={labelStyle}>Standard ledtid (dagar)</label>
-            <input style={inputStyle} type="number" min="1" max="365"
-              value={globalSettings.defaultLeadTime ?? 14}
-              onChange={e => setGlobalSettings(s => ({ ...s, defaultLeadTime: parseInt(e.target.value) || 14 }))} />
+      {/* ═══ SEKTION 1: Globala standardvärden ═══════════════════════════ */}
+      <div style={cardStyle}>
+        <div style={headerStyle(open.global)} onClick={() => toggleSection('global')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 16 }}>⚙️</span>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text)' }}>Globala standardvärden</div>
+              <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 1 }}>Används när leverantörs- eller artikelspecifik inställning saknas</div>
+            </div>
           </div>
-          <div>
-            <label style={labelStyle}>Servicenivå A-artiklar (%)</label>
-            <input style={inputStyle} type="number" min="50" max="99"
-              value={globalSettings.serviceLevelA ?? 95}
-              onChange={e => setGlobalSettings(s => ({ ...s, serviceLevelA: parseInt(e.target.value) || 95 }))} />
-          </div>
-          <div>
-            <label style={labelStyle}>Servicenivå B-artiklar (%)</label>
-            <input style={inputStyle} type="number" min="50" max="99"
-              value={globalSettings.serviceLevelB ?? 90}
-              onChange={e => setGlobalSettings(s => ({ ...s, serviceLevelB: parseInt(e.target.value) || 90 }))} />
-          </div>
-          <div>
-            <label style={labelStyle}>Servicenivå C-artiklar (%)</label>
-            <input style={inputStyle} type="number" min="50" max="99"
-              value={globalSettings.serviceLevelC ?? 85}
-              onChange={e => setGlobalSettings(s => ({ ...s, serviceLevelC: parseInt(e.target.value) || 85 }))} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <SavedBadge section="global" />
+            <span style={{ color: 'var(--color-muted)', fontSize: 16, transition: 'transform 0.2s', transform: open.global ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
           </div>
         </div>
-      </div>
 
-      {/* ── Ledtid per leverantör ── */}
-      <div style={sectionStyle}>
-        <div style={sectionTitleStyle}>🚚 Ledtid per leverantör</div>
-        <div style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 14 }}>
-          Åsidosätter global standard för alla artiklar med respektive leverantör.
-        </div>
-        {suppliers.length === 0 ? (
-          <div style={{ fontSize: 13, color: 'var(--color-muted)', fontStyle: 'italic' }}>
-            Ingen leverantörsdata i filen — lägg till kolumnen "Leverantör" för att konfigurera per leverantör.
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {suppliers.map(sup => (
-              <div key={sup} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ flex: 1, fontSize: 12, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sup}</span>
-                <input style={{ ...inputStyle, width: 70, textAlign: 'right' }}
-                  type="number" min="1" max="365" placeholder={globalSettings.defaultLeadTime}
-                  value={supplierSettings[sup] ?? ''}
-                  onChange={e => setSupplierSettings(s => ({ ...s, [sup]: parseInt(e.target.value) || undefined }))} />
-                <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>dagar</span>
+        {open.global && (
+          <div style={{ padding: '16px 20px 20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
+              <div>
+                <label style={labelStyle}>Standard ledtid (dagar)</label>
+                <input style={inputStyle} type="number" min="1" max="365"
+                  value={globalSettings.defaultLeadTime ?? 14}
+                  onChange={e => setGlobalSettings(s => ({ ...s, defaultLeadTime: parseInt(e.target.value) || 14 }))}
+                  onFocus={e => e.target.style.borderColor = '#6366f1'}
+                  onBlur={e => e.target.style.borderColor = 'var(--color-border)'} />
+                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 4 }}>Används om filen saknar ledtidskolumn</div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ── Artikelspecifika ledtider ── */}
-      <div style={sectionStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <div style={sectionTitleStyle}>📌 Artikelspecifika ledtider</div>
-          {Object.keys(articleOverrides).length > 0 && (
-            <button onClick={() => setArticleOverrides({})} style={{ fontSize: 11, color: '#ef4444', background: 'none', border: '1px solid #ef444433', borderRadius: 5, padding: '3px 8px', cursor: 'pointer' }}>
-              Rensa alla
-            </button>
-          )}
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 14 }}>
-          Sätts via Artikeldetaljer (klicka på en artikel). Har högsta prioritet.
-        </div>
-        {Object.keys(articleOverrides).length === 0 ? (
-          <div style={{ fontSize: 13, color: 'var(--color-muted)', fontStyle: 'italic' }}>
-            Inga artikelspecifika ledtider satta ännu.
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {Object.entries(articleOverrides).map(([art, days]) => (
-              <span key={art} style={{ background: 'var(--color-bg)', border: '1px solid #6366f133', borderRadius: 6, padding: '4px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ color: '#6366f1', fontWeight: 600 }}>{art}</span>
-                <span style={{ color: 'var(--color-muted)' }}>{days} dagar</span>
-                <button onClick={() => setArticleOverrides(s => { const n = { ...s }; delete n[art]; return n; })}
-                  style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: 0, fontSize: 13, lineHeight: 1 }}>×</button>
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ── Lagerkarta — Zonkonfiguration ── */}
-      <div style={sectionStyle}>
-        <div style={sectionTitleStyle}>🗺️ Lagerkarta — Zonkonfiguration</div>
-        <div style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 8 }}>
-          Ange vilket intervall av lagerpositioner som tillhör respektive zon. Krävs för korrekta slottingrekommendationer
-          när positioner är numeriska (ex: 1-12-11) eller koordinatbaserade (ex: 1-12-11).
-        </div>
-
-        {/* Visa om zonconfig är aktiv */}
-        {slottingConfig.zoneA?.from && (
-          <div style={{ background: '#16a34a22', border: '1px solid #16a34a44', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: '#4ade80', marginBottom: 12 }}>
-            ✓ Lagerkarta konfigurerad — slottingfliken använder era zoninställningar.
-          </div>
-        )}
-
-        {/* Visa unika positioner */}
-        {uniqueLocs.length > 0 && (
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 11, color: 'var(--color-muted)', marginBottom: 6, fontWeight: 600 }}>POSITIONER I ER DATA ({uniqueLocs.length > 29 ? '30+' : uniqueLocs.length} UNIKA)</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {uniqueLocs.map(loc => (
-                <span key={loc} style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 4, padding: '2px 7px', fontSize: 11, color: 'var(--color-muted)' }}>{loc}</span>
-              ))}
+              <div>
+                <label style={labelStyle}>Servicenivå A-artiklar (%)</label>
+                <input style={inputStyle} type="number" min="80" max="99"
+                  value={globalSettings.serviceLevelA ?? 95}
+                  onChange={e => setGlobalSettings(s => ({ ...s, serviceLevelA: parseInt(e.target.value) || 95 }))}
+                  onFocus={e => e.target.style.borderColor = '#6366f1'}
+                  onBlur={e => e.target.style.borderColor = 'var(--color-border)'} />
+                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 4 }}>Rekommenderat: 95–99%</div>
+              </div>
+              <div>
+                <label style={labelStyle}>Servicenivå B-artiklar (%)</label>
+                <input style={inputStyle} type="number" min="70" max="99"
+                  value={globalSettings.serviceLevelB ?? 90}
+                  onChange={e => setGlobalSettings(s => ({ ...s, serviceLevelB: parseInt(e.target.value) || 90 }))}
+                  onFocus={e => e.target.style.borderColor = '#6366f1'}
+                  onBlur={e => e.target.style.borderColor = 'var(--color-border)'} />
+                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 4 }}>Rekommenderat: 90–95%</div>
+              </div>
+              <div>
+                <label style={labelStyle}>Servicenivå C-artiklar (%)</label>
+                <input style={inputStyle} type="number" min="60" max="99"
+                  value={globalSettings.serviceLevelC ?? 85}
+                  onChange={e => setGlobalSettings(s => ({ ...s, serviceLevelC: parseInt(e.target.value) || 85 }))}
+                  onFocus={e => e.target.style.borderColor = '#6366f1'}
+                  onBlur={e => e.target.style.borderColor = 'var(--color-border)'} />
+                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 4 }}>Rekommenderat: 85–92%</div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <SectionSaveBtn section="global" />
             </div>
           </div>
         )}
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 1fr', gap: '10px 16px', alignItems: 'center', marginBottom: 12 }}>
-          <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--color-muted)' }}></div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-muted)', textTransform: 'uppercase' }}>Från (stallage/sektion)</div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-muted)', textTransform: 'uppercase' }}>Till (lämna tomt = bara ett)</div>
-
-          {[['A','#22c55e','Guldzon'],['B','#f59e0b','Silverzon'],['C','#6b7280','Bronszon']].map(([zone, color, label]) => (
-            <React.Fragment key={zone}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontWeight: 700, fontSize: 13, color }}>{`Zon ${zone} — ${label}`}</span>
-              </div>
-              <input style={{ ...inputStyle }}
-                placeholder={zone === 'A' ? '1' : zone === 'B' ? '4' : '8'}
-                value={slottingConfig[`zone${zone}`]?.from ?? ''}
-                onChange={e => setSlottingConfig(s => ({ ...s, [`zone${zone}`]: { ...s[`zone${zone}`], from: e.target.value } }))} />
-              <input style={{ ...inputStyle }}
-                placeholder={zone === 'A' ? '3' : zone === 'B' ? '7' : '12'}
-                value={slottingConfig[`zone${zone}`]?.to ?? ''}
-                onChange={e => setSlottingConfig(s => ({ ...s, [`zone${zone}`]: { ...s[`zone${zone}`], to: e.target.value } }))} />
-            </React.Fragment>
-          ))}
-        </div>
-
-        <div style={{ fontSize: 11, color: 'var(--color-muted)', lineHeight: 1.7, marginBottom: 10 }}>
-          <strong>Numeriska positioner:</strong> ange siffror — ex. "1" till "3" för Zon A, "4" till "7" för Zon B, "8" till "12" för Zon C.<br/>
-          <strong>Koordinater (1-12-11):</strong> ange bara första segmentet — ex. "1" matchar alla positioner som börjar med 1.<br/>
-          <strong>Bokstäver (A, B, C):</strong> ingen konfiguration behövs — systemet känner igen dem automatiskt.
-        </div>
-
-        <button onClick={handleResetZones} style={{ fontSize: 12, color: 'var(--color-muted)', background: 'none', border: '1px solid var(--color-border)', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', marginRight: 8 }}>
-          Återställ zonkonfiguration
-        </button>
       </div>
 
-      {/* ── Spara-knapp ── */}
-      <button onClick={handleSave} style={{
-        width: '100%', padding: '12px 0', borderRadius: 8,
-        background: saved ? '#16a34a' : '#6366f1', color: '#fff',
-        border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer',
-        transition: 'background 0.3s', fontFamily: 'inherit',
+      {/* ═══ SEKTION 2: Ledtid per leverantör ═══════════════════════════ */}
+      <div style={cardStyle}>
+        <div style={headerStyle(open.supplier)} onClick={() => toggleSection('supplier')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 16 }}>🚚</span>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text)' }}>Ledtid per leverantör</span>
+                {suppliers.length > 0 && (
+                  <span style={{ fontSize: 11, background: '#6366f122', color: '#818cf8', borderRadius: 5, padding: '1px 7px', fontWeight: 600 }}>
+                    {suppliers.length} leverantörer
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 1 }}>Åsidosätter global standard per leverantör</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <SavedBadge section="supplier" />
+            <span style={{ color: 'var(--color-muted)', fontSize: 16, transition: 'transform 0.2s', transform: open.supplier ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
+          </div>
+        </div>
+
+        {open.supplier && (
+          <div style={{ padding: '16px 20px 20px' }}>
+            {suppliers.length === 0 ? (
+              <div style={{ background: 'var(--color-bg)', borderRadius: 8, padding: '14px 16px', fontSize: 13, color: 'var(--color-muted)', border: '1px dashed var(--color-border)' }}>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>Ingen leverantörsdata i filen</div>
+                <div>Lägg till kolumnen "Leverantör" i din Excel-fil för att konfigurera ledtider per leverantör.</div>
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 14 }}>
+                  Ange specifik ledtid per leverantör. Tomt fält = global standard ({globalSettings.defaultLeadTime ?? 14} dagar).
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+                  {suppliers.map(sup => {
+                    const val = supplierSettings[sup];
+                    const isCustom = val != null && val !== '';
+                    return (
+                      <div key={sup} style={{
+                        display: 'flex', alignItems: 'center',
+                        background: isCustom ? '#6366f108' : 'var(--color-bg)',
+                        border: `1.5px solid ${isCustom ? '#6366f144' : 'var(--color-border)'}`,
+                        borderRadius: 8, padding: '10px 12px', gap: 10,
+                      }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: isCustom ? '#818cf8' : 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {sup}
+                          </div>
+                          {isCustom && (
+                            <div style={{ fontSize: 10, color: '#818cf8', marginTop: 1 }}>Anpassad ledtid</div>
+                          )}
+                          {!isCustom && (
+                            <div style={{ fontSize: 10, color: 'var(--color-muted)', marginTop: 1 }}>Standard: {globalSettings.defaultLeadTime ?? 14} dagar</div>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                          <input
+                            type="number" min="1" max="365"
+                            placeholder={globalSettings.defaultLeadTime ?? 14}
+                            value={val ?? ''}
+                            onChange={e => {
+                              const v = e.target.value;
+                              setSupplierSettings(s => ({ ...s, [sup]: v === '' ? undefined : parseInt(v) || undefined }));
+                            }}
+                            onFocus={e => e.target.style.borderColor = '#6366f1'}
+                            onBlur={e => e.target.style.borderColor = isCustom ? '#6366f144' : 'var(--color-border)'}
+                            style={{
+                              width: 64, textAlign: 'center',
+                              background: 'var(--color-surface)',
+                              border: `1.5px solid ${isCustom ? '#6366f166' : 'var(--color-border)'}`,
+                              borderRadius: 6, padding: '6px 8px',
+                              color: isCustom ? '#818cf8' : 'var(--color-text)',
+                              fontSize: 14, fontWeight: 700,
+                              fontFamily: 'inherit', outline: 'none',
+                            }}
+                          />
+                          <span style={{ fontSize: 11, color: 'var(--color-muted)', minWidth: 28 }}>dagar</span>
+                          {isCustom && (
+                            <button
+                              onClick={() => setSupplierSettings(s => { const n = { ...s }; delete n[sup]; return n; })}
+                              title="Återställ till standard"
+                              style={{ background: 'none', border: 'none', color: '#ef444488', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1 }}>
+                              ×
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <SectionSaveBtn section="supplier" />
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ═══ SEKTION 3: Artikelspecifika ledtider ════════════════════════ */}
+      <div style={cardStyle}>
+        <div style={headerStyle(open.article)} onClick={() => toggleSection('article')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 16 }}>📌</span>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text)' }}>Artikelspecifika ledtider</span>
+                {Object.keys(articleOverrides).length > 0 && (
+                  <span style={{ fontSize: 11, background: '#6366f122', color: '#818cf8', borderRadius: 5, padding: '1px 7px', fontWeight: 600 }}>
+                    {Object.keys(articleOverrides).length} satta
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 1 }}>Sätts via artikelpanelen — har högsta prioritet</div>
+            </div>
+          </div>
+          <span style={{ color: 'var(--color-muted)', fontSize: 16, transition: 'transform 0.2s', transform: open.article ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
+        </div>
+
+        {open.article && (
+          <div style={{ padding: '16px 20px 20px' }}>
+            {Object.keys(articleOverrides).length === 0 ? (
+              <div style={{ background: 'var(--color-bg)', borderRadius: 8, padding: '14px 16px', fontSize: 13, color: 'var(--color-muted)', border: '1px dashed var(--color-border)' }}>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>Inga artikelspecifika ledtider satta ännu</div>
+                <div>Klicka på en artikel i Inköp- eller Översikt-fliken och redigera ledtiden direkt i artikelpanelen.</div>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                  {Object.entries(articleOverrides).map(([art, days]) => (
+                    <div key={art} style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      background: '#6366f110', border: '1px solid #6366f133',
+                      borderRadius: 8, padding: '8px 12px',
+                    }}>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#818cf8' }}>{art}</div>
+                        <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>{days} dagar</div>
+                      </div>
+                      <button
+                        onClick={() => setArticleOverrides(s => { const n = { ...s }; delete n[art]; return n; })}
+                        style={{ background: 'none', border: 'none', color: '#ef444488', cursor: 'pointer', fontSize: 16, padding: 0, lineHeight: 1, marginLeft: 4 }}>
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <button
+                    onClick={() => setArticleOverrides({})}
+                    style={{ fontSize: 12, color: '#ef4444', background: 'none', border: '1px solid #ef444433', borderRadius: 6, padding: '5px 12px', cursor: 'pointer' }}>
+                    Rensa alla
+                  </button>
+                  <SectionSaveBtn section="article" />
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ═══ SEKTION 4: Lagerkarta — Zonkonfiguration ═══════════════════ */}
+      <div style={cardStyle}>
+        <div style={headerStyle(open.zone)} onClick={() => toggleSection('zone')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 16 }}>🗺️</span>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text)' }}>Lagerkarta — Zonkonfiguration</span>
+                {slottingConfig.zoneA?.from && (
+                  <span style={{ fontSize: 11, background: '#16a34a22', color: '#4ade80', borderRadius: 5, padding: '1px 7px', fontWeight: 600 }}>Aktiv</span>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 1 }}>Mappar lagerpositioner till zoner för slottinganalys</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <SavedBadge section="zone" />
+            <span style={{ color: 'var(--color-muted)', fontSize: 16, transition: 'transform 0.2s', transform: open.zone ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
+          </div>
+        </div>
+
+        {open.zone && (
+          <div style={{ padding: '16px 20px 20px' }}>
+            {uniqueLocs.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, color: 'var(--color-muted)', fontWeight: 600, marginBottom: 6 }}>
+                  POSITIONER I ER DATA ({uniqueLocs.length > 29 ? '30+' : uniqueLocs.length} UNIKA)
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {uniqueLocs.map(loc => (
+                    <span key={loc} style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 4, padding: '2px 7px', fontSize: 11, color: 'var(--color-muted)' }}>{loc}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, marginBottom: 16 }}>
+              {[
+                ['zoneA', 'Zon A — Guldzon', '#22c55e', 'Nära plockytan'],
+                ['zoneB', 'Zon B — Silverzon', '#f59e0b', 'Mittenlagret'],
+                ['zoneC', 'Zon C — Bronszon', '#94a3b8', 'Bakre lagret'],
+              ].map(([key, label, color, sub]) => (
+                <div key={key} style={{
+                  display: 'grid', gridTemplateColumns: '1fr 120px 120px',
+                  alignItems: 'center', gap: 12,
+                  background: 'var(--color-bg)', borderRadius: 8,
+                  padding: '12px 14px',
+                  border: `1.5px solid ${color}33`,
+                }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color }}>{label}</div>
+                    <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>{sub}</div>
+                  </div>
+                  <div>
+                    <label style={{ ...labelStyle, marginBottom: 4 }}>Från stallage</label>
+                    <input
+                      style={{ ...inputStyle, textAlign: 'center', borderColor: `${color}44` }}
+                      placeholder="1"
+                      value={slottingConfig[key]?.from ?? ''}
+                      onChange={e => setSlottingConfig(s => ({ ...s, [key]: { ...s[key], from: e.target.value } }))}
+                      onFocus={e => e.target.style.borderColor = color}
+                      onBlur={e => e.target.style.borderColor = `${color}44`}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ ...labelStyle, marginBottom: 4 }}>Till stallage</label>
+                    <input
+                      style={{ ...inputStyle, textAlign: 'center', borderColor: `${color}44` }}
+                      placeholder="12"
+                      value={slottingConfig[key]?.to ?? ''}
+                      onChange={e => setSlottingConfig(s => ({ ...s, [key]: { ...s[key], to: e.target.value } }))}
+                      onFocus={e => e.target.style.borderColor = color}
+                      onBlur={e => e.target.style.borderColor = `${color}44`}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ fontSize: 11, color: 'var(--color-muted)', lineHeight: 1.7, marginBottom: 14, padding: '10px 12px', background: 'var(--color-bg)', borderRadius: 6 }}>
+              <strong>Numeriska positioner</strong> (ex: "1-12-5"): ange första segmentet, ex. 1 till 3 för Zon A.<br/>
+              <strong>Koordinater</strong> (ex: "A-12-3"): ingen konfiguration behövs — känns igen automatiskt.
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button onClick={() => setSlottingConfig({ zoneA: { from: '1', to: '3' }, zoneB: { from: '4', to: '7' }, zoneC: { from: '8', to: '12' } })}
+                style={{ fontSize: 12, color: 'var(--color-muted)', background: 'none', border: '1px solid var(--color-border)', borderRadius: 6, padding: '5px 12px', cursor: 'pointer' }}>
+                Återställ standard
+              </button>
+              <SectionSaveBtn section="zone" />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ═══ SPARA ALLT ══════════════════════════════════════════════════ */}
+      <button onClick={saveAll} style={{
+        width: '100%', padding: '13px 0', borderRadius: 10,
+        background: savedSection === 'all' ? '#16a34a' : '#6366f1',
+        color: '#fff', border: 'none', fontWeight: 700,
+        fontSize: 14, cursor: 'pointer', fontFamily: 'inherit',
+        transition: 'background 0.3s', marginTop: 4,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
       }}>
-        {saved ? '✓ Inställningar sparade' : 'Spara inställningar'}
+        {savedSection === 'all' ? '✓ Alla inställningar sparade' : '💾 Spara alla inställningar'}
       </button>
     </div>
   );
