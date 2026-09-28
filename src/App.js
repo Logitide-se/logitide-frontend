@@ -1411,240 +1411,410 @@ function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc
 }
 
 // ─── PURCHASING TAB ────────────────────────────────────────────────────────
-function PurchasingTab({ data }) {
-  const { summary, articles } = data;
-  const hasCost = summary.has_cost_data;
-  const toOrder = articles?.filter(a => a.order_qty > 0).sort((a, b) => {
-    // Sort: CRITICAL first, then by days_until_reorder asc, then value desc
-    const statusPriority = { CRITICAL: 0, WATCH: 1 };
-    const sp = (statusPriority[a.status] ?? 2) - (statusPriority[b.status] ?? 2);
-    if (sp !== 0) return sp;
-    return (a.days_until_reorder ?? 99) - (b.days_until_reorder ?? 99);
-  }) || [];
-  const [exporting, setExporting] = React.useState(false);
-  const [abcFilter, setAbcFilter] = React.useState('Alla');
-  const [search, setSearch] = React.useState('');
+// ─── INKÖP v4 — inköpslista per leverantör med beslut ────────────────────
+const REJECT_REASONS = ['Finns redan i lager', 'Beställd utanför systemet', 'Artikeln ska fasas ut', 'Leverantören kan inte leverera', 'Annat skäl'];
 
-  const handleExport = async () => {
-    if (!window._lastUploadedFile) { alert('Ladda upp filen igen för att exportera inköpslista.'); return; }
-    setExporting(true);
+const dayDiff = (iso) => {
+  if (!iso) return null;
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  const d = new Date(`${String(iso).slice(0, 10)}T00:00:00`);
+  return Math.round((d - t) / 86400000);
+};
+const relDay = (iso) => {
+  const n = dayDiff(iso);
+  if (n == null) return '—';
+  if (n <= 0) return 'idag';
+  if (n === 1) return 'i morgon';
+  return `om ${n} dagar`;
+};
+const shortDate = (iso) => {
+  if (!iso) return '';
+  const d = new Date(`${String(iso).slice(0, 10)}T00:00:00`);
+  return `${d.getDate()} ${LT_MONTHS[d.getMonth()]}`;
+};
+
+function purchaseTag(a) {
+  if (a.late_days > 0 && a.out_of_stock) return { label: 'Slut i lager', tone: 'crit' };
+  if (a.late_days > 0) return { label: 'För sent', tone: 'crit' };
+  const n = dayDiff(a.last_order_date);
+  if (n != null && n <= 0) return { label: 'Sista dag idag', tone: 'warn' };
+  if (n != null && n <= 7) return { label: 'Inom 7 dagar', tone: 'info' };
+  return { label: 'Planera', tone: 'muted' };
+}
+
+function PurchaseLine({ a, dec, onDecide, hasCost }) {
+  const [open, setOpen] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const qty = dec?.qty ?? a.order_qty;
+  const moq = Math.max(1, Number(a.moq) || 1);
+  const offPack = moq > 1 && qty % moq !== 0;
+  const d = Number(a.demand_per_day) || 0;
+  const after = d > 0 ? ((Number(a.effective_stock) || 0) + Number(qty || 0)) / d : null;
+  const tag = purchaseTag(a);
+  const status = dec?.status || 'pending';
+  const setQty = (v) => {
+    const n = Math.max(0, Math.round(Number(String(v).replace(',', '.')) || 0));
+    onDecide(a.article, { ...(dec || {}), qty: n, status: status === 'rejected' ? 'pending' : status });
+  };
+  return (
+    <>
+      <tr className={`lt-po-row is-${status}`}>
+        <td className="lt-po-art">
+          <button className="lt-po-name" onClick={() => setOpen(o => !o)} aria-expanded={open}>
+            {a.name || a.article}
+          </button>
+          <div className="lt-mono lt-subtle lt-po-id">{a.article}{a.abc ? ` · ${a.abc}${a.xyz ? '/' + a.xyz : ''}` : ''}</div>
+        </td>
+        <td><span className={`lt-action-type ${tag.tone}`}>{tag.label}</span></td>
+        <td className="lt-po-when">
+          {a.late_days > 0 ? (
+            <><b className="lt-crit-text">{a.late_days} {a.late_days === 1 ? 'dag' : 'dagar'} för sent</b>
+              <span>brist även vid order idag</span></>
+          ) : (
+            <><b>{relDay(a.last_order_date)}</b><span>{shortDate(a.last_order_date)}</span></>
+          )}
+        </td>
+        <td className="num lt-num lt-po-cov">
+          <b>{nf(a.coverage_days, a.coverage_days < 10 ? 1 : 0)} d</b>
+          <span>ledtid {nf(a.lead_time_days, 0)} d</span>
+        </td>
+        <td className="num">
+          <input className="lt-input lt-po-qty lt-num" inputMode="numeric" value={qty} aria-label={`Antal för ${a.article}`}
+            disabled={status === 'rejected'} onChange={e => setQty(e.target.value)} />
+          <div className="lt-po-qty-note">
+            {qty !== a.order_qty ? `förslag ${fmt(a.order_qty)}` : (moq > 1 ? `MOQ ${fmt(moq)}` : '')}
+            {offPack && <span className="lt-warn-text"> · ej hel förp.</span>}
+          </div>
+        </td>
+        <td className="num lt-num">{hasCost ? fmtKr(qty * (Number(a.cost) || 0)) : '—'}</td>
+        <td className="lt-po-dec">
+          {status === 'pending' && !rejecting && (
+            <div className="lt-po-btns">
+              <button className="lt-btn lt-btn-primary lt-btn-sm" onClick={() => onDecide(a.article, { ...(dec || {}), qty, status: 'approved' })}>Godkänn</button>
+              <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={() => setRejecting(true)}>Avfärda</button>
+            </div>
+          )}
+          {rejecting && (
+            <div className="lt-po-btns">
+              <select className="lt-select lt-po-reason" autoFocus defaultValue="" aria-label="Skäl"
+                onChange={e => { if (e.target.value) { onDecide(a.article, { ...(dec || {}), qty, status: 'rejected', reason: e.target.value }); setRejecting(false); } }}>
+                <option value="" disabled>Välj skäl</option>
+                {REJECT_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+              <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={() => setRejecting(false)}>Avbryt</button>
+            </div>
+          )}
+          {status === 'approved' && (
+            <div className="lt-po-btns"><span className="lt-po-state ok"><LtIcon name="check" size={12} stroke={2.4} /> Godkänd</span>
+              <button className="lt-link-btn" onClick={() => onDecide(a.article, { ...(dec || {}), status: 'pending' })}>Ångra</button></div>
+          )}
+          {status === 'rejected' && (
+            <div className="lt-po-btns"><span className="lt-po-state">Avfärdad · {dec.reason}</span>
+              <button className="lt-link-btn" onClick={() => onDecide(a.article, { ...(dec || {}), status: 'pending', reason: undefined })}>Ångra</button></div>
+          )}
+        </td>
+      </tr>
+      {open && (
+        <tr className="lt-po-detail">
+          <td colSpan={7}>
+            <div className="lt-po-timeline lt-num">
+              <div><span>Saldot räcker till</span><b>{a.stockout_date ? `${shortDate(a.stockout_date)} (${relDay(a.stockout_date)})` : '—'}</b></div>
+              <div><span>Beställ senast</span><b>{a.late_days > 0 ? 'redan passerat' : `${shortDate(a.last_order_date)} (${relDay(a.last_order_date)})`}</b></div>
+              <div><span>Leverans om du beställer idag</span><b>{shortDate(a.arrival_if_ordered_today)}</b></div>
+              <div><span>Räcker efter ordern</span><b>{after != null ? `${nf(after, 0)} dagar` : '—'}</b></div>
+              {a.expected_shortage_days > 0 && <div><span>Dagar utan lager</span><b className="lt-crit-text">ca {nf(a.expected_shortage_days, 0)}</b></div>}
+            </div>
+            <CalcBreakdown a={a} />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function PurchasingTab({ data }) {
+  const { summary, articles = [] } = data;
+  const hasCost = summary.has_cost_data;
+  const fileKey = (data.import_meta?.filenames || []).join('+');
+  const storeKey = `logitide-inkop|${summary.analysis_timestamp}|${fileKey}`;
+  const [decisions, setDecisions] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(storeKey) || '{}'); } catch { return {}; }
+  });
+  const [view, setView] = useState('order');
+  const [abc, setAbc] = useState('Alla');
+  const [query, setQuery] = useState('');
+  const [expanded, setExpanded] = useState({});
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState(null);
+
+  useEffect(() => {
+    try { localStorage.setItem(storeKey, JSON.stringify(decisions)); } catch {}
+  }, [decisions, storeKey]);
+
+  if (articles.length && articles[0].last_order_date === undefined) {
+    return (
+      <div className="tab-content">
+        <section className="lt-panel lt-panel-pad">
+          <h3 style={{ margin: 0 }}>Inköp</h3>
+          <p className="lt-hint">Den här analysen gjordes med en äldre version. Kör analysen igen för att få sista beställningsdag och inköpslista per leverantör.</p>
+        </section>
+      </div>
+    );
+  }
+
+  const decide = (art, patch) => setDecisions(prev => ({ ...prev, [art]: patch }));
+  const qtyOf = (a) => decisions[a.article]?.qty ?? a.order_qty;
+  const stOf = (a) => decisions[a.article]?.status || 'pending';
+
+  const toOrder = articles.filter(a => a.order_qty > 0);
+  const expedite = articles.filter(a => a.status === 'CRITICAL' && !(a.order_qty > 0) && a.ordered_qty > 0)
+    .sort((a, b) => (a.raw_coverage_days ?? 999) - (b.raw_coverage_days ?? 999));
+  const upcoming = articles.filter(a => !(a.order_qty > 0) && a.demand_per_day > 0 && a.status !== 'CRITICAL' && (a.days_until_reorder ?? 999) <= 14)
+    .sort((a, b) => (a.days_until_reorder ?? 999) - (b.days_until_reorder ?? 999));
+  const rejected = toOrder.filter(a => stOf(a) === 'rejected');
+  const active = toOrder.filter(a => stOf(a) !== 'rejected');
+
+  const q = query.trim().toLowerCase();
+  const matches = (a) => (abc === 'Alla' || a.abc === abc) && (!q || String(a.article).toLowerCase().includes(q) || String(a.name || '').toLowerCase().includes(q) || String(a.supplier || '').toLowerCase().includes(q));
+  const urgency = (a) => (a.late_days > 0 ? -1000 - a.late_days : dayDiff(a.last_order_date) ?? 999);
+
+  const listForView = view === 'rejected' ? rejected : active;
+  const groups = {};
+  listForView.filter(matches).forEach(a => {
+    const k = (a.supplier || '').trim() || 'Utan leverantör';
+    (groups[k] = groups[k] || []).push(a);
+  });
+  Object.values(groups).forEach(g => g.sort((x, y) => urgency(x) - urgency(y) || (y.risk_sek || 0) - (x.risk_sek || 0)));
+  const groupKeys = Object.keys(groups).sort((x, y) =>
+    (x === 'Utan leverantör') - (y === 'Utan leverantör') || urgency(groups[x][0]) - urgency(groups[y][0]) || x.localeCompare(y, 'sv'));
+
+  const valueOf = (list) => list.reduce((s, a) => s + qtyOf(a) * (Number(a.cost) || 0), 0);
+  const todayCount = active.filter(a => a.late_days > 0 || (dayDiff(a.last_order_date) ?? 99) <= 0).length;
+  const weekCount = active.filter(a => !(a.late_days > 0) && (dayDiff(a.last_order_date) ?? 99) > 0 && dayDiff(a.last_order_date) <= 7).length;
+  const lateCount = active.filter(a => a.late_days > 0).length;
+  const approved = active.filter(a => stOf(a) === 'approved');
+  const reviewed = toOrder.filter(a => stOf(a) !== 'pending').length;
+  const suppliers = new Set(active.map(a => (a.supplier || '').trim() || 'Utan leverantör')).size;
+  const lateRisk = active.filter(a => a.late_days > 0).reduce((s, a) => s + (a.risk_sek || 0), 0);
+
+  const doExport = async (list, onlyApproved) => {
+    setExporting(true); setExportError(null);
     try {
-      const formData = new FormData();
-      formData.append('file', window._lastUploadedFile);
-      let res;
-      try { res = await fetch(`${API_URL}/export-purchase-order`, { method: 'POST', body: formData }); }
-      catch { alert('Kunde inte nå servern.'); return; }
-      if (!res.ok) { alert('Export misslyckades.'); return; }
+      const lines = list.map(a => ({
+        supplier: a.supplier, article: a.article, name: a.name, qty: qtyOf(a), suggested_qty: a.order_qty,
+        moq: a.moq, unit_cost: a.cost, last_order_date: a.last_order_date, order_by_date: a.order_by_date,
+        arrival: a.arrival_if_ordered_today, status: a.status, decision: stOf(a), reason: decisions[a.article]?.reason || '', abc: a.abc,
+      }));
+      const res = await fetch(`${API}/export/purchase-list`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: fileKey, analysis: summary.analysis_timestamp, only_approved: onlyApproved, lines }),
+      });
+      if (!res.ok) throw new Error(await readError(res, 'Exporten misslyckades.'));
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      const today = new Date().toISOString().slice(0, 10);
-      a.href = url; a.download = `logitide_inkopslista_${today}.xlsx`;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } finally { setExporting(false); }
+      const el = document.createElement('a');
+      el.href = url; el.download = `logitide_bestallningsunderlag_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(el); el.click(); el.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      setExportError(e.message || 'Exporten misslyckades. Försök igen.');
+    }
+    setExporting(false);
   };
 
-  const critical = toOrder.filter(a => a.status === 'CRITICAL');
-  const watch = toOrder.filter(a => a.status === 'WATCH');
-  const criticalNoOrder = articles?.filter(a => a.status === 'CRITICAL' && !(a.order_qty > 0)).sort((a, b) =>
-    (a.coverage_days ?? 999) - (b.coverage_days ?? 999)
-  ) || [];
-  const filtered = toOrder.filter(a =>
-    (abcFilter === 'Alla' || a.abc === abcFilter) &&
-    (!search || a.article?.toLowerCase().includes(search.toLowerCase()) || a.name?.toLowerCase().includes(search.toLowerCase()))
-  );
+  let brief;
+  if (!toOrder.length && !expedite.length) {
+    brief = { tone: 'good', title: 'Inget behöver beställas just nu',
+      text: upcoming.length ? `${fmt(upcoming.length)} artiklar når beställningspunkten inom 14 dagar.` : 'Alla artiklar ligger över sin beställningspunkt.' };
+  } else {
+    brief = {
+      tone: lateCount ? 'crit' : 'warn',
+      title: `${fmt(active.length)} artiklar ska beställas${hasCost ? ` för ${fmtKr(valueOf(active))}` : ''}`,
+      text: [
+        lateCount ? `${fmt(lateCount)} är redan för sent: de hinner ta slut innan en ny leverans kommer${hasCost && lateRisk ? ` (${fmtKr(lateRisk)} i risk)` : ''}` : null,
+        todayCount - lateCount > 0 ? `${fmt(todayCount - lateCount)} till har sista beställningsdag idag` : null,
+        weekCount ? `${fmt(weekCount)} inom en vecka` : null,
+        expedite.length ? `${fmt(expedite.length)} leveranser behöver påskyndas` : null,
+      ].filter(Boolean).join('. ') + '.',
+    };
+  }
 
-  const urgColor = (daysLeft) => daysLeft <= 0 ? '#ef4444' : daysLeft <= 3 ? '#f97316' : daysLeft <= 7 ? '#eab308' : '#22c55e';
+  const views = [
+    ['order', `Att beställa (${fmt(active.length)})`],
+    ...(expedite.length ? [['expedite', `Påskynda (${fmt(expedite.length)})`]] : []),
+    ...(upcoming.length ? [['upcoming', `Inom 14 dagar (${fmt(upcoming.length)})`]] : []),
+    ...(rejected.length ? [['rejected', `Avfärdade (${fmt(rejected.length)})`]] : []),
+  ];
+  const activeView = views.some(([k]) => k === view) ? view : 'order';
 
   return (
-    <div className="tab-content">
-      <style>{`
-        .purch-kpi { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 16px; }
-        .purch-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
-        .purch-search { flex: 1; min-width: 160px; background: var(--bg2); border: 1px solid var(--border);
-          border-radius: 6px; padding: 6px 10px; color: var(--text); font-size: 13px; outline: none; }
-        .purch-search:focus { border-color: #3b82f6; }
-        .purch-filters { display: flex; gap: 4px; }
-        .purch-filter-btn { padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border);
-          background: var(--bg2); color: var(--text3); font-size: 12px; font-weight: 600;
-          cursor: pointer; letter-spacing: .04em; }
-        .purch-filter-btn.active { background: var(--text); color: var(--bg3); border-color: var(--text); }
-        .purch-section-label { font-size: 11px; font-weight: 700; letter-spacing: .07em; color: var(--text3);
-          text-transform: uppercase; padding: 10px 0 6px; display: flex; align-items: center; gap: 8px; }
-        .purch-section-label span { padding: 1px 7px; border-radius: 10px; font-size: 10px; }
-        .purch-row { display: grid; grid-template-columns: 36px 1fr 44px 70px 70px 80px 80px ${hasCost ? '80px ' : ''}90px;
-          align-items: center; gap: 0 8px; padding: 7px 10px; border-radius: 7px;
-          border-bottom: 1px solid var(--border); transition: background 0.1s; font-size: 13px; }
-        .purch-row:hover { background: var(--bg2); }
-        .purch-row:last-child { border-bottom: none; }
-        .purch-urgency-bar { width: 4px; height: 28px; border-radius: 2px; flex-shrink: 0; }
-        .purch-col-hdr { display: grid; grid-template-columns: 36px 1fr 44px 70px 70px 80px 80px ${hasCost ? '80px ' : ''}90px;
-          gap: 0 8px; padding: 0 10px 6px; font-size: 10px; font-weight: 700; letter-spacing: .06em;
-          color: var(--text3); text-transform: uppercase; }
-        .purch-art-id { font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; }
-        .purch-art-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .purch-qty { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
-        .purch-val { font-variant-numeric: tabular-nums; color: var(--text3); }
-        .purch-days { font-variant-numeric: tabular-nums; font-weight: 600; }
-        .purch-status-chip { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; letter-spacing: .04em; white-space: nowrap; }
-        @media (max-width: 900px) {
-          .purch-row, .purch-col-hdr { grid-template-columns: 8px 1fr 44px 70px 80px; }
-          .purch-row > *:nth-child(5), .purch-row > *:nth-child(6), .purch-row > *:nth-child(7),
-          .purch-col-hdr > *:nth-child(5), .purch-col-hdr > *:nth-child(6), .purch-col-hdr > *:nth-child(7) { display: none; }
-        }
-      `}</style>
-
-      {!hasCost && (
-        <div className="info-banner">
-          <Icon name="info" size={16} />
-          Inköpspris saknas — ordervärden kan inte beräknas. Lägg till kolumnen <code>cost</code> för fullständig analys.
-        </div>
-      )}
-
-      <div className="purch-kpi">
-        <KpiCard label="ATT BESTÄLLA" value={fmt(summary.articles_to_order)}
-          sub={`${summary.critical} kritiska · ${summary.watch} bevakas`} color="#f97316" />
-        <KpiCard label="TOTALT ORDERVÄRDE"
-          value={hasCost ? fmtKr(summary.total_order_value_sek) : null}
-          missingReason={!hasCost ? 'Kräver inköpspris i filen' : null} color="#3b82f6" />
-        <KpiCard label="SNITT PER ORDER"
-          value={hasCost ? fmtKr(Math.round(summary.total_order_value_sek / Math.max(summary.articles_to_order, 1))) : null}
-          missingReason={!hasCost ? 'Kräver inköpspris i filen' : null} color="#8b5cf6" />
-      </div>
-
-      {/* Toolbar */}
-      <div className="purch-toolbar">
-        <input className="purch-search" placeholder="Sök artikel..." value={search} onChange={e => setSearch(e.target.value)} />
-        <div className="purch-filters">
-          {['Alla','A','B','C'].map(f => (
-            <button key={f} className={`purch-filter-btn${abcFilter===f?' active':''}`} onClick={() => setAbcFilter(f)}>{f}</button>
-          ))}
-        </div>
-        <button className="export-btn" onClick={handleExport} disabled={exporting}
-          style={{ background: '#3b82f6', color: '#fff', borderColor: '#3b82f6', fontWeight: 600, marginLeft: 'auto' }}>
-          <Icon name="download" size={14} />
-          {exporting ? 'Exporterar...' : 'Exportera .xlsx'}
-        </button>
-      </div>
-
-      {/* Column headers */}
-      <div className="purch-col-hdr">
-        <div /> <div>Artikel</div> <div>ABC</div> <div>Täcktid</div> <div>Beställ om</div>
-        <div>Senast</div> <div>Antal</div> {hasCost && <div>Värde</div>} <div>Status</div>
-      </div>
-
-      {/* CRITICAL group */}
-      {critical.filter(a => abcFilter === 'Alla' || a.abc === abcFilter).filter(a => !search || a.article?.toLowerCase().includes(search.toLowerCase()) || a.name?.toLowerCase().includes(search.toLowerCase())).length > 0 && (
-        <>
-          <div className="purch-section-label">
-            🔴 Kritiska brister
-            <span style={{ background: '#ef444422', color: '#ef4444' }}>
-              {critical.filter(a => abcFilter==='Alla'||a.abc===abcFilter).length} artiklar
-            </span>
-          </div>
-          {critical.filter(a => (abcFilter==='Alla'||a.abc===abcFilter) && (!search||a.article?.toLowerCase().includes(search.toLowerCase())||a.name?.toLowerCase().includes(search.toLowerCase()))).map((a, i) => {
-            const daysLeft = a.days_until_reorder ?? 0;
-            const uc = urgColor(daysLeft);
-            return (
-              <div className="purch-row" key={`c${i}`}>
-                <div style={{ display:'flex', alignItems:'center' }}>
-                  <div className="purch-urgency-bar" style={{ background: uc }} />
-                </div>
-                <div>
-                  <div className="purch-art-name">{a.name || a.article}</div>
-                  <div className="purch-art-id">{a.article}</div>
-                </div>
-                <div><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}</span></div>
-                <div className="purch-days" style={{ color: '#ef4444' }}>{fmtDays(a.coverage_days)}</div>
-                <div className="purch-days" style={{ color: uc }}>{daysLeft <= 0 ? 'Nu' : `${daysLeft} d`}</div>
-                <div style={{ fontSize: 12, color: uc, fontWeight: 600 }}>{a.reorder_date || 'Idag'}</div>
-                <div className="purch-qty">{fmt(a.order_qty)} st</div>
-                {hasCost && <div className="purch-val">{fmtKr(a.order_value)}</div>}
-                <div><span className="purch-status-chip" style={{ background:'#ef444420', color:'#ef4444' }}>KRITISK</span></div>
+    <div className="tab-content lt-overview">
+      <section className={`lt-brief ${brief.tone}`}>
+        <div className="lt-brief-main">
+          <div className="lt-eyebrow">Inköp</div>
+          <h2>{brief.title}</h2>
+          <p>{brief.text}</p>
+          {toOrder.length > 0 && (
+            <div className="lt-po-progress">
+              <div className="lt-minibar" role="img" aria-label={`${reviewed} av ${toOrder.length} granskade`}>
+                <span className="seg lt-po-progress-fill" style={{ width: `${Math.round(reviewed / toOrder.length * 100)}%` }} />
               </div>
-            );
-          })}
-        </>
-      )}
-
-      {/* WATCH group */}
-      {watch.filter(a => abcFilter === 'Alla' || a.abc === abcFilter).filter(a => !search || a.article?.toLowerCase().includes(search.toLowerCase()) || a.name?.toLowerCase().includes(search.toLowerCase())).length > 0 && (
-        <>
-          <div className="purch-section-label" style={{ marginTop: 12 }}>
-            🟡 Bevaka — beställ inom kort
-            <span style={{ background: '#f9731620', color: '#f97316' }}>
-              {watch.filter(a => abcFilter==='Alla'||a.abc===abcFilter).length} artiklar
-            </span>
-          </div>
-          {watch.filter(a => (abcFilter==='Alla'||a.abc===abcFilter) && (!search||a.article?.toLowerCase().includes(search.toLowerCase())||a.name?.toLowerCase().includes(search.toLowerCase()))).map((a, i) => {
-            const daysLeft = a.days_until_reorder ?? 0;
-            const uc = urgColor(daysLeft);
-            return (
-              <div className="purch-row" key={`w${i}`}>
-                <div style={{ display:'flex', alignItems:'center' }}>
-                  <div className="purch-urgency-bar" style={{ background: uc }} />
-                </div>
-                <div>
-                  <div className="purch-art-name">{a.name || a.article}</div>
-                  <div className="purch-art-id">{a.article}</div>
-                </div>
-                <div><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}</span></div>
-                <div className="purch-days" style={{ color: '#f97316' }}>{fmtDays(a.coverage_days)}</div>
-                <div className="purch-days" style={{ color: uc }}>{daysLeft <= 0 ? 'Nu' : `${daysLeft} d`}</div>
-                <div style={{ fontSize: 12, color: uc, fontWeight: 600 }}>{a.reorder_date || '—'}</div>
-                <div className="purch-qty">{fmt(a.order_qty)} st</div>
-                {hasCost && <div className="purch-val">{fmtKr(a.order_value)}</div>}
-                <div><span className="purch-status-chip" style={{ background:'#f9731620', color:'#f97316' }}>BEVAKA</span></div>
-              </div>
-            );
-          })}
-        </>
-      )}
-
-      {/* CRITICAL with sufficient stock — monitor section */}
-      {criticalNoOrder.filter(a => abcFilter === 'Alla' || a.abc === abcFilter).filter(a => !search || a.article?.toLowerCase().includes(search.toLowerCase()) || a.name?.toLowerCase().includes(search.toLowerCase())).length > 0 && (
-        <>
-          <div className="purch-section-label" style={{ marginTop: 12 }}>
-            🔴 Kritiska — bevaka manuellt
-            <span style={{ background: '#ef444415', color: '#ef4444' }}>
-              {criticalNoOrder.filter(a => abcFilter==='Alla'||a.abc===abcFilter).length} artiklar
-            </span>
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 8, paddingLeft: 4 }}>
-            Kritisk status men lager täcker t.o.m. ledtiden — inget automatiskt orderförslag. Kontrollera manuellt.
-          </div>
-          {criticalNoOrder.filter(a => (abcFilter==='Alla'||a.abc===abcFilter) && (!search||a.article?.toLowerCase().includes(search.toLowerCase())||a.name?.toLowerCase().includes(search.toLowerCase()))).map((a, i) => (
-            <div className="purch-row" key={`cn${i}`} style={{ opacity: 0.75 }}>
-              <div style={{ display:'flex', alignItems:'center' }}>
-                <div className="purch-urgency-bar" style={{ background: '#ef4444', opacity: 0.4 }} />
-              </div>
-              <div>
-                <div className="purch-art-name">{a.name || a.article}</div>
-                <div className="purch-art-id">{a.article}</div>
-              </div>
-              <div><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}</span></div>
-              <div className="purch-days" style={{ color: 'var(--text3)' }}>{fmtDays(a.coverage_days)}</div>
-              <div className="purch-days" style={{ color: 'var(--text3)' }}>—</div>
-              <div style={{ fontSize: 12, color: 'var(--text3)' }}>—</div>
-              <div className="purch-qty" style={{ color: 'var(--text3)' }}>—</div>
-              {hasCost && <div className="purch-val">—</div>}
-              <div><span className="purch-status-chip" style={{ background:'#ef444415', color:'#ef4444' }}>BEVAKA</span></div>
+              <span className="lt-hint lt-num">{fmt(reviewed)} av {fmt(toOrder.length)} granskade · {fmt(approved.length)} godkända{hasCost && approved.length ? ` för ${fmtKr(valueOf(approved))}` : ''}</span>
             </div>
-          ))}
-        </>
-      )}
-
-      {filtered.length === 0 && criticalNoOrder.filter(a => abcFilter === 'Alla' || a.abc === abcFilter).length === 0 && (
-        <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text3)', fontSize: 14 }}>
-          Inga artiklar matchar filtret
+          )}
         </div>
-      )}
+        {active.length > 0 && (
+          <div className="lt-po-export">
+            <button className="lt-btn lt-btn-primary lt-btn-lg" disabled={exporting}
+              onClick={() => doExport(approved.length ? approved : active, approved.length > 0)}>
+              {exporting ? <span className="lt-spinner" style={{ width: 14, height: 14 }} /> : null}
+              {approved.length ? `Exportera godkända (${fmt(approved.length)})` : 'Exportera alla förslag'}
+            </button>
+            <span className="lt-hint">Excel med en flik per leverantör</span>
+            {exportError && <span className="lt-hint lt-crit-text">{exportError}</span>}
+          </div>
+        )}
+      </section>
+
+      <div className="lt-kpi-row">
+        <KpiTile label="Beställ idag" tone={todayCount ? 'warn' : null} value={fmt(todayCount)}
+          sub={weekCount ? `${fmt(weekCount)} till inom 7 dagar` : 'sista dag är idag eller passerad'}
+          tooltip={"Sista beställningsdag = den sista dagen du kan beställa utan att lagret tar slut:\nidag + (täcktid − ledtid). Täcktiden räknar med saldo och alla öppna order."} />
+        <KpiTile label="För sent" tone={lateCount ? 'crit' : null} value={fmt(lateCount)}
+          sub={lateCount ? 'tar slut innan ny leverans kan komma' : 'inga artiklar'}
+          tooltip={"Täcktiden är kortare än ledtiden. Även om du beställer idag blir det brist i ungefär (ledtid − täcktid) dagar.\nPåskynda leveransen eller hitta en snabbare leverantör."} />
+        <KpiTile label="Ordervärde" value={hasCost ? fmtMoney(valueOf(active)).v : '—'} unit={hasCost ? fmtMoney(valueOf(active)).u : null}
+          sub={hasCost ? `${fmtKr(valueOf(approved))} godkänt` : 'Kräver inköpspris i filen'} />
+        <KpiTile label="Leverantörer" value={fmt(suppliers)} sub={`${fmt(active.length)} orderrader`} />
+        <KpiTile label="Påskynda" tone={expedite.length ? 'warn' : null} value={fmt(expedite.length)}
+          sub="beställda men kommer för sent"
+          tooltip={"Artiklar där en order redan är lagd men saldot tar slut innan leveransen kommer, eller där leveransen är försenad."} />
+      </div>
+
+      <section className="lt-panel">
+        <div className="lt-panel-head lt-po-head">
+          <div className="lt-seg" role="tablist">
+            {views.map(([k, label]) => (
+              <button key={k} role="tab" aria-selected={activeView === k} className={activeView === k ? 'is-active' : ''} onClick={() => setView(k)}>{label}</button>
+            ))}
+          </div>
+          <div className="lt-po-filters">
+            <div className="lt-seg" aria-label="ABC-klass">
+              {['Alla', 'A', 'B', 'C'].map(c => (
+                <button key={c} className={abc === c ? 'is-active' : ''} onClick={() => setAbc(c)}>{c}</button>
+              ))}
+            </div>
+            <input className="lt-input lt-slot-search" placeholder="Sök artikel eller leverantör" value={query} onChange={e => setQuery(e.target.value)} aria-label="Sök" />
+          </div>
+        </div>
+
+        {(activeView === 'order' || activeView === 'rejected') && (
+          groupKeys.length === 0 ? <p className="lt-hint" style={{ padding: '16px 20px', margin: 0 }}>Inga artiklar matchar.</p> :
+          groupKeys.map(k => {
+            const list = groups[k];
+            const pending = list.filter(a => stOf(a) === 'pending');
+            const showAll = expanded[k];
+            const shown = showAll ? list : list.slice(0, 25);
+            const first = list[0];
+            return (
+              <div className="lt-po-group" key={k}>
+                <div className="lt-po-group-head">
+                  <div>
+                    <h4>{k}</h4>
+                    <span className="lt-hint lt-num">
+                      {fmt(list.length)} {list.length === 1 ? 'rad' : 'rader'}{hasCost ? ` · ${fmtKr(valueOf(list))}` : ''} ·{' '}
+                      {first.late_days > 0 ? 'redan för sent för några' : `första sista dag ${relDay(first.last_order_date)}`}
+                    </span>
+                  </div>
+                  {activeView === 'order' && (
+                    <div className="lt-po-btns">
+                      {pending.length > 0 && (
+                        <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={() => setDecisions(prev => {
+                          const next = { ...prev };
+                          pending.forEach(a => { next[a.article] = { ...(prev[a.article] || {}), qty: qtyOf(a), status: 'approved' }; });
+                          return next;
+                        })}>Godkänn alla ({fmt(pending.length)})</button>
+                      )}
+                      <button className="lt-btn lt-btn-ghost lt-btn-sm" disabled={exporting}
+                        onClick={() => { const ap = list.filter(a => stOf(a) === 'approved'); doExport(ap.length ? ap : list, ap.length > 0); }}>Exportera</button>
+                    </div>
+                  )}
+                </div>
+                <div className="lt-slot-table-wrap">
+                  <table className="lt-slot-table lt-po-table">
+                    <thead>
+                      <tr>
+                        <th>Artikel</th><th>Läge</th><th>Beställ senast</th><th className="num">Räcker</th>
+                        <th className="num">Antal</th><th className="num">Belopp</th><th>Beslut</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {shown.map(a => <PurchaseLine key={a.article} a={a} dec={decisions[a.article]} onDecide={decide} hasCost={hasCost} />)}
+                    </tbody>
+                  </table>
+                </div>
+                {list.length > shown.length && (
+                  <div className="lt-slot-more"><button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={() => setExpanded(e => ({ ...e, [k]: true }))}>Visa alla {fmt(list.length)}</button></div>
+                )}
+              </div>
+            );
+          })
+        )}
+
+        {activeView === 'expedite' && (
+          <div className="lt-slot-table-wrap">
+            <table className="lt-slot-table">
+              <thead><tr><th>Artikel</th><th>Leverantör</th><th className="num">Beställt</th><th>Leverans väntas</th><th>Saldot räcker till</th><th>Läge</th></tr></thead>
+              <tbody>
+                {expedite.filter(matches).map(a => (
+                  <tr key={a.article}>
+                    <td><div className="lt-slot-art">{a.name || a.article}</div><div className="lt-mono lt-subtle lt-slot-id">{a.article}</div></td>
+                    <td>{a.supplier || '—'}</td>
+                    <td className="num lt-num">{fmt(a.ordered_qty)} st</td>
+                    <td className="lt-num">{a.eta_date ? `${shortDate(a.eta_date)}${a.order_late ? ' · försenad' : ''}` : 'datum saknas'}</td>
+                    <td className="lt-num">{a.out_of_stock ? 'slut nu' : `${shortDate(a.stockout_date)} (${relDay(a.stockout_date)})`}</td>
+                    <td className="lt-slot-reason">{a.order_late ? 'Leveransen är försenad — kontakta leverantören' : 'Saldot tar slut innan leveransen — be om tidigare leverans'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {activeView === 'upcoming' && (
+          <div className="lt-slot-table-wrap">
+            <table className="lt-slot-table">
+              <thead><tr><th>Artikel</th><th>Leverantör</th><th>Beställ</th><th className="num">Räcker</th><th className="num">Förväntat antal</th></tr></thead>
+              <tbody>
+                {upcoming.filter(matches).map(a => {
+                  const moq = Math.max(1, Number(a.moq) || 1);
+                  const need = Math.max(0, (a.order_up_to ?? 0) - (a.effective_stock ?? 0));
+                  return (
+                    <tr key={a.article}>
+                      <td><div className="lt-slot-art">{a.name || a.article}</div><div className="lt-mono lt-subtle lt-slot-id">{a.article}</div></td>
+                      <td>{a.supplier || '—'}</td>
+                      <td className="lt-num"><b>{relDay(a.order_by_date)}</b> <span className="lt-subtle">{shortDate(a.order_by_date)}</span></td>
+                      <td className="num lt-num">{nf(a.coverage_days, 0)} d</td>
+                      <td className="num lt-num">{fmt(Math.ceil(need / moq) * moq)} st</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <p className="lt-hint lt-slot-method">
+        Så räknar vi: en artikel ska beställas när lagerpositionen (saldo + alla öppna order) når beställningspunkten, alltså förbrukningen under ledtiden plus säkerhetslager.
+        Förslaget fyller upp till beställningspunkten plus 30 dagars förbrukning, avrundat uppåt till hel förpackning. Sista beställningsdag är sista dagen du kan beställa innan lagret tar slut.
+        Dina beslut sparas i den här webbläsaren för den här analysen.
+      </p>
     </div>
   );
 }
 
-// ─── SLOTTING TAB ────────────────────────────────────────────────────────
+
 // ─── SLOTTING v4 — plockklass, zon efter kapacitet, klassbyten ───────────
 const SLOT_DIR = { 'NÄRMARE': { label: 'Närmare', tone: 'info' }, 'LÄNGRE BORT': { label: 'Gör plats', tone: 'muted' } };
 const CHG_LABEL = { UPP: 'Upp', NED: 'Ned' };
