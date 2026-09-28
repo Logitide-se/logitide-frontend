@@ -3451,6 +3451,345 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
   );
 }
 
+// ─── DASHBOARD HOME (startsida efter inloggning) ─────────────────────────
+// ─── DASHBOARD HOME ───────────────────────────────────────────────────────
+function DashboardHome({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
+  const [latestData, setLatestData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [showImportWizard, setShowImportWizard] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+  const [analysisCount, setAnalysisCount] = useState(0);
+
+  useEffect(() => {
+    if (!auth?.token) { setLoading(false); return; }
+    fetch(`${API_URL}/history`, { headers: { Authorization: `Bearer ${auth.token}` } })
+      .then(r => r.json())
+      .then(async d => {
+        const analyses = d.analyses || [];
+        setAnalysisCount(analyses.length);
+        if (!analyses.length) { setLoading(false); return; }
+        const latestId = analyses[0].id;
+        const detail = await fetch(`${API_URL}/history/${latestId}`, {
+          headers: { Authorization: `Bearer ${auth.token}` }
+        }).then(r => r.json());
+        setLatestData(detail);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [auth]);
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    window._lastUploadedFile = file;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const valForm = new FormData();
+      valForm.append('file', file);
+      const valRes = await fetch(`${API_URL}/validate`, { method: 'POST', body: valForm });
+      if (valRes.ok) {
+        const val = await valRes.json();
+        if (!val.valid && val.errors?.length) throw new Error(val.errors.join('\n'));
+      }
+      const formData = new FormData();
+      formData.append('file', file);
+      try { const cfg = localStorage.getItem('logitide-slottingConfig'); if (cfg) formData.append('zone_config', cfg); } catch {}
+      try {
+        const sup = JSON.parse(localStorage.getItem('logitide-supplierSettings') || '{}');
+        const valid = Object.fromEntries(Object.entries(sup).filter(([,v]) => v != null && v !== ''));
+        if (Object.keys(valid).length) formData.append('supplier_lead_times', JSON.stringify(valid));
+        const gs = JSON.parse(localStorage.getItem('logitide-globalSettings') || '{}');
+        if (gs.defaultLeadTime) formData.append('global_lead_time', String(gs.defaultLeadTime));
+      } catch {}
+      const headers = {};
+      if (auth?.token) headers['Authorization'] = `Bearer ${auth.token}`;
+      const res = await fetch(`${API_URL}/analyze`, { method: 'POST', body: formData, headers });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Analysen misslyckades.'); }
+      const data = await res.json();
+      window._lastAnalysisData = data;
+      onAnalysis(data);
+    } catch (e) {
+      setUploadError(e.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const s = latestData?.summary;
+  const hasCost = s?.has_cost_data;
+  const actions = latestData?.top_actions?.slice(0, 6) || [];
+  const articles = latestData?.articles || [];
+
+  // Urgency assessment for hero
+  const critical = s?.critical ?? 0;
+  const toOrder = s?.articles_to_order ?? 0;
+  const dead = s?.dead_stock ?? 0;
+  const svcLevel = s?.a_service_level_pct;
+
+  const getHeroStatus = () => {
+    if (!latestData) return null;
+    if (critical > 0) return { level: 'critical', color: '#ef4444', bg: 'rgba(239,68,68,0.08)', icon: '🚨', text: `${critical} ${critical === 1 ? 'artikel kräver' : 'artiklar kräver'} omedelbar åtgärd`, sub: 'Täcktid understiger ledtiden — risk för lagerbrist' };
+    if (toOrder > 5) return { level: 'warning', color: '#f97316', bg: 'rgba(249,115,22,0.08)', icon: '📋', text: `${toOrder} artiklar bör beställas`, sub: hasCost ? `Ordervärde: ${fmtKr(s?.total_order_value_sek)}` : 'Kontrollera täcktider och beställ' };
+    if (svcLevel != null && svcLevel < 90) return { level: 'warning', color: '#eab308', bg: 'rgba(234,179,8,0.08)', icon: '📉', text: `Servicenivå A: ${svcLevel}%`, sub: 'Under målnivå 95% — åtgärda kritiska artiklar' };
+    return { level: 'ok', color: '#22c55e', bg: 'rgba(34,197,94,0.08)', icon: '✅', text: 'Lagret är i balans', sub: `${fmt(s?.total_articles)} artiklar · inga kritiska brister` };
+  };
+
+  const heroStatus = getHeroStatus();
+
+  const today = new Date().toLocaleDateString('sv-SE', { day: 'numeric', month: 'long', year: 'numeric' });
+  const analysisDate = latestData?.created_at
+    ? new Date(latestData.created_at).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric' })
+    : null;
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 32, height: 32, border: '3px solid var(--border)', borderTop: '3px solid #6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+          <div style={{ color: 'var(--text3)', fontSize: 13 }}>Laddar lagerläget…</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        .dh-kpi:hover { border-color: var(--accent, #6366f1) !important; transform: translateY(-1px); transition: all 0.15s; }
+        .dh-action-row:hover { background: var(--bg3) !important; }
+        .dh-btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+        .dh-upload-zone:hover { border-color: #6366f1 !important; background: var(--bg2) !important; }
+        .dh-erp-btn:hover { border-color: #6366f1 !important; }
+      `}</style>
+
+      {/* Topbar */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 24px', borderBottom: '1px solid var(--border)', background: 'var(--bg2)', position: 'sticky', top: 0, zIndex: 50 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>📦</div>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.02em', lineHeight: 1 }}>Logitide</div>
+            <div style={{ fontSize: 8, color: 'var(--text3)', letterSpacing: '0.15em', fontWeight: 700, marginTop: 1 }}>LAGEROPTIMERING</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {auth?.company && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text2)', background: 'var(--bg3)', padding: '3px 10px', borderRadius: 20, border: '1px solid var(--border)' }}>{auth.company}</span>}
+          {auth?.email && <span style={{ fontSize: 11, color: 'var(--text3)' }}>{auth.email}</span>}
+          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+          <button onClick={onLogout} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text3)', fontSize: 12, padding: '5px 12px', cursor: 'pointer' }}>Logga ut</button>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, maxWidth: 1100, width: '100%', margin: '0 auto', padding: '28px 24px', animation: 'fadeIn 0.25s ease' }}>
+        {!latestData ? (
+          /* ── Ingen historik — onboarding-upload ── */
+          <div style={{ maxWidth: 540, margin: '80px auto 0', textAlign: 'center' }}>
+            <div style={{ width: 64, height: 64, borderRadius: 16, background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, margin: '0 auto 20px' }}>📦</div>
+            <h2 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text)', marginBottom: 8, letterSpacing: '-0.02em' }}>Välkommen till Logitide</h2>
+            <p style={{ color: 'var(--text3)', fontSize: 14, marginBottom: 32, lineHeight: 1.6 }}>Ladda upp er lagerfil så analyserar vi KPI:er, identifierar brister och skapar prioriterade åtgärder direkt.</p>
+
+            <div
+              className="dh-upload-zone"
+              style={{ border: '2px dashed var(--border)', borderRadius: 14, padding: '44px 28px', cursor: 'pointer', background: dragging ? 'var(--bg2)' : 'var(--bg)', transition: 'all 0.2s', marginBottom: 12 }}
+              onDragOver={e => { e.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }}
+              onClick={() => document.getElementById('dh-file-input').click()}
+            >
+              <div style={{ fontSize: 32, marginBottom: 10 }}>{uploading ? '⏳' : '📂'}</div>
+              <p style={{ color: 'var(--text)', fontWeight: 700, margin: '0 0 6px', fontSize: 15 }}>
+                {uploading ? 'Analyserar filen…' : 'Dra och släpp här, eller klicka'}
+              </p>
+              <p style={{ color: 'var(--text3)', fontSize: 13, margin: 0 }}>Excel (.xlsx, .xls) eller CSV · Max 20 MB</p>
+              <input id="dh-file-input" type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
+            </div>
+
+            <button
+              onClick={() => setShowImportWizard(true)}
+              className="dh-erp-btn"
+              style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 20px', cursor: 'pointer', background: 'var(--bg2)', color: 'var(--text)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontSize: 14, fontWeight: 600, transition: 'all 0.15s' }}>
+              <span>🔗</span>
+              <span>Importera från ERP-system</span>
+              <span style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 400 }}>Flera filer · AI-kolumnmappning</span>
+            </button>
+
+            {uploadError && <div style={{ marginTop: 14, color: '#ef4444', fontSize: 13, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: '10px 14px', textAlign: 'left' }}>⚠️ {uploadError}</div>}
+          </div>
+        ) : (
+          <>
+            {/* ── Hero-status ── */}
+            {heroStatus && (
+              <div style={{ background: heroStatus.bg, border: `1px solid ${heroStatus.color}30`, borderLeft: `4px solid ${heroStatus.color}`, borderRadius: 12, padding: '16px 20px', marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  <span style={{ fontSize: 24 }}>{heroStatus.icon}</span>
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: heroStatus.color, letterSpacing: '-0.01em' }}>{heroStatus.text}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>{heroStatus.sub}</div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', textAlign: 'right' }}>
+                    <div>{analysisDate ? `Analys: ${analysisDate}` : today}</div>
+                    <div style={{ marginTop: 2 }}>{latestData.filename || 'Senaste fil'} · {fmt(s?.total_articles)} art.</div>
+                  </div>
+                  <button
+                    className="dh-btn-primary"
+                    onClick={() => onAnalysis(latestData)}
+                    style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontWeight: 700, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s' }}>
+                    Öppna full analys →
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── KPI-grid ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(175px, 1fr))', gap: 12, marginBottom: 20 }}>
+              {/* Kritiska */}
+              <div className="dh-kpi" style={{ background: 'var(--bg2)', border: `1px solid ${critical > 0 ? 'rgba(239,68,68,0.4)' : 'var(--border)'}`, borderRadius: 10, padding: '14px 16px', cursor: 'default', transition: 'all 0.15s' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: '#ef4444', letterSpacing: '0.07em' }}>KRITISKA BRISTER</span>
+                  {critical > 0 && <span style={{ fontSize: 9, background: 'rgba(239,68,68,0.15)', color: '#ef4444', borderRadius: 4, padding: '2px 5px', fontWeight: 700 }}>AKUT</span>}
+                </div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: critical > 0 ? '#ef4444' : 'var(--text)', margin: '6px 0 2px', fontVariantNumeric: 'tabular-nums' }}>{fmt(critical)}</div>
+                <div style={{ fontSize: 11, color: 'var(--text3)' }}>{s?.watch ?? 0} bevakas</div>
+              </div>
+
+              {/* Att beställa */}
+              <div className="dh-kpi" style={{ background: 'var(--bg2)', border: `1px solid ${toOrder > 0 ? 'rgba(249,115,22,0.3)' : 'var(--border)'}`, borderRadius: 10, padding: '14px 16px', cursor: 'default', transition: 'all 0.15s' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#f97316', letterSpacing: '0.07em' }}>ATT BESTÄLLA</div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text)', margin: '6px 0 2px', fontVariantNumeric: 'tabular-nums' }}>{fmt(toOrder)}</div>
+                <div style={{ fontSize: 11, color: 'var(--text3)' }}>{hasCost ? fmtKr(s?.total_order_value_sek) : 'Lägg till inköpspris'}</div>
+              </div>
+
+              {/* Bundet kapital */}
+              <div className="dh-kpi" style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', cursor: 'default', transition: 'all 0.15s' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#a855f7', letterSpacing: '0.07em' }}>BUNDET KAPITAL</div>
+                {hasCost ? (
+                  <>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', margin: '6px 0 2px', fontVariantNumeric: 'tabular-nums' }}>{fmtKr(s?.total_stock_value_sek)}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text3)' }}>varav {fmtKr(s?.overstock_value_sek)} överlager</div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text3)', margin: '8px 0 4px' }}>—</div>
+                    <div style={{ fontSize: 11, color: 'var(--text3)' }}>Kräver inköpspris</div>
+                  </>
+                )}
+              </div>
+
+              {/* Dött lager */}
+              <div className="dh-kpi" style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', cursor: 'default', transition: 'all 0.15s' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', letterSpacing: '0.07em' }}>DÖTT LAGER</div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: dead > 0 ? 'var(--text)' : 'var(--text3)', margin: '6px 0 2px', fontVariantNumeric: 'tabular-nums' }}>{fmt(dead)}</div>
+                <div style={{ fontSize: 11, color: 'var(--text3)' }}>{hasCost && dead > 0 ? fmtKr(s?.dead_stock_value_sek) : 'artiklar utan förbrukning'}</div>
+              </div>
+
+              {/* Servicenivå */}
+              <div className="dh-kpi" style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', cursor: 'default', transition: 'all 0.15s' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#3b82f6', letterSpacing: '0.07em' }}>SERVICENIVÅ A</div>
+                {svcLevel != null ? (
+                  <>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: svcLevel >= 95 ? '#22c55e' : svcLevel >= 85 ? '#f97316' : '#ef4444', margin: '6px 0 6px', fontVariantNumeric: 'tabular-nums' }}>{svcLevel}%</div>
+                    <div style={{ height: 4, background: 'var(--bg3)', borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${svcLevel}%`, background: svcLevel >= 95 ? '#22c55e' : svcLevel >= 85 ? '#f97316' : '#ef4444', borderRadius: 2 }} />
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>Mål: 95%</div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text3)', margin: '8px 0 4px' }}>—</div>
+                    <div style={{ fontSize: 11, color: 'var(--text3)' }}>Ej beräknad</div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* ── Prioriterade åtgärder ── */}
+            {actions.length > 0 && (
+              <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>Prioriterade åtgärder</h3>
+                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Sorterade efter påverkan och brådska</div>
+                  </div>
+                  <button onClick={() => onAnalysis(latestData)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: '#6366f1', fontSize: 12, cursor: 'pointer', fontWeight: 600, padding: '5px 12px' }}>
+                    Alla {latestData.top_actions?.length ?? 0} →
+                  </button>
+                </div>
+                <div>
+                  {actions.map((a, i) => {
+                    const urgencyColor = a.action_type === 'ORDER_NOW' || a.action_type === 'CRITICAL' ? '#ef4444'
+                      : a.action_type === 'ORDER_SOON' ? '#f97316'
+                      : a.action_type === 'INVESTIGATE' ? '#eab308'
+                      : '#6b7280';
+                    const urgencyLabel = a.action_type === 'ORDER_NOW' || a.action_type === 'CRITICAL' ? 'AKUT'
+                      : a.action_type === 'ORDER_SOON' ? 'SNART'
+                      : a.action_type === 'INVESTIGATE' ? 'GRANSKA'
+                      : 'INFO';
+                    return (
+                      <div key={i} className="dh-action-row" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 18px', borderBottom: i < actions.length - 1 ? '1px solid var(--border)' : 'none', transition: 'background 0.1s', cursor: 'default' }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: urgencyColor, background: `${urgencyColor}18`, border: `1px solid ${urgencyColor}30`, borderRadius: 4, padding: '2px 6px', letterSpacing: '0.05em', flexShrink: 0, minWidth: 48, textAlign: 'center' }}>{urgencyLabel}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.article_id ? `Art. ${a.article_id}` : ''}{a.description ? (a.article_id ? ' — ' : '') + a.description : ''}</div>
+                          {a.message && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.message}</div>}
+                        </div>
+                        {hasCost && a.effect_value_sek != null && (
+                          <span style={{ fontSize: 12, fontWeight: 700, color: urgencyColor, flexShrink: 0 }}>{fmtKr(a.effect_value_sek)}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ── Ny analys ── */}
+            <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '18px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Kör ny analys</div>
+                  {analysisCount > 0 && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{analysisCount} {analysisCount === 1 ? 'tidigare analys' : 'tidigare analyser'} sparade</div>}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <div
+                  className="dh-upload-zone"
+                  style={{ flex: 1, minWidth: 200, border: '2px dashed var(--border)', borderRadius: 10, padding: '18px 16px', cursor: 'pointer', textAlign: 'center', background: dragging ? 'var(--bg3)' : 'transparent', transition: 'all 0.2s' }}
+                  onDragOver={e => { e.preventDefault(); setDragging(true); }}
+                  onDragLeave={() => setDragging(false)}
+                  onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }}
+                  onClick={() => document.getElementById('dh-file-input2').click()}
+                >
+                  <div style={{ fontSize: 22, marginBottom: 6 }}>{uploading ? '⏳' : '📂'}</div>
+                  <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 600 }}>{uploading ? 'Analyserar…' : 'Ladda upp fil'}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 3 }}>Excel eller CSV</div>
+                  <input id="dh-file-input2" type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
+                </div>
+                <button
+                  onClick={() => setShowImportWizard(true)}
+                  className="dh-erp-btn"
+                  style={{ flex: 1, minWidth: 200, border: '1px solid var(--border)', borderRadius: 10, padding: '18px 16px', cursor: 'pointer', background: 'var(--bg3)', color: 'var(--text)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, transition: 'all 0.15s' }}>
+                  <span style={{ fontSize: 22 }}>🔗</span>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>Importera från ERP</span>
+                  <span style={{ fontSize: 11, color: 'var(--text3)' }}>Flera filer · AI-mappning</span>
+                </button>
+              </div>
+              {uploadError && <div style={{ marginTop: 12, color: '#ef4444', fontSize: 13, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: '10px 14px' }}>⚠️ {uploadError}</div>}
+            </div>
+          </>
+        )}
+      </div>
+
+      {showImportWizard && (
+        <ImportWizard onAnalysis={onAnalysis} onClose={() => setShowImportWizard(false)} auth={auth} />
+      )}
+    </div>
+  );
+}
+
 // ─── APP ──────────────────────────────────────────────────────────────────
 // ─── LOGIN PAGE ───────────────────────────────────────────────────────────
 function LoginPage({ onLogin }) {
@@ -3984,5 +4323,5 @@ export default function App() {
 
   if (!auth) return <LoginPage onLogin={setAuth} />;
   if (analysisData) return <Dashboard data={analysisData} auth={auth} onReset={() => setAnalysisData(null)} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />;
-  return <UploadPage onAnalysis={setAnalysisData} auth={auth} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />;
+  return <DashboardHome onAnalysis={setAnalysisData} auth={auth} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />;
 }
