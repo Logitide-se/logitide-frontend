@@ -3363,7 +3363,7 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
             <div className="sidebar-sub">OPTIMIZER</div>
           </div>
         </div>
-        <button className="back-btn" onClick={onReset}><Icon name="refresh" size={14} /> Byt data</button>
+        <button className="back-btn" onClick={onReset}><Icon name="home" size={14} /> Startsida</button>
         <nav className="sidebar-nav">
           {tabs.map(t => (
             <button
@@ -3453,7 +3453,20 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
 
 // ─── DASHBOARD HOME (startsida efter inloggning) ─────────────────────────
 // ─── DASHBOARD HOME ───────────────────────────────────────────────────────
-function DashboardHome({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
+
+// KPI-fält som behövs — visas visuellt på startsidan
+const KPI_FIELDS = [
+  { key: 'artikel',    label: 'Artikelnummer',    icon: '🔖', required: true,  desc: 'Unikt ID per artikel' },
+  { key: 'saldo',     label: 'Lagersaldo',        icon: '📦', required: true,  desc: 'Aktuellt lagerantal' },
+  { key: 'forbruk',   label: 'Förbrukning',       icon: '📈', required: true,  desc: 'Försäljning/uttag' },
+  { key: 'pris',      label: 'Inköpspris',        icon: '💰', required: false, desc: 'Aktiverar kapital-KPI:er' },
+  { key: 'ledtid',    label: 'Ledtid (dagar)',    icon: '🚚', required: false, desc: 'Förbättrar beställningsanalys' },
+  { key: 'position',  label: 'Lagerposition',     icon: '📍', required: false, desc: 'Aktiverar slotting-analys' },
+  { key: 'moq',       label: 'MOQ',               icon: '📋', required: false, desc: 'Minsta orderkvantitet' },
+  { key: 'inkommande',label: 'Inkommande order',  icon: '🔄', required: false, desc: 'Förbättrar servicenivå' },
+];
+
+function DashboardHome({ onAnalysis, onOpenAnalysis, existingData, auth, onLogout, theme, onToggleTheme }) {
   const [latestData, setLatestData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showImportWizard, setShowImportWizard] = useState(false);
@@ -3461,6 +3474,7 @@ function DashboardHome({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
   const [analysisCount, setAnalysisCount] = useState(0);
+  const [hoveredField, setHoveredField] = useState(null);
 
   useEffect(() => {
     if (!auth?.token) { setLoading(false); return; }
@@ -3548,238 +3562,186 @@ function DashboardHome({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
           <div style={{ width: 32, height: 32, border: '3px solid var(--border)', borderTop: '3px solid #6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-          <div style={{ color: 'var(--text3)', fontSize: 13 }}>Laddar lagerläget…</div>
+          <div style={{ color: 'var(--text3)', fontSize: 13 }}>Laddar…</div>
         </div>
       </div>
     );
   }
 
+  const hasHistory = latestData || analysisCount > 0;
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-        .dh-kpi:hover { border-color: var(--accent, #6366f1) !important; transform: translateY(-1px); transition: all 0.15s; }
-        .dh-action-row:hover { background: var(--bg3) !important; }
-        .dh-btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
-        .dh-upload-zone:hover { border-color: #6366f1 !important; background: var(--bg2) !important; }
-        .dh-erp-btn:hover { border-color: #6366f1 !important; }
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .dh-fade { animation: fadeUp 0.3s ease both; }
+        .dh-upload-primary { transition: all 0.2s; }
+        .dh-upload-primary:hover { border-color: #6366f1 !important; background: rgba(99,102,241,0.05) !important; }
+        .dh-upload-primary.dragging { border-color: #6366f1 !important; background: rgba(99,102,241,0.08) !important; }
+        .dh-erp-btn { transition: all 0.15s; }
+        .dh-erp-btn:hover { border-color: #6366f1 !important; background: rgba(99,102,241,0.06) !important; }
+        .dh-field-chip { transition: all 0.15s; cursor: default; }
+        .dh-field-chip:hover { transform: translateY(-1px); }
+        .dh-history-row:hover { background: var(--bg3) !important; }
+        .dh-open-btn:hover { background: #5254cc !important; }
       `}</style>
 
-      {/* Topbar */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 24px', borderBottom: '1px solid var(--border)', background: 'var(--bg2)', position: 'sticky', top: 0, zIndex: 50 }}>
+      {/* ── Topbar ── */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 24px', borderBottom: '1px solid var(--border)', background: 'var(--bg2)', position: 'sticky', top: 0, zIndex: 50 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>📦</div>
+          <div style={{ width: 30, height: 30, borderRadius: 7, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15 }}>📦</div>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.02em', lineHeight: 1 }}>Logitide</div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.02em', lineHeight: 1 }}>Logitide</div>
             <div style={{ fontSize: 8, color: 'var(--text3)', letterSpacing: '0.15em', fontWeight: 700, marginTop: 1 }}>LAGEROPTIMERING</div>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {auth?.company && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text2)', background: 'var(--bg3)', padding: '3px 10px', borderRadius: 20, border: '1px solid var(--border)' }}>{auth.company}</span>}
           {auth?.email && <span style={{ fontSize: 11, color: 'var(--text3)' }}>{auth.email}</span>}
+          {existingData && (
+            <button onClick={() => (onOpenAnalysis || onAnalysis)(existingData)}
+              style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 6, color: '#818cf8', fontSize: 12, padding: '5px 12px', cursor: 'pointer', fontWeight: 600 }}>
+              ↗ Senaste analys
+            </button>
+          )}
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           <button onClick={onLogout} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text3)', fontSize: 12, padding: '5px 12px', cursor: 'pointer' }}>Logga ut</button>
         </div>
       </div>
 
-      <div style={{ flex: 1, maxWidth: 1100, width: '100%', margin: '0 auto', padding: '28px 24px', animation: 'fadeIn 0.25s ease' }}>
-        {!latestData ? (
-          /* ── Ingen historik — onboarding-upload ── */
-          <div style={{ maxWidth: 540, margin: '80px auto 0', textAlign: 'center' }}>
-            <div style={{ width: 64, height: 64, borderRadius: 16, background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, margin: '0 auto 20px' }}>📦</div>
-            <h2 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text)', marginBottom: 8, letterSpacing: '-0.02em' }}>Välkommen till Logitide</h2>
-            <p style={{ color: 'var(--text3)', fontSize: 14, marginBottom: 32, lineHeight: 1.6 }}>Ladda upp er lagerfil så analyserar vi KPI:er, identifierar brister och skapar prioriterade åtgärder direkt.</p>
+      {/* ── Huvud-innehåll ── */}
+      <div style={{ flex: 1, maxWidth: 900, width: '100%', margin: '0 auto', padding: '48px 24px 40px' }} className="dh-fade">
 
-            <div
-              className="dh-upload-zone"
-              style={{ border: '2px dashed var(--border)', borderRadius: 14, padding: '44px 28px', cursor: 'pointer', background: dragging ? 'var(--bg2)' : 'var(--bg)', transition: 'all 0.2s', marginBottom: 12 }}
-              onDragOver={e => { e.preventDefault(); setDragging(true); }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }}
-              onClick={() => document.getElementById('dh-file-input').click()}
-            >
-              <div style={{ fontSize: 32, marginBottom: 10 }}>{uploading ? '⏳' : '📂'}</div>
-              <p style={{ color: 'var(--text)', fontWeight: 700, margin: '0 0 6px', fontSize: 15 }}>
-                {uploading ? 'Analyserar filen…' : 'Dra och släpp här, eller klicka'}
-              </p>
-              <p style={{ color: 'var(--text3)', fontSize: 13, margin: 0 }}>Excel (.xlsx, .xls) eller CSV · Max 20 MB</p>
-              <input id="dh-file-input" type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
-            </div>
+        {/* Hero-rubrik */}
+        <div style={{ textAlign: 'center', marginBottom: 40 }}>
+          <h1 style={{ fontSize: 28, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.03em', margin: '0 0 10px' }}>
+            {hasHistory ? 'Kör en ny analys' : 'Välkommen till Logitide'}
+          </h1>
+          <p style={{ fontSize: 15, color: 'var(--text3)', margin: 0, maxWidth: 480, marginInline: 'auto', lineHeight: 1.6 }}>
+            {hasHistory
+              ? 'Ladda upp en exportfil från ert system — AI:n mappar kolumnerna automatiskt.'
+              : 'Ladda upp er lagerfil så analyserar vi KPI:er, identifierar brister och skapar prioriterade åtgärder.'}
+          </p>
+        </div>
 
-            <button
-              onClick={() => setShowImportWizard(true)}
-              className="dh-erp-btn"
-              style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 20px', cursor: 'pointer', background: 'var(--bg2)', color: 'var(--text)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontSize: 14, fontWeight: 600, transition: 'all 0.15s' }}>
-              <span>🔗</span>
-              <span>Importera från ERP-system</span>
-              <span style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 400 }}>Flera filer · AI-kolumnmappning</span>
-            </button>
-
-            {uploadError && <div style={{ marginTop: 14, color: '#ef4444', fontSize: 13, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: '10px 14px', textAlign: 'left' }}>⚠️ {uploadError}</div>}
+        {/* ── Upload-sektion ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, marginBottom: 32, alignItems: 'stretch' }}>
+          {/* Primär drop-zon */}
+          <div
+            className={`dh-upload-primary${dragging ? ' dragging' : ''}`}
+            style={{ border: '2px dashed var(--border)', borderRadius: 14, padding: '36px 28px', cursor: uploading ? 'default' : 'pointer', textAlign: 'center', background: 'var(--bg2)' }}
+            onDragOver={e => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }}
+            onClick={() => !uploading && document.getElementById('dh-file-input').click()}
+          >
+            {uploading ? (
+              <>
+                <div style={{ width: 36, height: 36, border: '3px solid var(--border)', borderTop: '3px solid #6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 14px' }} />
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>Analyserar filen…</div>
+                <div style={{ fontSize: 12, color: 'var(--text3)' }}>AI mappar kolumner och beräknar KPI:er</div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 36, marginBottom: 12 }}>📂</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>Dra och släpp fil här</div>
+                <div style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 16 }}>Excel (.xlsx, .xls) eller CSV · Max 20 MB</div>
+                <span style={{ display: 'inline-block', background: '#6366f1', color: '#fff', borderRadius: 7, padding: '8px 20px', fontSize: 13, fontWeight: 700 }}>Välj fil</span>
+              </>
+            )}
+            <input id="dh-file-input" type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
           </div>
-        ) : (
-          <>
-            {/* ── Hero-status ── */}
-            {heroStatus && (
-              <div style={{ background: heroStatus.bg, border: `1px solid ${heroStatus.color}30`, borderLeft: `4px solid ${heroStatus.color}`, borderRadius: 12, padding: '16px 20px', marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                  <span style={{ fontSize: 24 }}>{heroStatus.icon}</span>
-                  <div>
-                    <div style={{ fontSize: 16, fontWeight: 800, color: heroStatus.color, letterSpacing: '-0.01em' }}>{heroStatus.text}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>{heroStatus.sub}</div>
+
+          {/* ERP-knapp — höger sida */}
+          <button
+            className="dh-erp-btn"
+            onClick={() => setShowImportWizard(true)}
+            style={{ border: '1px solid var(--border)', borderRadius: 14, padding: '24px 20px', cursor: 'pointer', background: 'var(--bg2)', color: 'var(--text)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, minWidth: 160 }}>
+            <span style={{ fontSize: 28 }}>🔗</span>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>ERP-import</span>
+            <span style={{ fontSize: 11, color: 'var(--text3)', textAlign: 'center', lineHeight: 1.4 }}>Flera filer<br/>AI-kolumnmappning</span>
+          </button>
+        </div>
+
+        {uploadError && (
+          <div style={{ marginBottom: 24, color: '#ef4444', fontSize: 13, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '12px 16px', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <span>⚠️</span><span>{uploadError}</span>
+          </div>
+        )}
+
+        {/* ── KPI-fält — vad systemet behöver ── */}
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginBottom: 28 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Vilka kolumner behövs?</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)' }}>Hovra för mer info · AI mappar automatiskt från valfritt kolumnnamn</div>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {KPI_FIELDS.map(f => (
+              <div
+                key={f.key}
+                className="dh-field-chip"
+                onMouseEnter={() => setHoveredField(f.key)}
+                onMouseLeave={() => setHoveredField(null)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 8,
+                  background: f.required ? 'rgba(99,102,241,0.1)' : 'var(--bg3)',
+                  border: `1px solid ${f.required ? 'rgba(99,102,241,0.35)' : 'var(--border)'}`,
+                  position: 'relative',
+                }}>
+                <span style={{ fontSize: 14 }}>{f.icon}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: f.required ? '#a5b4fc' : 'var(--text2)' }}>{f.label}</span>
+                {f.required && <span style={{ fontSize: 9, fontWeight: 800, color: '#6366f1', background: 'rgba(99,102,241,0.15)', borderRadius: 3, padding: '1px 4px', letterSpacing: '0.05em' }}>KRAV</span>}
+                {hoveredField === f.key && (
+                  <div style={{ position: 'absolute', bottom: 'calc(100% + 6px)', left: 0, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 7, padding: '6px 10px', fontSize: 11, color: 'var(--text2)', whiteSpace: 'nowrap', zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.2)', pointerEvents: 'none' }}>
+                    {f.desc}
+                    {!f.required && <span style={{ color: 'var(--text3)', marginLeft: 4 }}>· Valfritt men förbättrar analysen</span>}
                   </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-                  <div style={{ fontSize: 11, color: 'var(--text3)', textAlign: 'right' }}>
-                    <div>{analysisDate ? `Analys: ${analysisDate}` : today}</div>
-                    <div style={{ marginTop: 2 }}>{latestData.filename || 'Senaste fil'} · {fmt(s?.total_articles)} art.</div>
-                  </div>
-                  <button
-                    className="dh-btn-primary"
-                    onClick={() => onAnalysis(latestData)}
-                    style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontWeight: 700, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s' }}>
-                    Öppna full analys →
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* ── KPI-grid ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(175px, 1fr))', gap: 12, marginBottom: 20 }}>
-              {/* Kritiska */}
-              <div className="dh-kpi" style={{ background: 'var(--bg2)', border: `1px solid ${critical > 0 ? 'rgba(239,68,68,0.4)' : 'var(--border)'}`, borderRadius: 10, padding: '14px 16px', cursor: 'default', transition: 'all 0.15s' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: '#ef4444', letterSpacing: '0.07em' }}>KRITISKA BRISTER</span>
-                  {critical > 0 && <span style={{ fontSize: 9, background: 'rgba(239,68,68,0.15)', color: '#ef4444', borderRadius: 4, padding: '2px 5px', fontWeight: 700 }}>AKUT</span>}
-                </div>
-                <div style={{ fontSize: 28, fontWeight: 800, color: critical > 0 ? '#ef4444' : 'var(--text)', margin: '6px 0 2px', fontVariantNumeric: 'tabular-nums' }}>{fmt(critical)}</div>
-                <div style={{ fontSize: 11, color: 'var(--text3)' }}>{s?.watch ?? 0} bevakas</div>
-              </div>
-
-              {/* Att beställa */}
-              <div className="dh-kpi" style={{ background: 'var(--bg2)', border: `1px solid ${toOrder > 0 ? 'rgba(249,115,22,0.3)' : 'var(--border)'}`, borderRadius: 10, padding: '14px 16px', cursor: 'default', transition: 'all 0.15s' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: '#f97316', letterSpacing: '0.07em' }}>ATT BESTÄLLA</div>
-                <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text)', margin: '6px 0 2px', fontVariantNumeric: 'tabular-nums' }}>{fmt(toOrder)}</div>
-                <div style={{ fontSize: 11, color: 'var(--text3)' }}>{hasCost ? fmtKr(s?.total_order_value_sek) : 'Lägg till inköpspris'}</div>
-              </div>
-
-              {/* Bundet kapital */}
-              <div className="dh-kpi" style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', cursor: 'default', transition: 'all 0.15s' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: '#a855f7', letterSpacing: '0.07em' }}>BUNDET KAPITAL</div>
-                {hasCost ? (
-                  <>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', margin: '6px 0 2px', fontVariantNumeric: 'tabular-nums' }}>{fmtKr(s?.total_stock_value_sek)}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text3)' }}>varav {fmtKr(s?.overstock_value_sek)} överlager</div>
-                  </>
-                ) : (
-                  <>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text3)', margin: '8px 0 4px' }}>—</div>
-                    <div style={{ fontSize: 11, color: 'var(--text3)' }}>Kräver inköpspris</div>
-                  </>
                 )}
               </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 12, fontSize: 11, color: 'var(--text3)' }}>
+            <span style={{ color: '#a5b4fc', fontWeight: 600 }}>KRAV</span> = obligatoriskt &nbsp;·&nbsp; övriga fält aktiverar fler KPI:er &nbsp;·&nbsp; kolumnnamnen spelar ingen roll — AI:n känner igen dem automatiskt
+          </div>
+        </div>
 
-              {/* Dött lager */}
-              <div className="dh-kpi" style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', cursor: 'default', transition: 'all 0.15s' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', letterSpacing: '0.07em' }}>DÖTT LAGER</div>
-                <div style={{ fontSize: 28, fontWeight: 800, color: dead > 0 ? 'var(--text)' : 'var(--text3)', margin: '6px 0 2px', fontVariantNumeric: 'tabular-nums' }}>{fmt(dead)}</div>
-                <div style={{ fontSize: 11, color: 'var(--text3)' }}>{hasCost && dead > 0 ? fmtKr(s?.dead_stock_value_sek) : 'artiklar utan förbrukning'}</div>
+        {/* ── Historik-snabbvy ── */}
+        {latestData && (
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid var(--border)' }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Senaste analys</div>
+                {analysisCount > 1 && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>{analysisCount} analyser sparade totalt</div>}
               </div>
-
-              {/* Servicenivå */}
-              <div className="dh-kpi" style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', cursor: 'default', transition: 'all 0.15s' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: '#3b82f6', letterSpacing: '0.07em' }}>SERVICENIVÅ A</div>
-                {svcLevel != null ? (
-                  <>
-                    <div style={{ fontSize: 28, fontWeight: 800, color: svcLevel >= 95 ? '#22c55e' : svcLevel >= 85 ? '#f97316' : '#ef4444', margin: '6px 0 6px', fontVariantNumeric: 'tabular-nums' }}>{svcLevel}%</div>
-                    <div style={{ height: 4, background: 'var(--bg3)', borderRadius: 2, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${svcLevel}%`, background: svcLevel >= 95 ? '#22c55e' : svcLevel >= 85 ? '#f97316' : '#ef4444', borderRadius: 2 }} />
-                    </div>
-                    <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>Mål: 95%</div>
-                  </>
-                ) : (
-                  <>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text3)', margin: '8px 0 4px' }}>—</div>
-                    <div style={{ fontSize: 11, color: 'var(--text3)' }}>Ej beräknad</div>
-                  </>
-                )}
-              </div>
+              <button
+                className="dh-open-btn"
+                onClick={() => (onOpenAnalysis || onAnalysis)(latestData)}
+                style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer', transition: 'background 0.15s' }}>
+                Öppna full analys →
+              </button>
             </div>
-
-            {/* ── Prioriterade åtgärder ── */}
-            {actions.length > 0 && (
-              <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
-                  <div>
-                    <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>Prioriterade åtgärder</h3>
-                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Sorterade efter påverkan och brådska</div>
-                  </div>
-                  <button onClick={() => onAnalysis(latestData)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: '#6366f1', fontSize: 12, cursor: 'pointer', fontWeight: 600, padding: '5px 12px' }}>
-                    Alla {latestData.top_actions?.length ?? 0} →
-                  </button>
+            {/* KPI-rad från senaste analys */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 0 }}>
+              {[
+                { label: 'Artiklar', value: fmt(latestData.summary?.total_articles), color: 'var(--text)' },
+                { label: 'Kritiska', value: fmt(latestData.summary?.critical), color: (latestData.summary?.critical ?? 0) > 0 ? '#ef4444' : '#22c55e' },
+                { label: 'Att beställa', value: fmt(latestData.summary?.articles_to_order), color: '#f97316' },
+                { label: 'Servicenivå A', value: latestData.summary?.a_service_level_pct != null ? `${latestData.summary.a_service_level_pct}%` : '—', color: (latestData.summary?.a_service_level_pct ?? 0) >= 95 ? '#22c55e' : '#f97316' },
+                { label: 'Bundet kapital', value: latestData.summary?.has_cost_data ? fmtKr(latestData.summary?.total_stock_value_sek) : '—', color: '#a855f7' },
+                { label: 'Dött lager', value: fmt(latestData.summary?.dead_stock), color: 'var(--text2)' },
+              ].map((kpi, i, arr) => (
+                <div key={kpi.label} style={{ padding: '14px 16px', borderRight: i < arr.length - 1 ? '1px solid var(--border)' : 'none', textAlign: 'center' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', letterSpacing: '0.06em', marginBottom: 4 }}>{kpi.label.toUpperCase()}</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: kpi.color, fontVariantNumeric: 'tabular-nums' }}>{kpi.value ?? '—'}</div>
                 </div>
-                <div>
-                  {actions.map((a, i) => {
-                    const urgencyColor = a.action_type === 'ORDER_NOW' || a.action_type === 'CRITICAL' ? '#ef4444'
-                      : a.action_type === 'ORDER_SOON' ? '#f97316'
-                      : a.action_type === 'INVESTIGATE' ? '#eab308'
-                      : '#6b7280';
-                    const urgencyLabel = a.action_type === 'ORDER_NOW' || a.action_type === 'CRITICAL' ? 'AKUT'
-                      : a.action_type === 'ORDER_SOON' ? 'SNART'
-                      : a.action_type === 'INVESTIGATE' ? 'GRANSKA'
-                      : 'INFO';
-                    return (
-                      <div key={i} className="dh-action-row" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 18px', borderBottom: i < actions.length - 1 ? '1px solid var(--border)' : 'none', transition: 'background 0.1s', cursor: 'default' }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: urgencyColor, background: `${urgencyColor}18`, border: `1px solid ${urgencyColor}30`, borderRadius: 4, padding: '2px 6px', letterSpacing: '0.05em', flexShrink: 0, minWidth: 48, textAlign: 'center' }}>{urgencyLabel}</span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.article_id ? `Art. ${a.article_id}` : ''}{a.description ? (a.article_id ? ' — ' : '') + a.description : ''}</div>
-                          {a.message && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.message}</div>}
-                        </div>
-                        {hasCost && a.effect_value_sek != null && (
-                          <span style={{ fontSize: 12, fontWeight: 700, color: urgencyColor, flexShrink: 0 }}>{fmtKr(a.effect_value_sek)}</span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* ── Ny analys ── */}
-            <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '18px 20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Kör ny analys</div>
-                  {analysisCount > 0 && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{analysisCount} {analysisCount === 1 ? 'tidigare analys' : 'tidigare analyser'} sparade</div>}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <div
-                  className="dh-upload-zone"
-                  style={{ flex: 1, minWidth: 200, border: '2px dashed var(--border)', borderRadius: 10, padding: '18px 16px', cursor: 'pointer', textAlign: 'center', background: dragging ? 'var(--bg3)' : 'transparent', transition: 'all 0.2s' }}
-                  onDragOver={e => { e.preventDefault(); setDragging(true); }}
-                  onDragLeave={() => setDragging(false)}
-                  onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }}
-                  onClick={() => document.getElementById('dh-file-input2').click()}
-                >
-                  <div style={{ fontSize: 22, marginBottom: 6 }}>{uploading ? '⏳' : '📂'}</div>
-                  <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 600 }}>{uploading ? 'Analyserar…' : 'Ladda upp fil'}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 3 }}>Excel eller CSV</div>
-                  <input id="dh-file-input2" type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
-                </div>
-                <button
-                  onClick={() => setShowImportWizard(true)}
-                  className="dh-erp-btn"
-                  style={{ flex: 1, minWidth: 200, border: '1px solid var(--border)', borderRadius: 10, padding: '18px 16px', cursor: 'pointer', background: 'var(--bg3)', color: 'var(--text)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, transition: 'all 0.15s' }}>
-                  <span style={{ fontSize: 22 }}>🔗</span>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>Importera från ERP</span>
-                  <span style={{ fontSize: 11, color: 'var(--text3)' }}>Flera filer · AI-mappning</span>
-                </button>
-              </div>
-              {uploadError && <div style={{ marginTop: 12, color: '#ef4444', fontSize: 13, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: '10px 14px' }}>⚠️ {uploadError}</div>}
+              ))}
             </div>
-          </>
+            <div style={{ padding: '8px 20px', borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--text3)', display: 'flex', gap: 12 }}>
+              <span>📅 {latestData.created_at ? new Date(latestData.created_at).toLocaleDateString('sv-SE', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'}</span>
+              <span>📄 {latestData.filename || 'Okänd fil'}</span>
+            </div>
+          </div>
         )}
       </div>
 
@@ -4306,6 +4268,7 @@ function HistoryTab({ token }) {
 export default function App() {
   const [theme, toggleTheme] = useTheme();
   const [analysisData, setAnalysisData] = useState(null);
+  const [showHome, setShowHome] = useState(true);
   const [auth, setAuth] = useState(() => {
     const token = localStorage.getItem('logitide_token');
     const email = localStorage.getItem('logitide_email');
@@ -4319,9 +4282,24 @@ export default function App() {
     localStorage.removeItem('logitide_company');
     setAuth(null);
     setAnalysisData(null);
+    setShowHome(true);
+  };
+
+  const handleAnalysis = (data) => {
+    setAnalysisData(data);
+    setShowHome(false);
+  };
+
+  const handleGoHome = () => {
+    setShowHome(true);
+  };
+
+  const handleOpenFullAnalysis = (data) => {
+    setAnalysisData(data);
+    setShowHome(false);
   };
 
   if (!auth) return <LoginPage onLogin={setAuth} />;
-  if (analysisData) return <Dashboard data={analysisData} auth={auth} onReset={() => setAnalysisData(null)} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />;
-  return <DashboardHome onAnalysis={setAnalysisData} auth={auth} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />;
+  if (!showHome && analysisData) return <Dashboard data={analysisData} auth={auth} onReset={handleGoHome} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />;
+  return <DashboardHome onAnalysis={handleAnalysis} onOpenAnalysis={handleOpenFullAnalysis} existingData={analysisData} auth={auth} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />;
 }
