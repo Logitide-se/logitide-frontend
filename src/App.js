@@ -1645,408 +1645,221 @@ function PurchasingTab({ data }) {
 }
 
 // ─── SLOTTING TAB ────────────────────────────────────────────────────────
+// ─── SLOTTING v4 — plockklass, zon efter kapacitet, klassbyten ───────────
+const SLOT_DIR = { 'NÄRMARE': { label: 'Närmare', tone: 'info' }, 'LÄNGRE BORT': { label: 'Gör plats', tone: 'muted' } };
+const CHG_LABEL = { UPP: 'Upp', NED: 'Ned' };
+
+function slotCsv(rows) {
+  const head = ['Ordning', 'Artikelnummer', 'Benämning', 'Plockklass', 'Plock per dag', 'Nuvarande plats', 'Nuvarande zon', 'Ny zon', 'Riktning', 'Gör först', 'Skäl'];
+  const esc = (x) => { const t = String(x ?? ''); return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const lines = rows.map(a => [a.move_rank || '', a.article, a.name, a.slot_class, String(a.pick_velocity ?? '').replace('.', ','),
+    a.loc_original, a.loc, a.recommended_zone, a.needs_location ? 'Placera' : (SLOT_DIR[a.move_direction]?.label || ''),
+    a.move_top ? 'Ja' : '', a.move_reason].map(esc).join(';'));
+  const blob = new Blob(['﻿' + [head.join(';'), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const el = document.createElement('a');
+  el.href = url; el.download = 'logitide-flyttlista.csv'; el.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function SlottingTab({ data }) {
-  const { summary, articles } = data;
-  const hasLoc = summary.has_location_data;
-  const [zoneFilter, setZoneFilter] = useState(null);
-  const [incomingFilter, setIncomingFilter] = useState(null); // filtrera på recommended_zone (på väg in)
-  // ── Med loc-data: befintlig flyttlista ──
-  const moves = articles?.filter(a => a.suggest_move).sort((a, b) => {
-    const p = { CRITICAL: 0, MEDIUM: 1, LOW: 2 };
-    return (p[a.move_priority] || 2) - (p[b.move_priority] || 2);
-  }) || [];
-  const priorityColor = { CRITICAL: '#ef4444', MEDIUM: '#f59e0b', LOW: '#6b7280' };
-  const priorityLabel = { CRITICAL: 'KRITISK', MEDIUM: 'MEDEL', LOW: 'LÅG' };
+  const { summary, articles = [] } = data;
+  const [view, setView] = useState('top');
+  const [query, setQuery] = useState('');
+  const [limit, setLimit] = useState(50);
+  const [done, setDone] = useState({});
 
-  // ── Med loc: visa befintlig logik ──
-  if (hasLoc) {
-    // ── Zonkarta-data ──
-    const zones = ['A', 'B', 'C'];
-    const zoneConfig = {
-      A: { label: 'Zon A — Guldzon', sub: 'Nära plockytan', color: '#22c55e', dimColor: '#14532d', textColor: '#bbf7d0', icon: '⚡' },
-      B: { label: 'Zon B — Silverzon', sub: 'Mittenlagret', color: '#f59e0b', dimColor: '#451a03', textColor: '#fde68a', icon: '📦' },
-      C: { label: 'Zon C — Bronszon', sub: 'Bakre lagret', color: '#6b7280', dimColor: '#1c1917', textColor: '#d1d5db', icon: '🗄️' },
-    };
-    const zoneStats = {};
-    zones.forEach(z => {
-      const inZone = articles?.filter(a => String(a.loc || '').toUpperCase().startsWith(z)) || [];
-      const correct = inZone.filter(a => !a.suggest_move);
-      const misplaced = inZone.filter(a => a.suggest_move);
-      const incoming = articles?.filter(a => a.suggest_move && String(a.recommended_zone || '').toUpperCase() === z) || [];
-      zoneStats[z] = { total: inZone.length, correct: correct.length, misplaced: misplaced.length, incoming: incoming.length };
-    });
-    const otherZones = Object.entries((articles || []).reduce((m, a) => {
-      const z = String(a.loc || '');
-      if (z && z !== 'Okänd' && !zones.includes(z)) m[z] = (m[z] || 0) + 1;
-      return m;
-    }, {})).sort((x, y) => y[1] - x[1]);
-    const filteredMoves = incomingFilter
-      ? moves.filter(a => String(a.recommended_zone || '').toUpperCase() === incomingFilter)
-      : zoneFilter
-      ? moves.filter(a => String(a.loc || '').toUpperCase().startsWith(zoneFilter))
-      : moves;
-
+  if (summary.slotting_version !== '2') {
     return (
       <div className="tab-content">
-        {/* ── LAGERKARTA ── */}
-        <div className="section" style={{ marginBottom: 0 }}>
-          <div className="section-header" style={{ marginBottom: 12 }}>
-            <h3>Lagerkarta — zoner</h3>
-            <span style={{ fontSize: 12, color: '#64748b' }}>Klicka på en zon för att filtrera listan</span>
-          </div>
-          {/* SVG-karta */}
-          <div style={{ position: 'relative', marginBottom: 16 }}>
-            <svg viewBox="0 0 700 220" style={{ width: '100%', borderRadius: 10, overflow: 'visible' }}>
-              {/* Bakgrund */}
-              <rect x="0" y="0" width="700" height="220" rx="10" fill="#0a1628" />
-              {/* Plockytan / utgång */}
-              <rect x="0" y="0" width="80" height="220" rx="0" fill="#0d1f3c" />
-              <text x="40" y="95" textAnchor="middle" fill="#3b82f6" fontSize="9" fontWeight="700" letterSpacing="0.08em">PLOCK</text>
-              <text x="40" y="108" textAnchor="middle" fill="#3b82f6" fontSize="9" fontWeight="700" letterSpacing="0.08em">STATION</text>
-              {/* Pil — flöde */}
-              <defs>
-                <marker id="arrowhead" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
-                  <polygon points="0 0, 6 3, 0 6" fill="#3b82f644" />
-                </marker>
-              </defs>
-              <line x1="80" y1="100" x2="680" y2="100" stroke="#1e3a5f" strokeWidth="1" strokeDasharray="6,6" markerEnd="url(#arrowhead)" />
-
-              {/* Zon A */}
-              <rect
-                x="90" y="10" width="180" height="200" rx="8"
-                fill={zoneFilter === 'A' ? '#14532d' : '#0f2d1a'}
-                stroke={zoneFilter === 'A' ? '#22c55e' : '#1a4a28'}
-                strokeWidth={zoneFilter === 'A' ? 2 : 1}
-                style={{ cursor: 'pointer' }}
-                onClick={() => { setIncomingFilter(null); setZoneFilter(zoneFilter === 'A' ? null : 'A'); }}
-              />
-              <text x="180" y="38" textAnchor="middle" fill="#22c55e" fontSize="11" fontWeight="700" letterSpacing="0.1em" style={{ pointerEvents: 'none' }}>ZON A</text>
-              <text x="180" y="52" textAnchor="middle" fill="#4ade80" fontSize="8.5" style={{ pointerEvents: 'none' }}>Guldzon · Nära plockytan</text>
-              {/* Zon A artiklar */}
-              <text x="180" y="90" textAnchor="middle" fill="#22c55e" fontSize="28" fontWeight="800" style={{ pointerEvents: 'none' }}>{zoneStats['A'].total}</text>
-              <text x="180" y="106" textAnchor="middle" fill="#86efac" fontSize="9" style={{ pointerEvents: 'none' }}>artiklar</text>
-              {zoneStats['A'].misplaced > 0 && (
-                <>
-                  <rect x="125" y="112" width="110" height="22" rx="4" fill="#ef444422" stroke="#ef444444" strokeWidth="1" style={{ pointerEvents: 'none' }} />
-                  <text x="180" y="127" textAnchor="middle" fill="#ef4444" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>⚠ {zoneStats['A'].misplaced} ska flyttas</text>
-                </>
-              )}
-              {zoneStats['A'].misplaced === 0 && (
-                <>
-                  <rect x="125" y="112" width="110" height="22" rx="4" fill="#22c55e22" stroke="#22c55e44" strokeWidth="1" style={{ pointerEvents: 'none' }} />
-                  <text x="180" y="127" textAnchor="middle" fill="#22c55e" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>✓ Korrekt placerade</text>
-                </>
-              )}
-              {zoneStats['A'].incoming > 0 && (
-                <g style={{ cursor: 'pointer' }} onClick={() => { setZoneFilter(null); setIncomingFilter(incomingFilter === 'A' ? null : 'A'); }}>
-                  <rect x="125" y="140" width="110" height="22" rx="4" fill={incomingFilter === 'A' ? '#1d4ed8aa' : '#1d4ed822'} stroke={incomingFilter === 'A' ? '#60a5fa' : '#3b82f644'} strokeWidth={incomingFilter === 'A' ? 2 : 1} />
-                  <text x="180" y="155" textAnchor="middle" fill="#60a5fa" fontSize="9" fontWeight="600">→ {zoneStats['A'].incoming} på väg in</text>
-                </g>
-              )}
-
-              {/* Zon B */}
-              <rect
-                x="280" y="10" width="180" height="200" rx="8"
-                fill={zoneFilter === 'B' ? '#451a03' : '#1c1207'}
-                stroke={zoneFilter === 'B' ? '#f59e0b' : '#3d2408'}
-                strokeWidth={zoneFilter === 'B' ? 2 : 1}
-                style={{ cursor: 'pointer' }}
-                onClick={() => { setIncomingFilter(null); setZoneFilter(zoneFilter === 'B' ? null : 'B'); }}
-              />
-              <text x="370" y="38" textAnchor="middle" fill="#f59e0b" fontSize="11" fontWeight="700" letterSpacing="0.1em" style={{ pointerEvents: 'none' }}>ZON B</text>
-              <text x="370" y="52" textAnchor="middle" fill="#fbbf24" fontSize="8.5" style={{ pointerEvents: 'none' }}>Silverzon · Mittenlagret</text>
-              <text x="370" y="90" textAnchor="middle" fill="#f59e0b" fontSize="28" fontWeight="800" style={{ pointerEvents: 'none' }}>{zoneStats['B'].total}</text>
-              <text x="370" y="106" textAnchor="middle" fill="#fde68a" fontSize="9" style={{ pointerEvents: 'none' }}>artiklar</text>
-              {zoneStats['B'].misplaced > 0 && (
-                <>
-                  <rect x="315" y="112" width="110" height="22" rx="4" fill="#ef444422" stroke="#ef444444" strokeWidth="1" style={{ pointerEvents: 'none' }} />
-                  <text x="370" y="127" textAnchor="middle" fill="#ef4444" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>⚠ {zoneStats['B'].misplaced} ska flyttas</text>
-                </>
-              )}
-              {zoneStats['B'].misplaced === 0 && (
-                <>
-                  <rect x="315" y="112" width="110" height="22" rx="4" fill="#22c55e22" stroke="#22c55e44" strokeWidth="1" style={{ pointerEvents: 'none' }} />
-                  <text x="370" y="127" textAnchor="middle" fill="#22c55e" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>✓ Korrekt placerade</text>
-                </>
-              )}
-              {zoneStats['B'].incoming > 0 && (
-                <g style={{ cursor: 'pointer' }} onClick={() => { setZoneFilter(null); setIncomingFilter(incomingFilter === 'B' ? null : 'B'); }}>
-                  <rect x="315" y="140" width="110" height="22" rx="4" fill={incomingFilter === 'B' ? '#1d4ed8aa' : '#1d4ed822'} stroke={incomingFilter === 'B' ? '#60a5fa' : '#3b82f644'} strokeWidth={incomingFilter === 'B' ? 2 : 1} />
-                  <text x="370" y="155" textAnchor="middle" fill="#60a5fa" fontSize="9" fontWeight="600">→ {zoneStats['B'].incoming} på väg in</text>
-                </g>
-              )}
-
-              {/* Zon C */}
-              <rect
-                x="470" y="10" width="220" height="200" rx="8"
-                fill={zoneFilter === 'C' ? '#1c1917' : '#111110'}
-                stroke={zoneFilter === 'C' ? '#6b7280' : '#292524'}
-                strokeWidth={zoneFilter === 'C' ? 2 : 1}
-                style={{ cursor: 'pointer' }}
-                onClick={() => { setIncomingFilter(null); setZoneFilter(zoneFilter === 'C' ? null : 'C'); }}
-              />
-              <text x="580" y="38" textAnchor="middle" fill="#9ca3af" fontSize="11" fontWeight="700" letterSpacing="0.1em" style={{ pointerEvents: 'none' }}>ZON C</text>
-              <text x="580" y="52" textAnchor="middle" fill="#9ca3af" fontSize="8.5" style={{ pointerEvents: 'none' }}>Bronszon · Bakre lagret</text>
-              <text x="580" y="90" textAnchor="middle" fill="#9ca3af" fontSize="28" fontWeight="800" style={{ pointerEvents: 'none' }}>{zoneStats['C'].total}</text>
-              <text x="580" y="106" textAnchor="middle" fill="#d1d5db" fontSize="9" style={{ pointerEvents: 'none' }}>artiklar</text>
-              {zoneStats['C'].misplaced > 0 && (
-                <>
-                  <rect x="525" y="112" width="110" height="22" rx="4" fill="#ef444422" stroke="#ef444444" strokeWidth="1" style={{ pointerEvents: 'none' }} />
-                  <text x="580" y="127" textAnchor="middle" fill="#ef4444" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>⚠ {zoneStats['C'].misplaced} ska flyttas</text>
-                </>
-              )}
-              {zoneStats['C'].misplaced === 0 && (
-                <>
-                  <rect x="525" y="112" width="110" height="22" rx="4" fill="#22c55e22" stroke="#22c55e44" strokeWidth="1" style={{ pointerEvents: 'none' }} />
-                  <text x="580" y="127" textAnchor="middle" fill="#22c55e" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>✓ Korrekt placerade</text>
-                </>
-              )}
-              {zoneStats['C'].incoming > 0 && (
-                <g style={{ cursor: 'pointer' }} onClick={() => { setZoneFilter(null); setIncomingFilter(incomingFilter === 'C' ? null : 'C'); }}>
-                  <rect x="525" y="140" width="110" height="22" rx="4" fill={incomingFilter === 'C' ? '#1d4ed8aa' : '#1d4ed822'} stroke={incomingFilter === 'C' ? '#60a5fa' : '#3b82f644'} strokeWidth={incomingFilter === 'C' ? 2 : 1} />
-                  <text x="580" y="155" textAnchor="middle" fill="#60a5fa" fontSize="9" fontWeight="600">→ {zoneStats['C'].incoming} på väg in</text>
-                </g>
-              )}
-            </svg>
-            {/* Legenden under kartan */}
-            <div style={{ display: 'flex', gap: 20, marginTop: 8, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#64748b' }}>
-                <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: '#ef4444' }} />
-                Artiklar som rekommenderas flytta
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#64748b' }}>
-                <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: '#3b82f6' }} />
-                Artiklar som ska hit (inkommande)
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#64748b' }}>
-                <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: '#22c55e' }} />
-                Korrekt placerade
-              </div>
-              {otherZones.length > 0 && (
-                <div style={{ fontSize: 11, color: 'var(--text3)', flexBasis: '100%' }}>
-                  Övriga zoner: {otherZones.map(([z, n]) => `${z} ${n}`).join(' · ')}.
-                  {summary.special_zone_articles > 0 && ' Specialzoner (t.ex. kyl och extern) styrs av artikelns krav och får inga flyttförslag.'}
-                </div>
-              )}
-              {(zoneFilter || incomingFilter) && (
-                <button onClick={() => { setZoneFilter(null); setIncomingFilter(null); }} style={{ marginLeft: 'auto', fontSize: 11, color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                  ✕ Rensa filter {incomingFilter ? `(på väg in till zon ${incomingFilter})` : `(visar zon ${zoneFilter})`}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* ── KPI-rad ── */}
-        <div className="kpi-grid-4" style={{ margin: '16px 0 12px' }}>
-          <KpiCard label="KORREKT PLACERADE" value={fmt(summary.total_articles - summary.articles_to_move)} color="#22c55e" />
-          <KpiCard label="KRITISKA FLYTT" value={fmt(moves.filter(a => a.move_priority === 'CRITICAL').length)} color="#ef4444" />
-          <KpiCard label="MEDELPRIORITET" value={fmt(moves.filter(a => a.move_priority === 'MEDIUM').length)} color="#f59e0b" />
-          <KpiCard label="LÅGPRIORITERADE" value={fmt(moves.filter(a => a.move_priority === 'LOW').length)} color="#6b7280" />
-        </div>
-
-        {/* ── Toolbar ── */}
-        <style>{`
-          .slot-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-          .slot-search { flex: 1; min-width: 160px; background: var(--bg2); border: 1px solid var(--border);
-            border-radius: 6px; padding: 6px 10px; color: var(--text); font-size: 13px; outline: none; }
-          .slot-search:focus { border-color: #3b82f6; }
-          .slot-col-hdr { display: grid; grid-template-columns: 8px 1fr 50px 90px 100px 90px 40px;
-            gap: 0 10px; padding: 0 10px 6px; font-size: 10px; font-weight: 700; letter-spacing: .06em;
-            color: var(--text3); text-transform: uppercase; align-items: center; }
-          .slot-row { display: grid; grid-template-columns: 8px 1fr 50px 90px 100px 90px 40px;
-            align-items: center; gap: 0 10px; padding: 7px 10px; border-radius: 7px;
-            border-bottom: 1px solid var(--border); transition: background 0.1s; font-size: 13px; }
-          .slot-row:hover { background: var(--bg2); }
-          .slot-row:last-child { border-bottom: none; }
-          .slot-bar { width: 4px; height: 28px; border-radius: 2px; }
-          .slot-arrow { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; }
-          .slot-zone-from { color: var(--text3); }
-          .slot-zone-to { color: #3b82f6; }
-          .slot-check-btn { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border);
-            background: var(--bg2); color: var(--text3); cursor: pointer; font-size: 13px;
-            display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
-          .slot-check-btn:hover { background: #22c55e22; color: #22c55e; border-color: #22c55e44; }
-          .slot-priority-chip { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; letter-spacing: .04em; }
-        `}</style>
-
-        {(() => {
-          const [slotSearch, setSlotSearch] = React.useState('');
-          const [checked, setChecked] = React.useState({});
-          const displayed = filteredMoves.filter(a =>
-            !slotSearch || a.article?.toLowerCase().includes(slotSearch.toLowerCase()) || a.name?.toLowerCase().includes(slotSearch.toLowerCase())
-          );
-          const critMoves = displayed.filter(a => a.move_priority === 'CRITICAL');
-          const medMoves = displayed.filter(a => a.move_priority === 'MEDIUM');
-          const lowMoves = displayed.filter(a => a.move_priority === 'LOW');
-
-          const MoveRow = ({ a, i }) => {
-            const pc = priorityColor[a.move_priority] || '#6b7280';
-            const isDone = checked[a.article];
-            return (
-              <div className="slot-row" key={i} style={{ opacity: isDone ? 0.4 : 1 }}>
-                <div className="slot-bar" style={{ background: pc }} />
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: isDone ? 'line-through' : 'none' }}>{a.name || a.article}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text3)' }}>{a.article}</div>
-                </div>
-                <div><span className="abc-chip" style={{ background: abcColor(a.abc) }}>{a.abc}{a.xyz ? `/${a.xyz}` : ''}</span></div>
-                <div className="slot-zone-from" style={{ fontSize: 13 }}>Zon <b>{a.loc}</b></div>
-                <div className="slot-arrow">
-                  <span style={{ color: 'var(--text3)' }}>→</span>
-                  <span className="slot-zone-to">Zon <b>{a.recommended_zone}</b></span>
-                </div>
-                <div><span className="slot-priority-chip" style={{ background: pc + '20', color: pc }}>{priorityLabel[a.move_priority] || a.move_priority}</span></div>
-                <div>
-                  <button className="slot-check-btn" onClick={() => setChecked(c => ({ ...c, [a.article]: !c[a.article] }))}
-                    style={isDone ? { background: '#22c55e22', color: '#22c55e', borderColor: '#22c55e44' } : {}}>
-                    {isDone ? '✓' : '○'}
-                  </button>
-                </div>
-              </div>
-            );
-          };
-
-          return (
-            <>
-              <div className="slot-toolbar">
-                <input className="slot-search" placeholder="Sök artikel..." value={slotSearch} onChange={e => setSlotSearch(e.target.value)} />
-                <button className="export-btn" onClick={() => exportCSV(filteredMoves)}>
-                  <Icon name="download" size={14} /> Exportera CSV
-                </button>
-              </div>
-              <p style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 12, lineHeight: 1.5 }}>
-                Rekommendationer baserade på ABC-klass vs. nuvarande position. Lageransvarig avgör när plats finns.
-              </p>
-
-              {/* Column headers */}
-              <div className="slot-col-hdr">
-                <div /> <div>Artikel</div> <div>ABC</div> <div>Nuvarande</div> <div>Flytta till</div> <div>Prioritet</div> <div>Klar</div>
-              </div>
-
-              {critMoves.length > 0 && (
-                <>
-                  <div className="purch-section-label">🔴 Kritiska flytt <span style={{ background: '#ef444422', color: '#ef4444' }}>{critMoves.length} artiklar</span></div>
-                  {critMoves.map((a, i) => <MoveRow key={`c${i}`} a={a} i={i} />)}
-                </>
-              )}
-              {medMoves.length > 0 && (
-                <>
-                  <div className="purch-section-label" style={{ marginTop: 12 }}>🟡 Medelprioritet <span style={{ background: '#f59e0b22', color: '#f59e0b' }}>{medMoves.length} artiklar</span></div>
-                  {medMoves.map((a, i) => <MoveRow key={`m${i}`} a={a} i={i} />)}
-                </>
-              )}
-              {lowMoves.length > 0 && (
-                <>
-                  <div className="purch-section-label" style={{ marginTop: 12 }}>⚪ Lågprioriterade <span style={{ background: '#6b728022', color: '#6b7280' }}>{lowMoves.length} artiklar</span></div>
-                  {lowMoves.map((a, i) => <MoveRow key={`l${i}`} a={a} i={i} />)}
-                </>
-              )}
-              {displayed.length === 0 && (
-                <div style={{ textAlign: 'center', padding: 32, color: 'var(--text3)', fontSize: 14 }}>
-                  {filteredMoves.length === 0 ? '✓ Alla artiklar är korrekt placerade' : 'Inga träffar på sökning'}
-                </div>
-              )}
-            </>
-          );
-        })()}
+        <section className="lt-panel lt-panel-pad">
+          <h3 style={{ margin: 0 }}>Slotting</h3>
+          <p className="lt-hint">Den här analysen gjordes med en äldre version. Kör analysen igen för att få plockklasser och flyttlista.</p>
+        </section>
       </div>
     );
   }
 
-  // ── Utan loc: visa tydlig förklaring om vad som krävs ──
+  const placementKnown = summary.placement_known;
+  const counts = summary.slot_class_counts || {};
+  const zones = summary.slot_zones || [];
+  const moves = articles.filter(a => a.suggest_move).sort((a, b) => (a.move_rank || 0) - (b.move_rank || 0));
+  const unplaced = articles.filter(a => a.needs_location).sort((a, b) => (b.pick_velocity || 0) - (a.pick_velocity || 0));
+  const changes = articles.filter(a => a.slot_class_change === 'UPP' || a.slot_class_change === 'NED')
+    .sort((a, b) => (b.pick_velocity || 0) - (a.pick_velocity || 0));
+  const noLocList = !placementKnown ? articles.filter(a => !a.special_zone && (a.pick_velocity || 0) > 0)
+    .sort((a, b) => (b.pick_velocity || 0) - (a.pick_velocity || 0)) : [];
+
+  const lists = {
+    top: moves.filter(a => a.move_top),
+    all: moves,
+    changes,
+    unplaced: placementKnown ? unplaced : noLocList,
+  };
+  const q = query.trim().toLowerCase();
+  const rows = (lists[view] || []).filter(a => !q || String(a.article).toLowerCase().includes(q) || String(a.name || '').toLowerCase().includes(q));
+  const zoneA = zones[0];
+  const fmtV = (x) => nf(x, x < 1 ? 2 : 1);
+
+  let brief;
+  if (!placementKnown) {
+    brief = { title: `${fmt(articles.length)} artiklar har fått en plockklass`,
+      text: 'Filen saknar lagerplatser, så Logitide föreslår en zon per artikel utifrån hur ofta den plockas. Lägg till lagerposition i filen för att få en flyttlista.' };
+  } else if (summary.articles_to_move === 0) {
+    brief = { title: 'Alla artiklar står i rätt zon', text: 'Ingen flytt behövs utifrån plockfrekvensen just nu.' };
+  } else {
+    brief = { title: `${fmt(summary.moves_top_closer)} ${summary.moves_top_closer === 1 ? 'flytt ger' : 'flyttar ger'} 80 % av vinsten`,
+      text: `${fmt(summary.articles_to_move)} artiklar står i fel zon utifrån plockfrekvens och utrymme. ` +
+        (zoneA ? `Zon ${zoneA.zone} plockas i snitt ${fmtV(zoneA.avg_velocity)} st/dag per artikel i dag, ${fmtV(zoneA.avg_velocity_after)} efter flyttarna.` : '') };
+  }
+
+  const views = [
+    ...(placementKnown ? [['top', `Gör först (${fmt(lists.top.length)})`], ['all', `Alla flyttar (${fmt(moves.length)})`]] : []),
+    ...(changes.length ? [['changes', `Klassbyten (${fmt(changes.length)})`]] : []),
+    ...((placementKnown ? unplaced.length : noLocList.length) ? [['unplaced', placementKnown ? `Saknar plats (${fmt(unplaced.length)})` : `Föreslagen zon (${fmt(noLocList.length)})`]] : []),
+  ];
+  const activeView = views.some(([k]) => k === view) ? view : (views[0]?.[0] || 'top');
+
   return (
-    <div className="tab-content">
-      <div style={{
-        maxWidth: 600, margin: '40px auto', textAlign: 'center',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20
-      }}>
-        <div style={{ fontSize: 40 }}>📍</div>
-        <div>
-          <h3 style={{ color: '#f1f5f9', marginBottom: 8 }}>Slottinganalys kräver lagerpositioner</h3>
-          <p style={{ color: '#94a3b8', fontSize: 14, lineHeight: 1.7, maxWidth: 480 }}>
-            För att rekommendera var en artikel ska stå måste systemet veta var den <em>faktiskt</em> står idag.
-            Utan det underlaget kan vi inte beräkna om en flytt är motiverad, hur många rörelser det sparar,
-            eller vilka artiklar som är felprioriterade.
-          </p>
+    <div className="tab-content lt-overview">
+      <section className="lt-brief good lt-slot-brief">
+        <div className="lt-brief-main">
+          <div className="lt-eyebrow">Slotting</div>
+          <h2>{brief.title}</h2>
+          <p>{brief.text}</p>
         </div>
+        {(moves.length > 0 || noLocList.length > 0) && (
+          <button className="lt-btn lt-btn-primary lt-btn-lg" onClick={() => slotCsv(placementKnown ? moves : noLocList)}>
+            Exportera flyttlista
+          </button>
+        )}
+      </section>
 
-        <div style={{
-          background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12,
-          padding: '20px 24px', width: '100%', textAlign: 'left'
-        }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', letterSpacing: '0.1em', marginBottom: 14 }}>
-            VAD SOM KRÄVS
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {[
-              { field: 'Nuvarande hyllplats / zon', example: 'A12, Zon 3, Hylla 5B', why: 'Systemet jämför mot ABC-klass och beräknar om flytt är lönsam' },
-              { field: 'Kolumnnamn som känns igen', example: 'loc, location, lagerposition, zon, hyllplats', why: 'Exportera direkt ur ert WMS/ERP' },
-            ].map((r, i) => (
-              <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                <span style={{ color: '#22c55e', fontSize: 16, marginTop: 1, flexShrink: 0 }}>✓</span>
-                <div>
-                  <div style={{ fontSize: 13, color: '#f1f5f9', fontWeight: 600 }}>{r.field}</div>
-                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                    T.ex.: <code style={{ background: '#1e293b', padding: '1px 5px', borderRadius: 3 }}>{r.example}</code>
-                  </div>
-                  <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>{r.why}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div style={{
-          background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12,
-          padding: '20px 24px', width: '100%', textAlign: 'left'
-        }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', letterSpacing: '0.1em', marginBottom: 14 }}>
-            VAD DU FÅR NÄR DATA FINNS
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {[
-              'Prioriterad flyttlista — vilka artiklar ska till guldzon (A) vs bakre lager (C)',
-              'Antal onödiga plocksträckor per dag som kan elimineras',
-              'CSV-export direkt till lageransvarig',
-            ].map((item, i) => (
-              <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                <span style={{ color: '#3b82f6', flexShrink: 0, marginTop: 1 }}>→</span>
-                <span style={{ fontSize: 13, color: '#94a3b8' }}>{item}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Tydlig steg-för-steg guide */}
-        <div style={{
-          background: '#1a2744', border: '1px solid #3b82f633', borderRadius: 12,
-          padding: '16px 20px', width: '100%', textAlign: 'left'
-        }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#3b82f6', letterSpacing: '0.1em', marginBottom: 12 }}>
-            SÅ HÄR KOMMER DU IGÅNG
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {[
-              { step: '1', text: 'Lägg till en kolumn "Lagerposition" i er Excel-fil med varje artikels nuvarande plats' },
-              { step: '2', text: 'Gå till Inställningar → Lagerkarta och konfigurera vilka stallage som tillhör Zon A, B och C' },
-              { step: '3', text: 'Ladda upp filen på nytt — slottinganalysen startar automatiskt' },
-            ].map((r, i) => (
-              <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                <span style={{
-                  background: '#3b82f622', color: '#3b82f6', borderRadius: '50%',
-                  width: 22, height: 22, display: 'flex', alignItems: 'center',
-                  justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0
-                }}>{r.step}</span>
-                <span style={{ fontSize: 13, color: '#94a3b8', paddingTop: 3 }}>{r.text}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+      <div className="lt-kpi-row">
+        {['A', 'B', 'C', 'D'].map(c => (
+          <KpiTile key={c} label={`Plockklass ${c}`} value={fmt(counts[c] || 0)}
+            sub={{ A: 'de första 80 % av plocken', B: 'nästa 15 %', C: 'sista 5 %', D: 'ingen förbrukning' }[c]}
+            tooltip={"Plockklass bygger på förbrukning per dag (hur ofta artikeln plockas), inte på värde.\nABC-klassen under ABC/XYZ bygger på värde och styr inköp."} />
+        ))}
+        <KpiTile label="Rätt zon" value={placementKnown ? `${fmt(summary.correct_zone_count)}` : '—'}
+          unit={placementKnown ? ` av ${fmt(summary.placed_articles)}` : null}
+          sub={placementKnown ? (summary.special_zone_articles ? `${fmt(summary.special_zone_articles)} i specialzoner räknas inte` : 'utifrån plockfrekvens och utrymme') : 'Kräver lagerposition i filen'}
+          tooltip={"Zonerna fylls i ordning med de artiklar som plockas oftast, upp till det antal platser zonen har i dag.\nArtiklar inom 3 % från en zongräns står kvar för att undvika onödiga flyttar."} />
       </div>
+
+      {placementKnown && zones.length > 0 && (
+        <section className="lt-panel lt-panel-pad">
+          <div className="lt-panel-head flat">
+            <h3>Zoner</h3>
+            <span className="lt-hint">plock per artikel och dag, i dag och efter flyttarna</span>
+          </div>
+          <div className="lt-slot-zones">
+            {zones.map(z => {
+              const pct = z.capacity ? Math.round(z.correct / z.capacity * 100) : 0;
+              return (
+                <div className="lt-slot-zone" key={z.zone}>
+                  <span className="lt-abc-key kA">{z.zone}</span>
+                  <div className="lt-slot-zone-main">
+                    <div className="lt-slot-zone-top">
+                      <b className="lt-num">{fmt(z.capacity)} platser</b>
+                      <span className="lt-hint lt-num">{fmt(z.correct)} rätt · {fmt(z.move_in)} in · {fmt(z.move_out)} ut</span>
+                    </div>
+                    <div className="lt-abc-track" title={`${pct} % står rätt`}><i style={{ width: `${Math.max(2, pct)}%` }} /></div>
+                  </div>
+                  <div className="lt-slot-zone-v lt-num">
+                    <span>{fmtV(z.avg_velocity)}</span><span className="lt-subtle">→</span><b>{fmtV(z.avg_velocity_after)}</b>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {summary.slot_prev_source && (
+        <div className="lt-datacheck">
+          <div className="lt-datacheck-row">
+            <span className="lt-eyebrow">Klassbyten</span>
+            <span className="lt-datacheck-text">
+              Jämfört med {summary.slot_prev_source === 'fil' ? 'klasserna i er fil' : summary.slot_prev_source}:{' '}
+              <b>{fmt(summary.slot_changes_up)}</b> upp, <b>{fmt(summary.slot_changes_down)}</b> ned
+              {summary.slot_held_by_margin > 0 ? `, ${fmt(summary.slot_held_by_margin)} behåller sin klass eftersom de ligger nära gränsen` : ''}.
+            </span>
+          </div>
+        </div>
+      )}
+
+      {views.length > 0 && (
+        <section className="lt-panel">
+          <div className="lt-panel-head">
+            <div className="lt-seg" role="tablist">
+              {views.map(([k, label]) => (
+                <button key={k} role="tab" aria-selected={activeView === k} className={activeView === k ? 'is-active' : ''}
+                  onClick={() => { setView(k); setLimit(50); }}>{label}</button>
+              ))}
+            </div>
+            <input className="lt-input lt-slot-search" placeholder="Sök artikel" value={query} onChange={e => setQuery(e.target.value)} aria-label="Sök artikel" />
+          </div>
+          <div className="lt-slot-table-wrap">
+            <table className="lt-slot-table">
+              <thead>
+                <tr>
+                  {activeView !== 'changes' && activeView !== 'unplaced' && <th>#</th>}
+                  <th>Artikel</th>
+                  <th>Plockklass</th>
+                  <th className="num">Plock/dag</th>
+                  {activeView === 'changes' ? <th>Tidigare → nu</th> : <th>Zon</th>}
+                  <th>Skäl</th>
+                  {(activeView === 'top' || activeView === 'all') && <th>Klar</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.slice(0, limit).map(a => (
+                  <tr key={a.article} className={done[a.article] ? 'is-done' : ''}>
+                    {activeView !== 'changes' && activeView !== 'unplaced' && <td className="lt-mono lt-subtle">{a.move_rank}</td>}
+                    <td>
+                      <div className="lt-slot-art">{a.name || a.article}</div>
+                      <div className="lt-mono lt-subtle lt-slot-id">{a.article}{a.loc_original && a.loc_original !== 'nan' && a.loc_original !== 'Okänd' ? ` · ${a.loc_original}` : ''}</div>
+                    </td>
+                    <td><span className={`lt-abc-key k${a.slot_class === 'D' ? 'C' : a.slot_class} sm`}>{a.slot_class}</span></td>
+                    <td className="num lt-num">{fmtV(a.pick_velocity || 0)}</td>
+                    {activeView === 'changes' ? (
+                      <td><span className="lt-num">{a.slot_class_prev} → {a.slot_class}</span>{' '}
+                        <span className={`lt-action-type ${a.slot_class_change === 'UPP' ? 'info' : 'muted'}`}>{CHG_LABEL[a.slot_class_change]}</span></td>
+                    ) : (
+                      <td className="lt-slot-zone-cell">
+                        {a.suggest_move && <span className={`lt-action-type ${SLOT_DIR[a.move_direction]?.tone || 'muted'}`}>{SLOT_DIR[a.move_direction]?.label}</span>}
+                        <span className="lt-num">{a.suggest_move ? `${a.loc} → ${a.recommended_zone}` : `Zon ${a.recommended_zone}`}</span>
+                      </td>
+                    )}
+                    <td className="lt-slot-reason">{a.move_reason || (activeView === 'changes' ? `Plockas ${fmtV(a.pick_velocity || 0)} st/dag` : '')}</td>
+                    {(activeView === 'top' || activeView === 'all') && (
+                      <td><input type="checkbox" checked={!!done[a.article]} aria-label={`Markera ${a.article} som flyttad`}
+                        onChange={() => setDone(d => ({ ...d, [a.article]: !d[a.article] }))} /></td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {rows.length > limit && (
+            <div className="lt-slot-more">
+              <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={() => setLimit(l => l + 100)}>Visa fler ({fmt(rows.length - limit)} kvar)</button>
+            </div>
+          )}
+          {rows.length === 0 && <p className="lt-hint" style={{ padding: '16px 20px', margin: 0 }}>Inga artiklar matchar.</p>}
+        </section>
+      )}
+
+      <p className="lt-hint lt-slot-method">
+        Så räknar vi: artiklarna sorteras efter förbrukning per dag. Plockklass A är de som står för de första 80 % av plocken, B nästa 15 %, C resten och D saknar förbrukning.
+        Zonerna fylls i ordning med de snabbaste artiklarna upp till det antal platser zonen har i dag. En artikel byter klass eller zon först när den är mer än 3 % från gränsen, så att små svängningar inte ger nya flyttar.
+        {summary.special_zone_articles > 0 ? ' Specialzoner som kyl och extern flyttas aldrig.' : ''}
+      </p>
     </div>
   );
 }
+
 
 // ─── CAPITAL TAB ────────────────────────────────────────────────────────
 function CapitalTab({ data }) {
@@ -3520,10 +3333,10 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider, o
             </div>
           )}
         </KpiTile>
-        <KpiTile label="Att flytta" value={hasLoc ? fmt(summary.articles_to_move) : null}
+        <KpiTile label="Att flytta" value={hasLoc ? fmt(summary.moves_top_closer ?? summary.articles_to_move) : null}
           missing={!hasLoc ? 'Kräver lagerposition i filen' : null}
-          sub={summary.special_zone_articles ? `${fmt(summary.special_zone_articles)} i specialzoner räknas inte` : 'A-artiklar långt från plock'} onClick={hasLoc ? () => onNavigate('slotting') : undefined}
-          tooltip={"Artiklar vars zon inte matchar ABC-klassen. A-artiklar bör stå närmast plock."} />
+          sub={summary.moves_top_closer != null ? `ger 80 % av vinsten · ${fmt(summary.articles_to_move)} totalt` : 'A-artiklar långt från plock'} onClick={hasLoc ? () => onNavigate('slotting') : undefined}
+          tooltip={"Flyttar närmare plock för artiklar som plockas ofta. Antalet är de flyttar som tillsammans ger 80 % av vinsten i kortare plockväg."} />
         <KpiTile label="Dött lager" tone="dead" value={fmt(summary.dead_stock)}
           sub={hasCost ? `${fmtKr(summary.dead_stock_value_sek)} utan förbrukning` : 'artiklar utan förbrukning'}
           onClick={() => onNavigate('capital')}
@@ -3604,10 +3417,12 @@ function QualityChecks({ summary, dataQuality }) {
   const checks = [
     { ok: summary.has_cost_data, label: 'Inköpspris' },
     { ok: summary.has_location_data, label: 'Lagerposition' },
-    { ok: summary.has_lead_time_data, label: 'Ledtid' },
+    { ok: summary.has_lead_time_data, label: summary.lead_time_default_count > 0 && summary.has_lead_time_data ? 'Ledtid (delvis)' : 'Ledtid',
+      partial: summary.lead_time_default_count > 0 && summary.has_lead_time_data,
+      title: summary.lead_time_default_count > 0 ? `Standardledtid används för ${fmt(summary.lead_time_default_count)} artiklar` : undefined },
     { ok: !!summary.xyz_available, label: 'Månadshistorik' },
   ];
-  const ok = checks.filter(c => c.ok).length;
+  const ok = checks.filter(c => c.ok && !c.partial).length;
   return (
     <div className="lt-qc">
       <div className="lt-sl-head"><span>Dataunderlag</span><span className="lt-mono">{ok}/{checks.length}</span></div>
@@ -3618,8 +3433,8 @@ function QualityChecks({ summary, dataQuality }) {
       )}
       <ul>
         {checks.map(c => (
-          <li key={c.label} className={c.ok ? '' : 'miss'}>
-            <span className="mark">{c.ok ? <LtIcon name="check" size={12} stroke={2.4} /> : '–'}</span>{c.label}
+          <li key={c.label} className={c.ok && !c.partial ? '' : 'miss'} title={c.title}>
+            <span className="mark">{c.ok && !c.partial ? <LtIcon name="check" size={12} stroke={2.4} /> : '–'}</span>{c.label}
           </li>
         ))}
       </ul>
@@ -3661,7 +3476,7 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme, onLoad
     { id: 'overview', label: 'Översikt' },
     { id: 'abcxyz', label: 'ABC/XYZ' },
     { id: 'purchasing', label: 'Inköp', badge: summary?.articles_to_order, tone: summary?.critical > 0 ? 'crit' : '' },
-    { id: 'slotting', label: 'Slotting', badge: summary?.has_location_data ? summary?.articles_to_move : null },
+    { id: 'slotting', label: 'Slotting', badge: summary?.has_location_data ? (summary?.moves_top_closer ?? summary?.articles_to_move) : null },
     { id: 'capital', label: 'Kapital', badge: summary?.has_cost_data ? ((summary?.dead_stock || 0) + (summary?.overstock || 0)) : null },
     ...(auth ? [{ id: 'history', label: 'Historik' }] : []),
     { id: 'settings', label: 'Inställningar' },
