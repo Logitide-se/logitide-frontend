@@ -3385,6 +3385,12 @@ function ActionItem({ a, rank, hasCost, articles }) {
   );
 }
 
+const cleanAiText = (t) => String(t || '')
+  .replace(/^#+[^\n]*\n+/, '')   // rubrikrad från AI
+  .replace(/[#*_`]+/g, '')
+  .replace(/\s+/g, ' ')
+  .trim();
+
 // ─── Datakontroll (ersätter två banners) ──────────────────────────────────
 function DataCheck({ validation, summary }) {
   const [open, setOpen] = useState(false);
@@ -3396,6 +3402,10 @@ function DataCheck({ validation, summary }) {
   else if (summary.lead_time_default_count > 0) missing.push(`Ledtid saknas för ${fmt(summary.lead_time_default_count)} artiklar — standardvärde används för dem`);
   if (summary.orders_late > 0) missing.push(`${fmt(summary.orders_late)} öppna order har passerat leveransdatum — de räknas som på väg`);
   if (summary.orders_no_eta > 0) missing.push(`${fmt(summary.orders_no_eta)} öppna order saknar leveransdatum — de räknas som på väg`);
+  if (summary.history_age_months >= 3 && summary.history_last_period) {
+    const [hy, hm] = summary.history_last_period.split('-');
+    missing.push(`Förbrukningshistoriken slutar ${LT_MONTHS[Number(hm) - 1]} ${hy}, ${summary.history_age_months} månader sedan — prognosen bygger på den`);
+  }
   if (summary.confidence_low > 0) missing.push(`${fmt(summary.confidence_low)} förslag har låg säkerhet — se skälen under Uträkning`);
   const items = [...missing, ...warnings];
   if (!validation?.summary && !items.length) return null;
@@ -3404,7 +3414,7 @@ function DataCheck({ validation, summary }) {
       <div className="lt-datacheck-row">
         <span className="lt-eyebrow">Datakontroll</span>
         {validation?.ai_generated && <span className="lt-chip lt-chip-ai"><LtIcon name="sparkle" size={11} /> AI</span>}
-        <span className="lt-datacheck-text">{validation?.summary || `${items.length} saker att känna till om datan.`}</span>
+        <span className="lt-datacheck-text">{cleanAiText(validation?.summary) || `${items.length} saker att känna till om datan.`}</span>
         {items.length > 0 && (
           <button className="lt-link-btn" onClick={() => setOpen(o => !o)} aria-expanded={open}>
             {open ? 'Dölj' : `${items.length} ${items.length === 1 ? 'anmärkning' : 'anmärkningar'}`}
@@ -4723,7 +4733,7 @@ function HistoryDetailModal({ analysisId, token, onClose }) {
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
-                        <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #1e293b' }}>
+                        <tr style={{ color: 'var(--text3)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
                           <th style={{ padding: '6px 10px' }}>ART.NR</th>
                           <th style={{ padding: '6px 10px' }}>NAMN</th>
                           <th style={{ padding: '6px 10px' }}>ABC</th>
@@ -4930,8 +4940,12 @@ function HistoryTab({ token, onLoadAnalysis }) {
   const prev = history[1];
 
   // Trend sparkline data (oldest first for chart, newest first in array)
-  const slValues = [...history].reverse().map(h => h.summary?.a_service_level_pct ?? 0);
-  const critValues = [...history].reverse().map(h => h.summary?.critical ?? 0);
+  // Servicenivå och kritiska räknas annorlunda från motor 2.11 — jämför bara inom samma version
+  const engineOf = (h) => h?.summary?.engine_version || '2.10';
+  const sameEngine = history.filter(h => engineOf(h) === engineOf(latest));
+  const prevSame = prev && engineOf(prev) === engineOf(latest) ? prev : null;
+  const slValues = [...sameEngine].reverse().map(h => h.summary?.a_service_level_pct ?? 0);
+  const critValues = [...sameEngine].reverse().map(h => h.summary?.critical ?? 0);
   const capValues = [...history].reverse().map(h => Math.round((h.summary?.total_stock_value_sek ?? 0) / 1000));
 
   const fmtDate = (d) => {
@@ -4981,8 +4995,9 @@ function HistoryTab({ token, onLoadAnalysis }) {
             sparkValues: slValues,
             sparkColor: '#22c55e',
             inverted: false,
-            diff: prev ? `${latest.summary?.a_service_level_pct >= prev.summary?.a_service_level_pct ? '▲' : '▼'} ${Math.abs(((latest.summary?.a_service_level_pct ?? 0) - (prev.summary?.a_service_level_pct ?? 0))).toFixed(1)}%` : null,
-            improved: prev ? latest.summary?.a_service_level_pct >= prev.summary?.a_service_level_pct : null,
+            diff: prevSame ? `${latest.summary?.a_service_level_pct >= prevSame.summary?.a_service_level_pct ? '▲' : '▼'} ${Math.abs(((latest.summary?.a_service_level_pct ?? 0) - (prevSame.summary?.a_service_level_pct ?? 0))).toFixed(1).replace('.', ',')} procentenheter` : null,
+            improved: prevSame ? latest.summary?.a_service_level_pct >= prevSame.summary?.a_service_level_pct : null,
+            note: prev && !prevSame ? 'Ny beräkning — jämförs inte med äldre analyser' : null,
           },
           {
             label: 'KRITISKA ARTIKLAR',
@@ -4991,13 +5006,14 @@ function HistoryTab({ token, onLoadAnalysis }) {
             sparkValues: critValues,
             sparkColor: '#ef4444',
             inverted: true, // lower = better, so invert sparkline direction
-            diff: prev ? `${latest.summary?.critical <= prev.summary?.critical ? '▼' : '▲'} ${Math.abs((latest.summary?.critical ?? 0) - (prev.summary?.critical ?? 0))}` : null,
-            improved: prev ? latest.summary?.critical <= prev.summary?.critical : null,
+            diff: prevSame ? `${latest.summary?.critical <= prevSame.summary?.critical ? '▼' : '▲'} ${Math.abs((latest.summary?.critical ?? 0) - (prevSame.summary?.critical ?? 0))}` : null,
+            improved: prevSame ? latest.summary?.critical <= prevSame.summary?.critical : null,
+            note: prev && !prevSame ? 'Ny beräkning — jämförs inte med äldre analyser' : null,
           },
           {
             label: 'BUNDET KAPITAL',
             value: fmtKr(latest.summary?.total_stock_value_sek) || '—',
-            color: '#a78bfa',
+            color: 'var(--text)',
             sparkValues: capValues,
             sparkColor: '#a78bfa',
             inverted: true, // lower capital = better
@@ -5008,7 +5024,7 @@ function HistoryTab({ token, onLoadAnalysis }) {
             improved: prev ? (latest.summary?.total_stock_value_sek ?? 0) <= (prev.summary?.total_stock_value_sek ?? 0) : null,
           },
         ].map((card, i) => (
-          <div key={i} style={{ background: '#1e293b', borderRadius: 12, padding: '14px 16px' }}>
+          <div key={i} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
             <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: 0.5, marginBottom: 4 }}>{card.label}</div>
             <div style={{ fontSize: 26, fontWeight: 800, color: card.color, marginBottom: 2 }}>{card.value}</div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -5017,7 +5033,7 @@ function HistoryTab({ token, onLoadAnalysis }) {
                   {card.diff} sedan föreg.
                 </span>
               )}
-              {!card.diff && <span />}
+              {!card.diff && (card.note ? <span style={{ fontSize: 11, color: 'var(--text3)' }}>{card.note}</span> : <span />)}
               {card.sparkValues.length >= 2 && (
                 <SparklineLegacy values={card.sparkValues} color={card.sparkColor} inverted={card.inverted} width={100} height={30} />
               )}
@@ -5028,7 +5044,7 @@ function HistoryTab({ token, onLoadAnalysis }) {
 
       {/* Compare helper */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-        <h3 style={{ color: '#f1f5f9', margin: 0, flex: 1 }}>Analyskörningar</h3>
+        <h3 style={{ color: 'var(--text)', margin: 0, flex: 1 }}>Analyskörningar</h3>
         {compareSelected && (
           <div style={{ fontSize: 12, color: '#60a5fa', background: '#1e3a5f', borderRadius: 6, padding: '4px 10px' }}>
             ✓ Välj en andra rad för att jämföra
@@ -5056,14 +5072,14 @@ function HistoryTab({ token, onLoadAnalysis }) {
           onMouseEnter={e => { if (!clearing) { e.currentTarget.style.background = '#ef444418'; e.currentTarget.style.borderColor = '#ef4444'; }}}
           onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = '#ef444466'; }}
         >
-          {clearing ? 'Rensar…' : '🗑 Rensa historik'}
+          {clearing ? 'Rensar…' : 'Rensa historik'}
         </button>
       </div>
 
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
-            <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #1e293b' }}>
+            <tr style={{ color: 'var(--text3)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
               <th style={{ padding: '8px 12px' }}>DATUM</th>
               <th style={{ padding: '8px 12px' }}>FIL</th>
               <th style={{ padding: '8px 12px' }}>ARTIKLAR</th>
@@ -5081,20 +5097,20 @@ function HistoryTab({ token, onLoadAnalysis }) {
                 <tr
                   key={h.id}
                   style={{
-                    borderBottom: '1px solid #0f172a',
-                    background: isSelected ? '#1e3a5f22' : i === 0 ? '#1e293b44' : 'transparent',
+                    borderBottom: '1px solid var(--border)',
+                    background: isSelected ? 'var(--accent-soft)' : i === 0 ? 'var(--bg3)' : 'transparent',
                     transition: 'background 0.15s',
                   }}
                 >
-                  <td style={{ padding: '10px 12px', color: '#94a3b8' }}>
+                  <td style={{ padding: '10px 12px', color: 'var(--text2)' }}>
                     {fmtDate(h.created_at)}
                     {i === 0 && <span style={{ marginLeft: 6, fontSize: 10, background: '#6366f1', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>SENASTE</span>}
                   </td>
-                  <td style={{ padding: '10px 12px', color: '#f1f5f9', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.filename || '—'}</td>
-                  <td style={{ padding: '10px 12px', color: '#f1f5f9' }}>{fmt(h.summary?.total_articles)}</td>
+                  <td style={{ padding: '10px 12px', color: 'var(--text)', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.filename || ''}>{h.filename || '—'}</td>
+                  <td style={{ padding: '10px 12px', color: 'var(--text)' }}>{fmt(h.summary?.total_articles)}</td>
                   <td style={{ padding: '10px 12px', color: h.summary?.critical > 0 ? '#ef4444' : '#22c55e', fontWeight: 600 }}>{h.summary?.critical ?? '—'}</td>
                   <td style={{ padding: '10px 12px', color: (h.summary?.a_service_level_pct ?? 0) >= 95 ? '#22c55e' : (h.summary?.a_service_level_pct ?? 0) >= 85 ? '#f97316' : '#ef4444', fontWeight: 600 }}>{h.summary?.a_service_level_pct ?? '—'}%</td>
-                  <td style={{ padding: '10px 12px', color: '#a78bfa' }}>{fmtKr(h.summary?.total_stock_value_sek) || '—'}</td>
+                  <td style={{ padding: '10px 12px', color: 'var(--text)' }}>{fmtKr(h.summary?.total_stock_value_sek) || '—'}</td>
                   <td style={{ padding: '10px 12px', textAlign: 'right' }}>
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                       {/* Öppna-knapp */}
