@@ -2003,6 +2003,7 @@ function SlottingTab({ data }) {
   const { summary, articles } = data;
   const hasLoc = summary.has_location_data;
   const [zoneFilter, setZoneFilter] = useState(null);
+  const [incomingFilter, setIncomingFilter] = useState(null); // filtrera på recommended_zone (på väg in)
   // ── Med loc-data: befintlig flyttlista ──
   const moves = articles?.filter(a => a.suggest_move).sort((a, b) => {
     const p = { CRITICAL: 0, MEDIUM: 1, LOW: 2 };
@@ -2028,7 +2029,9 @@ function SlottingTab({ data }) {
       const incoming = articles?.filter(a => a.suggest_move && String(a.recommended_zone || '').toUpperCase() === z) || [];
       zoneStats[z] = { total: inZone.length, correct: correct.length, misplaced: misplaced.length, incoming: incoming.length };
     });
-    const filteredMoves = zoneFilter
+    const filteredMoves = incomingFilter
+      ? moves.filter(a => String(a.recommended_zone || '').toUpperCase() === incomingFilter)
+      : zoneFilter
       ? moves.filter(a => String(a.loc || '').toUpperCase().startsWith(zoneFilter))
       : moves;
 
@@ -2064,7 +2067,7 @@ function SlottingTab({ data }) {
                 stroke={zoneFilter === 'A' ? '#22c55e' : '#1a4a28'}
                 strokeWidth={zoneFilter === 'A' ? 2 : 1}
                 style={{ cursor: 'pointer' }}
-                onClick={() => setZoneFilter(zoneFilter === 'A' ? null : 'A')}
+                onClick={() => { setIncomingFilter(null); setZoneFilter(zoneFilter === 'A' ? null : 'A'); }}
               />
               <text x="180" y="38" textAnchor="middle" fill="#22c55e" fontSize="11" fontWeight="700" letterSpacing="0.1em" style={{ pointerEvents: 'none' }}>ZON A</text>
               <text x="180" y="52" textAnchor="middle" fill="#4ade80" fontSize="8.5" style={{ pointerEvents: 'none' }}>Guldzon · Nära plockytan</text>
@@ -2084,10 +2087,10 @@ function SlottingTab({ data }) {
                 </>
               )}
               {zoneStats['A'].incoming > 0 && (
-                <>
-                  <rect x="125" y="140" width="110" height="22" rx="4" fill="#1d4ed822" stroke="#3b82f644" strokeWidth="1" style={{ pointerEvents: 'none' }} />
-                  <text x="180" y="155" textAnchor="middle" fill="#60a5fa" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>→ {zoneStats['A'].incoming} på väg in</text>
-                </>
+                <g style={{ cursor: 'pointer' }} onClick={() => { setZoneFilter(null); setIncomingFilter(incomingFilter === 'A' ? null : 'A'); }}>
+                  <rect x="125" y="140" width="110" height="22" rx="4" fill={incomingFilter === 'A' ? '#1d4ed8aa' : '#1d4ed822'} stroke={incomingFilter === 'A' ? '#60a5fa' : '#3b82f644'} strokeWidth={incomingFilter === 'A' ? 2 : 1} />
+                  <text x="180" y="155" textAnchor="middle" fill="#60a5fa" fontSize="9" fontWeight="600">→ {zoneStats['A'].incoming} på väg in</text>
+                </g>
               )}
 
               {/* Zon B */}
@@ -2097,7 +2100,7 @@ function SlottingTab({ data }) {
                 stroke={zoneFilter === 'B' ? '#f59e0b' : '#3d2408'}
                 strokeWidth={zoneFilter === 'B' ? 2 : 1}
                 style={{ cursor: 'pointer' }}
-                onClick={() => setZoneFilter(zoneFilter === 'B' ? null : 'B')}
+                onClick={() => { setIncomingFilter(null); setZoneFilter(zoneFilter === 'B' ? null : 'B'); }}
               />
               <text x="370" y="38" textAnchor="middle" fill="#f59e0b" fontSize="11" fontWeight="700" letterSpacing="0.1em" style={{ pointerEvents: 'none' }}>ZON B</text>
               <text x="370" y="52" textAnchor="middle" fill="#fbbf24" fontSize="8.5" style={{ pointerEvents: 'none' }}>Silverzon · Mittenlagret</text>
@@ -2116,10 +2119,10 @@ function SlottingTab({ data }) {
                 </>
               )}
               {zoneStats['B'].incoming > 0 && (
-                <>
-                  <rect x="315" y="140" width="110" height="22" rx="4" fill="#1d4ed822" stroke="#3b82f644" strokeWidth="1" style={{ pointerEvents: 'none' }} />
-                  <text x="370" y="155" textAnchor="middle" fill="#60a5fa" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>→ {zoneStats['B'].incoming} på väg in</text>
-                </>
+                <g style={{ cursor: 'pointer' }} onClick={() => { setZoneFilter(null); setIncomingFilter(incomingFilter === 'B' ? null : 'B'); }}>
+                  <rect x="315" y="140" width="110" height="22" rx="4" fill={incomingFilter === 'B' ? '#1d4ed8aa' : '#1d4ed822'} stroke={incomingFilter === 'B' ? '#60a5fa' : '#3b82f644'} strokeWidth={incomingFilter === 'B' ? 2 : 1} />
+                  <text x="370" y="155" textAnchor="middle" fill="#60a5fa" fontSize="9" fontWeight="600">→ {zoneStats['B'].incoming} på väg in</text>
+                </g>
               )}
 
               {/* Zon C */}
@@ -2129,7 +2132,7 @@ function SlottingTab({ data }) {
                 stroke={zoneFilter === 'C' ? '#6b7280' : '#292524'}
                 strokeWidth={zoneFilter === 'C' ? 2 : 1}
                 style={{ cursor: 'pointer' }}
-                onClick={() => setZoneFilter(zoneFilter === 'C' ? null : 'C')}
+                onClick={() => { setIncomingFilter(null); setZoneFilter(zoneFilter === 'C' ? null : 'C'); }}
               />
               <text x="580" y="38" textAnchor="middle" fill="#9ca3af" fontSize="11" fontWeight="700" letterSpacing="0.1em" style={{ pointerEvents: 'none' }}>ZON C</text>
               <text x="580" y="52" textAnchor="middle" fill="#9ca3af" fontSize="8.5" style={{ pointerEvents: 'none' }}>Bronszon · Bakre lagret</text>
@@ -2148,10 +2151,10 @@ function SlottingTab({ data }) {
                 </>
               )}
               {zoneStats['C'].incoming > 0 && (
-                <>
-                  <rect x="525" y="140" width="110" height="22" rx="4" fill="#1d4ed822" stroke="#3b82f644" strokeWidth="1" style={{ pointerEvents: 'none' }} />
-                  <text x="580" y="155" textAnchor="middle" fill="#60a5fa" fontSize="9" fontWeight="600" style={{ pointerEvents: 'none' }}>→ {zoneStats['C'].incoming} på väg in</text>
-                </>
+                <g style={{ cursor: 'pointer' }} onClick={() => { setZoneFilter(null); setIncomingFilter(incomingFilter === 'C' ? null : 'C'); }}>
+                  <rect x="525" y="140" width="110" height="22" rx="4" fill={incomingFilter === 'C' ? '#1d4ed8aa' : '#1d4ed822'} stroke={incomingFilter === 'C' ? '#60a5fa' : '#3b82f644'} strokeWidth={incomingFilter === 'C' ? 2 : 1} />
+                  <text x="580" y="155" textAnchor="middle" fill="#60a5fa" fontSize="9" fontWeight="600">→ {zoneStats['C'].incoming} på väg in</text>
+                </g>
               )}
             </svg>
             {/* Legenden under kartan */}
@@ -2168,9 +2171,9 @@ function SlottingTab({ data }) {
                 <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: '#22c55e' }} />
                 Korrekt placerade
               </div>
-              {zoneFilter && (
-                <button onClick={() => setZoneFilter(null)} style={{ marginLeft: 'auto', fontSize: 11, color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                  ✕ Rensa filter (visar zon {zoneFilter})
+              {(zoneFilter || incomingFilter) && (
+                <button onClick={() => { setZoneFilter(null); setIncomingFilter(null); }} style={{ marginLeft: 'auto', fontSize: 11, color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                  ✕ Rensa filter {incomingFilter ? `(på väg in till zon ${incomingFilter})` : `(visar zon ${zoneFilter})`}
                 </button>
               )}
             </div>
