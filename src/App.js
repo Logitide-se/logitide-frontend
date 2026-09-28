@@ -3317,7 +3317,7 @@ function SettingsTab({ data }) {
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────
-function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
+function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme, onLoadAnalysis }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [ledtidOverrides, setLedtidOverrides] = useState({});
 
@@ -3444,7 +3444,7 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme }) {
         {activeTab === 'purchasing' && <PurchasingTab data={effectiveData} />}
         {activeTab === 'slotting' && <SlottingTab data={effectiveData} />}
         {activeTab === 'capital' && <CapitalTab data={effectiveData} />}
-        {activeTab === 'history' && auth && <HistoryTab token={auth.token} />}
+        {activeTab === 'history' && auth && <HistoryTab token={auth.token} onLoadAnalysis={onLoadAnalysis} />}
         {activeTab === 'settings' && <SettingsTab data={effectiveData} />}
       </div>
     </div>
@@ -4003,40 +4003,102 @@ function ComparePanel({ idA, idB, token, labelA, labelB, onClose }) {
       .finally(() => setLoading(false));
   }, [idA, idB, token]);
 
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000,
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24
-    }} onClick={onClose}>
-      <div style={{
-        background: '#0f172a', border: '1px solid #1e293b', borderRadius: 16,
-        width: '100%', maxWidth: 700, maxHeight: '85vh', overflow: 'auto', padding: 28
-      }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <h3 style={{ color: '#f1f5f9', margin: 0 }}>Jämförelse</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 20, cursor: 'pointer' }}>✕</button>
+  const deltaCard = (label, valA, valB, unit = '', lowerIsBetter = false) => {
+    if (valA == null || valB == null) return null;
+    const delta = valB - valA;
+    const improved = lowerIsBetter ? delta < 0 : delta > 0;
+    const neutral = delta === 0;
+    const color = neutral ? '#64748b' : improved ? '#22c55e' : '#ef4444';
+    const arrow = neutral ? '→' : delta > 0 ? '▲' : '▼';
+    const absVal = Math.abs(delta);
+    const fmtVal = (v) => unit === 'kr' ? `${Math.round(v).toLocaleString('sv-SE')} kr` : unit === '%' ? `${v.toFixed(1)}%` : `${Math.round(v)}`;
+    return (
+      <div style={{ background: '#1e293b', borderRadius: 12, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: 0.5 }}>{label}</div>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: color }}>
+            {arrow} {fmtVal(absVal)}{unit !== 'kr' ? unit : ''}
+          </div>
         </div>
-        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 20 }}>
-          <span style={{ color: '#94a3b8' }}>{labelA}</span> → <span style={{ color: '#60a5fa' }}>{labelB}</span>
+        <div style={{ fontSize: 11, color: '#475569' }}>
+          <span style={{ color: '#64748b' }}>{fmtVal(valA)}{unit !== 'kr' ? unit : ''}</span>
+          <span style={{ color: '#334155' }}> → </span>
+          <span style={{ color: '#94a3b8' }}>{fmtVal(valB)}{unit !== 'kr' ? unit : ''}</span>
         </div>
-        {loading && <p style={{ color: '#94a3b8' }}>Beräknar…</p>}
-        {!loading && !diff && <p style={{ color: '#ef4444' }}>Kunde inte jämföra analyserna.</p>}
-        {!loading && diff && (
-          <ImprovementCards cards={diff.cards} totalSaved={diff.total_saved_sek} />
+        {!neutral && (
+          <div style={{ fontSize: 10, fontWeight: 600, color }}>
+            {improved ? '✓ Förbättring' : '✕ Försämring'}
+          </div>
         )}
       </div>
+    );
+  };
+
+  return (
+    <div style={{
+      background: '#0f172a',
+      border: '1px solid #334155',
+      borderRadius: 14,
+      padding: 24,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9', marginBottom: 4 }}>Jämförelse</div>
+          <div style={{ fontSize: 11, color: '#475569' }}>
+            <span style={{ color: '#64748b' }}>{labelA}</span>
+            <span style={{ color: '#334155' }}> → </span>
+            <span style={{ color: '#60a5fa' }}>{labelB}</span>
+          </div>
+        </div>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#475569', fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>✕</button>
+      </div>
+
+      {loading && (
+        <div style={{ padding: '20px 0', color: '#64748b', fontSize: 13 }}>Beräknar delta…</div>
+      )}
+      {!loading && !diff && (
+        <div style={{ padding: '20px 0', color: '#ef4444', fontSize: 13 }}>Kunde inte jämföra analyserna.</div>
+      )}
+      {!loading && diff && (() => {
+        // Backend returns diff.cards OR we build from diff.summary_a / diff.summary_b
+        const sA = diff.summary_a || {};
+        const sB = diff.summary_b || {};
+        const cards = diff.cards;
+
+        if (cards && cards.length) {
+          // Use backend-computed cards if available
+          return (
+            <div>
+              <ImprovementCards cards={cards} totalSaved={diff.total_saved_sek} />
+            </div>
+          );
+        }
+
+        // Fallback: build delta cards from summary objects
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
+            {deltaCard('Servicenivå A', sA.a_service_level_pct, sB.a_service_level_pct, '%', false)}
+            {deltaCard('Kritiska artiklar', sA.critical, sB.critical, '', true)}
+            {deltaCard('Att beställa', sA.articles_to_order, sB.articles_to_order, '', true)}
+            {deltaCard('Dött lager', sA.dead_stock, sB.dead_stock, '', true)}
+            {deltaCard('Överlager', sA.overstock, sB.overstock, '', true)}
+            {deltaCard('Bundet kapital', sA.total_stock_value_sek, sB.total_stock_value_sek, 'kr', true)}
+          </div>
+        );
+      })()}
     </div>
   );
 }
 
 // ─── HISTORY TAB ──────────────────────────────────────────────────────────
-function HistoryTab({ token }) {
+function HistoryTab({ token, onLoadAnalysis }) {
   const [history, setHistory] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
   const [compareIds, setCompareIds] = useState(null); // {idA, idB, labelA, labelB}
   const [compareSelected, setCompareSelected] = useState(null); // id of row selected for compare
   const [clearing, setClearing] = useState(false);
+  const [openingId, setOpeningId] = useState(null); // which row is loading
 
   useEffect(() => {
     fetch(`${API_URL}/history`, {
@@ -4064,6 +4126,26 @@ function HistoryTab({ token }) {
       alert('Kunde inte rensa historik. Försök igen.');
     } finally {
       setClearing(false);
+    }
+  };
+
+  const handleOpenAnalysis = async (h) => {
+    if (!onLoadAnalysis) return;
+    setOpeningId(h.id);
+    try {
+      const res = await fetch(`${API_URL}/history/${h.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const detail = await res.json();
+      if (detail && detail.articles) {
+        onLoadAnalysis(detail);
+      } else {
+        alert('Kunde inte ladda analysen.');
+      }
+    } catch (e) {
+      alert('Nätverksfel — försök igen.');
+    } finally {
+      setOpeningId(null);
     }
   };
 
@@ -4114,7 +4196,9 @@ function HistoryTab({ token }) {
         <HistoryDetailModal analysisId={selectedId} token={token} onClose={() => setSelectedId(null)} />
       )}
       {compareIds && (
-        <ComparePanel {...compareIds} token={token} onClose={() => setCompareIds(null)} />
+        <div style={{ marginBottom: 24 }}>
+          <ComparePanel {...compareIds} token={token} onClose={() => { setCompareIds(null); setCompareSelected(null); }} />
+        </div>
       )}
 
       {/* Trend summary */}
@@ -4177,12 +4261,12 @@ function HistoryTab({ token }) {
         <h3 style={{ color: '#f1f5f9', margin: 0, flex: 1 }}>Analyskörningar</h3>
         {compareSelected && (
           <div style={{ fontSize: 12, color: '#60a5fa', background: '#1e3a5f', borderRadius: 6, padding: '4px 10px' }}>
-            Klicka på en annan rad för att jämföra
+            ✓ Välj en andra rad för att jämföra
           </div>
         )}
         {!compareSelected && history.length >= 2 && (
           <div style={{ fontSize: 11, color: '#64748b' }}>
-            Klicka på rad för detaljer · Klicka "Jämför" för att välja
+            "Öppna" laddar analysen · "Jämför" visar delta
           </div>
         )}
         <button
@@ -4216,24 +4300,21 @@ function HistoryTab({ token }) {
               <th style={{ padding: '8px 12px' }}>KRITISKA</th>
               <th style={{ padding: '8px 12px' }}>SERVICENIVÅ A</th>
               <th style={{ padding: '8px 12px' }}>KAPITAL</th>
-              <th style={{ padding: '8px 12px' }}></th>
+              <th style={{ padding: '8px 12px', textAlign: 'right' }}></th>
             </tr>
           </thead>
           <tbody>
             {history.map((h, i) => {
               const isSelected = compareSelected === h.id;
+              const isOpening = openingId === h.id;
               return (
                 <tr
                   key={h.id}
                   style={{
                     borderBottom: '1px solid #0f172a',
-                    background: isSelected ? '#1e3a5f' : i === 0 ? '#1e293b' : 'transparent',
-                    cursor: 'pointer',
+                    background: isSelected ? '#1e3a5f22' : i === 0 ? '#1e293b44' : 'transparent',
                     transition: 'background 0.15s',
                   }}
-                  onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = '#162032'; }}
-                  onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = i === 0 ? '#1e293b' : 'transparent'; }}
-                  onClick={() => setSelectedId(h.id)}
                 >
                   <td style={{ padding: '10px 12px', color: '#94a3b8' }}>
                     {fmtDate(h.created_at)}
@@ -4244,15 +4325,47 @@ function HistoryTab({ token }) {
                   <td style={{ padding: '10px 12px', color: h.summary?.critical > 0 ? '#ef4444' : '#22c55e', fontWeight: 600 }}>{h.summary?.critical ?? '—'}</td>
                   <td style={{ padding: '10px 12px', color: (h.summary?.a_service_level_pct ?? 0) >= 95 ? '#22c55e' : (h.summary?.a_service_level_pct ?? 0) >= 85 ? '#f97316' : '#ef4444', fontWeight: 600 }}>{h.summary?.a_service_level_pct ?? '—'}%</td>
                   <td style={{ padding: '10px 12px', color: '#a78bfa' }}>{fmtKr(h.summary?.total_stock_value_sek) || '—'}</td>
-                  <td style={{ padding: '10px 12px' }} onClick={e => { e.stopPropagation(); handleCompare(h); }}>
-                    <button style={{
-                      background: isSelected ? '#3b82f6' : '#1e293b',
-                      border: `1px solid ${isSelected ? '#3b82f6' : '#334155'}`,
-                      color: isSelected ? '#fff' : '#94a3b8',
-                      borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 600
-                    }}>
-                      {isSelected ? '✓ Vald' : 'Jämför'}
-                    </button>
+                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                      {/* Öppna-knapp */}
+                      {onLoadAnalysis && (
+                        <button
+                          onClick={() => handleOpenAnalysis(h)}
+                          disabled={isOpening}
+                          style={{
+                            background: isOpening ? '#1e293b' : '#6366f1',
+                            border: 'none',
+                            color: isOpening ? '#64748b' : '#fff',
+                            borderRadius: 6,
+                            padding: '4px 12px',
+                            fontSize: 11,
+                            cursor: isOpening ? 'wait' : 'pointer',
+                            fontWeight: 600,
+                            whiteSpace: 'nowrap',
+                            minWidth: 64,
+                          }}
+                        >
+                          {isOpening ? '…' : '↗ Öppna'}
+                        </button>
+                      )}
+                      {/* Jämför-knapp */}
+                      <button
+                        onClick={() => handleCompare(h)}
+                        style={{
+                          background: isSelected ? '#3b82f6' : 'transparent',
+                          border: `1px solid ${isSelected ? '#3b82f6' : '#334155'}`,
+                          color: isSelected ? '#fff' : '#64748b',
+                          borderRadius: 6,
+                          padding: '4px 10px',
+                          fontSize: 11,
+                          cursor: 'pointer',
+                          fontWeight: 600,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {isSelected ? '✓ Vald' : 'Jämför'}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -4299,7 +4412,12 @@ export default function App() {
     setShowHome(false);
   };
 
+  const handleLoadHistoryAnalysis = (data) => {
+    setAnalysisData(data);
+    setShowHome(false);
+  };
+
   if (!auth) return <LoginPage onLogin={setAuth} />;
-  if (!showHome && analysisData) return <Dashboard data={analysisData} auth={auth} onReset={handleGoHome} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />;
+  if (!showHome && analysisData) return <Dashboard data={analysisData} auth={auth} onReset={handleGoHome} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} onLoadAnalysis={handleLoadHistoryAnalysis} />;
   return <DashboardHome onAnalysis={handleAnalysis} onOpenAnalysis={handleOpenFullAnalysis} existingData={analysisData} auth={auth} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />;
 }
