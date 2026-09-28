@@ -1522,7 +1522,7 @@ function PurchaseLine({ a, dec, onDecide, hasCost }) {
               <div><span>Beställ senast</span><b>{a.late_days > 0 ? 'redan passerat' : `${shortDate(a.last_order_date)} (${relDay(a.last_order_date)})`}</b></div>
               <div><span>Leverans om du beställer idag</span><b>{shortDate(a.arrival_if_ordered_today)}</b></div>
               <div><span>Räcker efter ordern</span><b>{after != null ? `${nf(after, 0)} dagar` : '—'}</b></div>
-              {a.expected_shortage_days > 0 && <div><span>Dagar utan lager</span><b className="lt-crit-text">ca {nf(a.expected_shortage_days, 0)}</b></div>}
+              {a.late_days > 0 && <div><span>Dagar utan lager</span><b className="lt-crit-text">ca {a.late_days}</b></div>}
             </div>
             <CalcBreakdown a={a} />
           </td>
