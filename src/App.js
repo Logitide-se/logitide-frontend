@@ -4137,10 +4137,11 @@ function HistoryTab({ token, onLoadAnalysis }) {
         headers: { Authorization: `Bearer ${token}` }
       });
       const detail = await res.json();
-      if (detail && detail.articles) {
-        onLoadAnalysis(detail);
+      const analysisData = detail.full_data || detail;
+      if (analysisData && analysisData.articles) {
+        onLoadAnalysis(analysisData);
       } else {
-        alert('Kunde inte ladda analysen.');
+        alert('Kunde inte ladda analysen — analysen saknar fullständig data.');
       }
     } catch (e) {
       alert('Nätverksfel — försök igen.');
