@@ -1,6 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import './App.css';
-import './logitide-v3.css';
 const API_URL = 'https://web-production-2ab93.up.railway.app';
 
 // ─── THEME ────────────────────────────────────────────────────────────────
@@ -3973,7 +3972,6 @@ function ImportStudio({ auth, onAnalysis, latest, analysisCount, onOpenLatest })
       } catch {} finally { setCovLoading(false); }
     }, 350);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mappedFields]);
 
   const setField = (fk, col, val) => setMapping(prev => ({ ...prev, [fk]: { ...prev[fk], [col]: val } }));
