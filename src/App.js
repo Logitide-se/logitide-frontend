@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import './App.css';
+import './logitide-v3.css';
 const API_URL = 'https://web-production-2ab93.up.railway.app';
 
 // ─── THEME ────────────────────────────────────────────────────────────────
@@ -15,14 +16,6 @@ function useTheme() {
   return [theme, toggle];
 }
 
-function ThemeToggle({ theme, onToggle }) {
-  return (
-    <button className="theme-toggle" onClick={onToggle} title="Växla tema">
-      <span className="theme-toggle-icon">{theme === 'dark' ? '☀️' : '🌙'}</span>
-      {theme === 'dark' ? 'Ljust' : 'Mörkt'}
-    </button>
-  );
-}
 // ─── ICONS ────────────────────────────────────────────────────────────────
 const Icon = ({ name, size = 20 }) => {
   const icons = {
@@ -3469,297 +3462,171 @@ const KPI_FIELDS = [
   { key: 'inkommande',label: 'Inkommande order',  icon: '🔄', required: false, desc: 'Förbättrar servicenivå' },
 ];
 
-function DashboardHome({ onAnalysis, onOpenAnalysis, existingData, auth, onLogout, theme, onToggleTheme }) {
-  const [latestData, setLatestData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [showImportWizard, setShowImportWizard] = useState(false);
-  const [dragging, setDragging] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState(null);
-  const [analysisCount, setAnalysisCount] = useState(0);
-  const [hoveredField, setHoveredField] = useState(null);
+// ═══════════════════════════════════════════════════════════════════════════
+// LOGITIDE V3 — inloggning, startsida och importstudio
+// Stilar: logitide-v3.css (lt-*-klasser). All text på svenska.
+// ═══════════════════════════════════════════════════════════════════════════
 
-  useEffect(() => {
-    if (!auth?.token) { setLoading(false); return; }
-    fetch(`${API_URL}/history`, { headers: { Authorization: `Bearer ${auth.token}` } })
-      .then(r => r.json())
-      .then(async d => {
-        const analyses = d.analyses || [];
-        setAnalysisCount(analyses.length);
-        if (!analyses.length) { setLoading(false); return; }
-        const latestId = analyses[0].id;
-        const detail = await fetch(`${API_URL}/history/${latestId}`, {
-          headers: { Authorization: `Bearer ${auth.token}` }
-        }).then(r => r.json());
-        setLatestData(detail);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [auth]);
-
-  const handleFile = async (file) => {
-    if (!file) return;
-    window._lastUploadedFile = file;
-    setUploading(true);
-    setUploadError(null);
-    try {
-      const valForm = new FormData();
-      valForm.append('file', file);
-      const valRes = await fetch(`${API_URL}/validate`, { method: 'POST', body: valForm });
-      if (valRes.ok) {
-        const val = await valRes.json();
-        if (!val.valid && val.errors?.length) throw new Error(val.errors.join('\n'));
-      }
-      const formData = new FormData();
-      formData.append('file', file);
-      try { const cfg = localStorage.getItem('logitide-slottingConfig'); if (cfg) formData.append('zone_config', cfg); } catch {}
-      try {
-        const sup = JSON.parse(localStorage.getItem('logitide-supplierSettings') || '{}');
-        const valid = Object.fromEntries(Object.entries(sup).filter(([,v]) => v != null && v !== ''));
-        if (Object.keys(valid).length) formData.append('supplier_lead_times', JSON.stringify(valid));
-        const gs = JSON.parse(localStorage.getItem('logitide-globalSettings') || '{}');
-        if (gs.defaultLeadTime) formData.append('global_lead_time', String(gs.defaultLeadTime));
-      } catch {}
-      const headers = {};
-      if (auth?.token) headers['Authorization'] = `Bearer ${auth.token}`;
-      const res = await fetch(`${API_URL}/analyze`, { method: 'POST', body: formData, headers });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Analysen misslyckades.'); }
-      const data = await res.json();
-      window._lastAnalysisData = data;
-      onAnalysis(data);
-    } catch (e) {
-      setUploadError(e.message);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const s = latestData?.summary;
-  const hasCost = s?.has_cost_data;
-  const actions = latestData?.top_actions?.slice(0, 6) || [];
-  const articles = latestData?.articles || [];
-
-  // Urgency assessment for hero
-  const critical = s?.critical ?? 0;
-  const toOrder = s?.articles_to_order ?? 0;
-  const dead = s?.dead_stock ?? 0;
-  const svcLevel = s?.a_service_level_pct;
-
-  const getHeroStatus = () => {
-    if (!latestData) return null;
-    if (critical > 0) return { level: 'critical', color: '#ef4444', bg: 'rgba(239,68,68,0.08)', icon: '🚨', text: `${critical} ${critical === 1 ? 'artikel kräver' : 'artiklar kräver'} omedelbar åtgärd`, sub: 'Täcktid understiger ledtiden — risk för lagerbrist' };
-    if (toOrder > 5) return { level: 'warning', color: '#f97316', bg: 'rgba(249,115,22,0.08)', icon: '📋', text: `${toOrder} artiklar bör beställas`, sub: hasCost ? `Ordervärde: ${fmtKr(s?.total_order_value_sek)}` : 'Kontrollera täcktider och beställ' };
-    if (svcLevel != null && svcLevel < 90) return { level: 'warning', color: '#eab308', bg: 'rgba(234,179,8,0.08)', icon: '📉', text: `Servicenivå A: ${svcLevel}%`, sub: 'Under målnivå 95% — åtgärda kritiska artiklar' };
-    return { level: 'ok', color: '#22c55e', bg: 'rgba(34,197,94,0.08)', icon: '✅', text: 'Lagret är i balans', sub: `${fmt(s?.total_articles)} artiklar · inga kritiska brister` };
-  };
-
-  const heroStatus = getHeroStatus();
-
-  const today = new Date().toLocaleDateString('sv-SE', { day: 'numeric', month: 'long', year: 'numeric' });
-  const analysisDate = latestData?.created_at
-    ? new Date(latestData.created_at).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric' })
-    : null;
-
-  if (loading) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 32, height: 32, border: '3px solid var(--border)', borderTop: '3px solid #6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-          <div style={{ color: 'var(--text3)', fontSize: 13 }}>Laddar…</div>
-        </div>
-      </div>
-    );
-  }
-
-  const hasHistory = latestData || analysisCount > 0;
-
+// Logotyp: tre staplar A/B/C — Pareto som varumärke
+function LogoMark({ size = 28 }) {
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .dh-fade { animation: fadeUp 0.3s ease both; }
-        .dh-upload-primary { transition: all 0.2s; }
-        .dh-upload-primary:hover { border-color: #6366f1 !important; background: rgba(99,102,241,0.05) !important; }
-        .dh-upload-primary.dragging { border-color: #6366f1 !important; background: rgba(99,102,241,0.08) !important; }
-        .dh-erp-btn { transition: all 0.15s; }
-        .dh-erp-btn:hover { border-color: #6366f1 !important; background: rgba(99,102,241,0.06) !important; }
-        .dh-field-chip { transition: all 0.15s; cursor: default; }
-        .dh-field-chip:hover { transform: translateY(-1px); }
-        .dh-history-row:hover { background: var(--bg3) !important; }
-        .dh-open-btn:hover { background: #5254cc !important; }
-      `}</style>
+    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
+      <rect x="0.5" y="0.5" width="31" height="31" rx="8" fill="var(--bg3)" stroke="var(--border-strong)" />
+      <path d="M8.5 11h15" stroke="var(--accent)" strokeWidth="2.6" strokeLinecap="round" />
+      <path d="M8.5 16h10" stroke="var(--text)" strokeOpacity=".8" strokeWidth="2.6" strokeLinecap="round" />
+      <path d="M8.5 21h5" stroke="var(--text)" strokeOpacity=".4" strokeWidth="2.6" strokeLinecap="round" />
+    </svg>
+  );
+}
 
-      {/* ── Topbar ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 24px', borderBottom: '1px solid var(--border)', background: 'var(--bg2)', position: 'sticky', top: 0, zIndex: 50 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 30, height: 30, borderRadius: 7, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15 }}>📦</div>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.02em', lineHeight: 1 }}>Logitide</div>
-            <div style={{ fontSize: 8, color: 'var(--text3)', letterSpacing: '0.15em', fontWeight: 700, marginTop: 1 }}>LAGEROPTIMERING</div>
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {auth?.company && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text2)', background: 'var(--bg3)', padding: '3px 10px', borderRadius: 20, border: '1px solid var(--border)' }}>{auth.company}</span>}
-          {auth?.email && <span style={{ fontSize: 11, color: 'var(--text3)' }}>{auth.email}</span>}
-          {existingData && (
-            <button onClick={() => (onOpenAnalysis || onAnalysis)(existingData)}
-              style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 6, color: '#818cf8', fontSize: 12, padding: '5px 12px', cursor: 'pointer', fontWeight: 600 }}>
-              ↗ Senaste analys
-            </button>
-          )}
-          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
-          <button onClick={onLogout} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text3)', fontSize: 12, padding: '5px 12px', cursor: 'pointer' }}>Logga ut</button>
-        </div>
+function Brand({ size = 28 }) {
+  return (
+    <div className="lt-brand">
+      <LogoMark size={size} />
+      <div>
+        <div className="lt-brand-name">Logitide</div>
+        <div className="lt-brand-sub">OPTIMIZER</div>
       </div>
-
-      {/* ── Huvud-innehåll ── */}
-      <div style={{ flex: 1, maxWidth: 900, width: '100%', margin: '0 auto', padding: '48px 24px 40px' }} className="dh-fade">
-
-        {/* Hero-rubrik */}
-        <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <h1 style={{ fontSize: 28, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.03em', margin: '0 0 10px' }}>
-            {hasHistory ? 'Kör en ny analys' : 'Välkommen till Logitide'}
-          </h1>
-          <p style={{ fontSize: 15, color: 'var(--text3)', margin: 0, maxWidth: 480, marginInline: 'auto', lineHeight: 1.6 }}>
-            {hasHistory
-              ? 'Ladda upp en exportfil från ert system — AI:n mappar kolumnerna automatiskt.'
-              : 'Ladda upp er lagerfil så analyserar vi KPI:er, identifierar brister och skapar prioriterade åtgärder.'}
-          </p>
-        </div>
-
-        {/* ── Upload-sektion ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, marginBottom: 32, alignItems: 'stretch' }}>
-          {/* Primär drop-zon */}
-          <div
-            className={`dh-upload-primary${dragging ? ' dragging' : ''}`}
-            style={{ border: '2px dashed var(--border)', borderRadius: 14, padding: '36px 28px', cursor: uploading ? 'default' : 'pointer', textAlign: 'center', background: 'var(--bg2)' }}
-            onDragOver={e => { e.preventDefault(); setDragging(true); }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }}
-            onClick={() => !uploading && document.getElementById('dh-file-input').click()}
-          >
-            {uploading ? (
-              <>
-                <div style={{ width: 36, height: 36, border: '3px solid var(--border)', borderTop: '3px solid #6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 14px' }} />
-                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>Analyserar filen…</div>
-                <div style={{ fontSize: 12, color: 'var(--text3)' }}>AI mappar kolumner och beräknar KPI:er</div>
-              </>
-            ) : (
-              <>
-                <div style={{ fontSize: 36, marginBottom: 12 }}>📂</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>Dra och släpp fil här</div>
-                <div style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 16 }}>Excel (.xlsx, .xls) eller CSV · Max 20 MB</div>
-                <span style={{ display: 'inline-block', background: '#6366f1', color: '#fff', borderRadius: 7, padding: '8px 20px', fontSize: 13, fontWeight: 700 }}>Välj fil</span>
-              </>
-            )}
-            <input id="dh-file-input" type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
-          </div>
-
-          {/* ERP-knapp — höger sida */}
-          <button
-            className="dh-erp-btn"
-            onClick={() => setShowImportWizard(true)}
-            style={{ border: '1px solid var(--border)', borderRadius: 14, padding: '24px 20px', cursor: 'pointer', background: 'var(--bg2)', color: 'var(--text)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, minWidth: 160 }}>
-            <span style={{ fontSize: 28 }}>🔗</span>
-            <span style={{ fontWeight: 700, fontSize: 13 }}>ERP-import</span>
-            <span style={{ fontSize: 11, color: 'var(--text3)', textAlign: 'center', lineHeight: 1.4 }}>Flera filer<br/>AI-kolumnmappning</span>
-          </button>
-        </div>
-
-        {uploadError && (
-          <div style={{ marginBottom: 24, color: '#ef4444', fontSize: 13, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '12px 16px', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-            <span>⚠️</span><span>{uploadError}</span>
-          </div>
-        )}
-
-        {/* ── KPI-fält — vad systemet behöver ── */}
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginBottom: 28 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Vilka kolumner behövs?</div>
-            <div style={{ fontSize: 11, color: 'var(--text3)' }}>Hovra för mer info · AI mappar automatiskt från valfritt kolumnnamn</div>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {KPI_FIELDS.map(f => (
-              <div
-                key={f.key}
-                className="dh-field-chip"
-                onMouseEnter={() => setHoveredField(f.key)}
-                onMouseLeave={() => setHoveredField(null)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 8,
-                  background: f.required ? 'rgba(99,102,241,0.1)' : 'var(--bg3)',
-                  border: `1px solid ${f.required ? 'rgba(99,102,241,0.35)' : 'var(--border)'}`,
-                  position: 'relative',
-                }}>
-                <span style={{ fontSize: 14 }}>{f.icon}</span>
-                <span style={{ fontSize: 12, fontWeight: 600, color: f.required ? '#a5b4fc' : 'var(--text2)' }}>{f.label}</span>
-                {f.required && <span style={{ fontSize: 9, fontWeight: 800, color: '#6366f1', background: 'rgba(99,102,241,0.15)', borderRadius: 3, padding: '1px 4px', letterSpacing: '0.05em' }}>KRAV</span>}
-                {hoveredField === f.key && (
-                  <div style={{ position: 'absolute', bottom: 'calc(100% + 6px)', left: 0, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 7, padding: '6px 10px', fontSize: 11, color: 'var(--text2)', whiteSpace: 'nowrap', zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.2)', pointerEvents: 'none' }}>
-                    {f.desc}
-                    {!f.required && <span style={{ color: 'var(--text3)', marginLeft: 4 }}>· Valfritt men förbättrar analysen</span>}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-          <div style={{ marginTop: 12, fontSize: 11, color: 'var(--text3)' }}>
-            <span style={{ color: '#a5b4fc', fontWeight: 600 }}>KRAV</span> = obligatoriskt &nbsp;·&nbsp; övriga fält aktiverar fler KPI:er &nbsp;·&nbsp; kolumnnamnen spelar ingen roll — AI:n känner igen dem automatiskt
-          </div>
-        </div>
-
-        {/* ── Historik-snabbvy ── */}
-        {latestData && (
-          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid var(--border)' }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Senaste analys</div>
-                {analysisCount > 1 && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>{analysisCount} analyser sparade totalt</div>}
-              </div>
-              <button
-                className="dh-open-btn"
-                onClick={() => (onOpenAnalysis || onAnalysis)(latestData)}
-                style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer', transition: 'background 0.15s' }}>
-                Öppna full analys →
-              </button>
-            </div>
-            {/* KPI-rad från senaste analys */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 0 }}>
-              {[
-                { label: 'Artiklar', value: fmt(latestData.summary?.total_articles), color: 'var(--text)' },
-                { label: 'Kritiska', value: fmt(latestData.summary?.critical), color: (latestData.summary?.critical ?? 0) > 0 ? '#ef4444' : '#22c55e' },
-                { label: 'Att beställa', value: fmt(latestData.summary?.articles_to_order), color: '#f97316' },
-                { label: 'Servicenivå A', value: latestData.summary?.a_service_level_pct != null ? `${latestData.summary.a_service_level_pct}%` : '—', color: (latestData.summary?.a_service_level_pct ?? 0) >= 95 ? '#22c55e' : '#f97316' },
-                { label: 'Bundet kapital', value: latestData.summary?.has_cost_data ? fmtKr(latestData.summary?.total_stock_value_sek) : '—', color: '#a855f7' },
-                { label: 'Dött lager', value: fmt(latestData.summary?.dead_stock), color: 'var(--text2)' },
-              ].map((kpi, i, arr) => (
-                <div key={kpi.label} style={{ padding: '14px 16px', borderRight: i < arr.length - 1 ? '1px solid var(--border)' : 'none', textAlign: 'center' }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', letterSpacing: '0.06em', marginBottom: 4 }}>{kpi.label.toUpperCase()}</div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: kpi.color, fontVariantNumeric: 'tabular-nums' }}>{kpi.value ?? '—'}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ padding: '8px 20px', borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--text3)', display: 'flex', gap: 12 }}>
-              <span>📅 {latestData.created_at ? new Date(latestData.created_at).toLocaleDateString('sv-SE', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'}</span>
-              <span>📄 {latestData.filename || 'Okänd fil'}</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {showImportWizard && (
-        <ImportWizard onAnalysis={onAnalysis} onClose={() => setShowImportWizard(false)} auth={auth} />
-      )}
     </div>
   );
 }
 
-// ─── APP ──────────────────────────────────────────────────────────────────
-// ─── LOGIN PAGE ───────────────────────────────────────────────────────────
-function LoginPage({ onLogin }) {
+const LT_ICONS = {
+  upload: <><path d="M12 15V3" /><path d="m7 8 5-5 5 5" /><path d="M20 15v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-4" /></>,
+  x: <><path d="M18 6 6 18" /><path d="m6 6 12 12" /></>,
+  check: <path d="M20 6 9 17l-5-5" />,
+  alert: <><circle cx="12" cy="12" r="9" /><path d="M12 8v4" /><path d="M12 16h.01" /></>,
+  arrow: <><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></>,
+  back: <><path d="M19 12H5" /><path d="m11 18-6-6 6-6" /></>,
+  plus: <><path d="M12 5v14" /><path d="M5 12h14" /></>,
+  sparkle: <path d="M12 3l1.8 4.9L19 9.7l-5.2 1.8L12 16.4l-1.8-4.9L5 9.7l5.2-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" />,
+  sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>,
+  moon: <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />,
+  link: <><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></>,
+};
+function LtIcon({ name, size = 16, stroke = 1.8 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {LT_ICONS[name]}
+    </svg>
+  );
+}
+
+// ─── Hjälpare för importflödet ────────────────────────────────────────────
+const LT_MONTHS = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+const isPeriodField = (f) => !!f && (/^Period_\d{4}_\d{2}$/.test(f) || /^Månad_\d+$/.test(f));
+function fieldLabel(f) {
+  if (!f) return 'Ignorera';
+  if (f === '__date__') return 'Transaktionsdatum';
+  if (f === '__qty__') return 'Transaktionsantal';
+  let m = f.match(/^Period_(\d{4})_(\d{2})$/);
+  if (m) return `Förbrukning ${LT_MONTHS[+m[2] - 1]} ${m[1]}`;
+  m = f.match(/^Månad_(\d+)$/);
+  if (m) return `Förbrukning ${LT_MONTHS[+m[1] - 1]}`;
+  return f;
+}
+const fmtBytes = (b) => b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} kB`;
+const fmtInt = (n) => (n == null ? '—' : Math.round(n).toLocaleString('sv-SE'));
+const LT_MAX_FILES = 5;
+const LT_MAX_BYTES = 20 * 1024 * 1024;
+
+function collectSettingsInto(form) {
+  try { const cfg = localStorage.getItem('logitide-slottingConfig'); if (cfg) form.append('zone_config', cfg); } catch {}
+  try {
+    const sup = JSON.parse(localStorage.getItem('logitide-supplierSettings') || '{}');
+    const valid = Object.fromEntries(Object.entries(sup).filter(([, v]) => v != null && v !== ''));
+    if (Object.keys(valid).length) form.append('supplier_lead_times', JSON.stringify(valid));
+    const gs = JSON.parse(localStorage.getItem('logitide-globalSettings') || '{}');
+    if (gs.defaultLeadTime) form.append('global_lead_time', String(gs.defaultLeadTime));
+  } catch {}
+}
+
+async function readError(res, fallback) {
+  try { const e = await res.json(); return e.detail || fallback; } catch { return fallback; }
+}
+
+// Status för en kolumnrad
+function rowStatus(sugg, value) {
+  const changed = (sugg?.field || '') !== (value || '');
+  if (changed) return value ? { cls: 'lt-chip', label: 'Manuell' } : { cls: 'lt-chip lt-chip-muted', label: 'Ignoreras' };
+  if (!value) {
+    if (sugg?.method === 'ignore') return { cls: 'lt-chip lt-chip-muted', label: 'Ignoreras' };
+    if (sugg?.method === 'conflict') return { cls: 'lt-chip lt-chip-warn', label: 'Konflikt', review: true };
+    if ((sugg?.samples || []).length === 0) return { cls: 'lt-chip lt-chip-muted', label: 'Tom' };
+    return { cls: 'lt-chip lt-chip-muted', label: 'Ej mappad' };
+  }
+  if (sugg?.confidence === 'auto') return { cls: 'lt-chip lt-chip-ok', label: 'Säker' };
+  if (sugg?.method === 'ai') return { cls: 'lt-chip lt-chip-ai', label: 'AI-förslag', review: true };
+  return { cls: 'lt-chip lt-chip-warn', label: sugg?.ai_confirmed ? 'Kontrollera · AI håller med' : 'Kontrollera', review: true };
+}
+
+// ─── Poängring ────────────────────────────────────────────────────────────
+function ScoreRing({ value = 0, size = 64, stroke = 5 }) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const v = Math.max(0, Math.min(100, value || 0));
+  const color = v >= 80 ? 'var(--green)' : v >= 50 ? 'var(--accent)' : 'var(--orange)';
+  return (
+    <div className="lt-ring" style={{ width: size, height: size }} role="img" aria-label={`Analysgrad ${v} procent`}>
+      <svg width={size} height={size}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--bg4)" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+          strokeDasharray={c} strokeDashoffset={c * (1 - v / 100)} strokeLinecap="round"
+          style={{ transition: 'stroke-dashoffset .5s ease' }} />
+      </svg>
+      <div className="lt-ring-label" style={{ fontSize: size > 80 ? 22 : 15 }}>{v}%</div>
+    </div>
+  );
+}
+
+// ─── Tema-knapp (ersätter emoji-varianten) ────────────────────────────────
+function ThemeToggle({ theme, onToggle }) {
+  return (
+    <button className="lt-theme" onClick={onToggle} title={theme === 'dark' ? 'Byt till ljust läge' : 'Byt till mörkt läge'}
+      aria-label={theme === 'dark' ? 'Byt till ljust läge' : 'Byt till mörkt läge'}>
+      <LtIcon name={theme === 'dark' ? 'sun' : 'moon'} size={15} />
+    </button>
+  );
+}
+
+// ─── Inloggning ───────────────────────────────────────────────────────────
+function ParetoIllustration() {
+  // Principskiss: kumulativ andel av värdet mot andel av artiklarna (typisk 80/15/5-fördelning)
+  const pts = [[0, 0], [5, 42], [10, 60], [20, 80], [35, 89], [50, 95], [70, 98.2], [100, 100]];
+  const W = 480, H = 150, px = (x) => 28 + (x / 100) * (W - 40), py = (y) => H - 22 - (y / 100) * (H - 34);
+  const d = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${px(x).toFixed(1)},${py(y).toFixed(1)}`).join(' ');
+  return (
+    <figure className="lt-pareto" aria-label="Principskiss av ABC-fördelning">
+      <div className="lt-pareto-head">
+        <b>ABC-principen</b>
+        <span className="lt-eyebrow">Andel av lagervärdet</span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} role="img">
+        <rect x={px(0)} y={py(100)} width={px(20) - px(0)} height={py(0) - py(100)} fill="var(--accent-soft)" />
+        {[0, 50, 100].map(y => (
+          <g key={y}>
+            <line x1={px(0)} x2={px(100)} y1={py(y)} y2={py(y)} stroke="var(--border)" />
+            <text x={px(0) - 6} y={py(y) + 3} textAnchor="end" fontSize="9" fill="var(--text3)" fontFamily="var(--mono)">{y}</text>
+          </g>
+        ))}
+        <path d={d} fill="none" stroke="var(--accent)" strokeWidth="2" />
+        <line x1={px(20)} x2={px(20)} y1={py(0)} y2={py(80)} stroke="var(--text3)" strokeDasharray="3 3" />
+        <line x1={px(0)} x2={px(20)} y1={py(80)} y2={py(80)} stroke="var(--text3)" strokeDasharray="3 3" />
+        <circle cx={px(20)} cy={py(80)} r="3.5" fill="var(--accent)" />
+        <text x={px(20) + 10} y={py(80) + 20} fontSize="10.5" fill="var(--text)" fontFamily="var(--mono)">20 % av artiklarna ≈ 80 % av värdet</text>
+        {[['A', 10], ['B', 35], ['C', 75]].map(([l, x]) => (
+          <text key={l} x={px(x)} y={H - 6} textAnchor="middle" fontSize="10" fill="var(--text2)" fontFamily="var(--mono)">{l}</text>
+        ))}
+      </svg>
+    </figure>
+  );
+}
+
+function LoginPage({ onLogin, theme, onToggleTheme }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -3771,62 +3638,739 @@ function LoginPage({ onLogin }) {
       const res = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email: email.trim(), password })
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || 'Felaktig e-post eller lösenord');
-      }
+      if (!res.ok) throw new Error(await readError(res, 'Felaktig e-post eller lösenord'));
       const data = await res.json();
       localStorage.setItem('logitide_token', data.token);
       localStorage.setItem('logitide_email', data.email);
       localStorage.setItem('logitide_company', data.company || '');
       onLogin({ token: data.token, email: data.email, company: data.company });
-    } catch (e) {
-      setError(e.message);
+    } catch (err) {
+      setError(err instanceof TypeError
+        ? 'Kunde inte nå servern. Kontrollera internetanslutningen och försök igen.'
+        : err.message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="upload-page">
-      <div className="upload-content" style={{ maxWidth: 400 }}>
-        <div className="logo-area">
-          <div className="logo-icon">📦</div>
+    <div className="lt-auth">
+      <aside className="lt-auth-brand">
+        <Brand size={30} />
+        <div className="lt-auth-pitch">
+          <div className="lt-eyebrow">Lageroptimering för supply chain</div>
+          <h1>Varje artikel på rätt nivå. Varje krona i arbete.</h1>
+          <p>Ladda upp exporten från ert affärssystem. Logitide förstår kolumnerna, räknar säkerhetslager,
+            inköpsbehov och kapitalbindning — och visar vad som ska göras först.</p>
+        </div>
+        <ParetoIllustration />
+        <ul className="lt-auth-points">
+          <li><b>ABC × XYZ</b>Servicenivå per segment, inte en siffra för hela lagret</li>
+          <li><b>SS = Z·√(LT·σ²+d²·σ²LT)</b>Statistiskt säkerhetslager med ledtidsvariation</li>
+          <li><b>AI-mappning</b>Förstår era kolumnnamn — ni behöver inte städa filen</li>
+        </ul>
+        <div className="lt-auth-foot"><span>Logitide Optimizer v3.0</span><span>Byggd för svenska lager</span></div>
+      </aside>
+
+      <main className="lt-auth-main">
+        {onToggleTheme && <ThemeToggle theme={theme} onToggle={onToggleTheme} />}
+        <form className="lt-auth-card" onSubmit={handleLogin} noValidate>
+          <h2>Logga in</h2>
+          <p>Fortsätt till din lageranalys.</p>
+          <label className="lt-field">
+            <span>E-post</span>
+            <input id="lt-email" className="lt-input" type="email" autoComplete="email" autoFocus
+              placeholder="namn@foretag.se" value={email} onChange={e => setEmail(e.target.value)} required />
+          </label>
+          <label className="lt-field">
+            <span>Lösenord</span>
+            <div className="lt-input-wrap">
+              <input id="lt-password" className="lt-input" type={showPw ? 'text' : 'password'} autoComplete="current-password"
+                value={password} onChange={e => setPassword(e.target.value)} required />
+              <button type="button" className="lt-input-btn" onClick={() => setShowPw(v => !v)}
+                aria-label={showPw ? 'Dölj lösenord' : 'Visa lösenord'}>{showPw ? 'Dölj' : 'Visa'}</button>
+            </div>
+          </label>
+          {error && <div className="lt-alert lt-alert-error" role="alert"><LtIcon name="alert" /><span>{error}</span></div>}
+          <button type="submit" className="lt-btn lt-btn-primary lt-btn-lg lt-btn-block"
+            disabled={loading || !email || !password}>
+            {loading ? <><span className="lt-spinner" /> Loggar in…</> : 'Logga in'}
+          </button>
+          <p className="lt-auth-help">Saknar du konto? Kontakta din Logitide-kontakt så skapar vi en inloggning för ert företag.</p>
+        </form>
+      </main>
+    </div>
+  );
+}
+
+// ─── Stegindikator ────────────────────────────────────────────────────────
+const LT_STEPS = [['files', 'Filer'], ['mapping', 'Kolumner'], ['coverage', 'Analysförmåga'], ['run', 'Analys']];
+function StepRail({ step }) {
+  const idx = LT_STEPS.findIndex(([k]) => k === step);
+  return (
+    <nav className="lt-steps" aria-label="Steg">
+      {LT_STEPS.map(([k, label], i) => (
+        <React.Fragment key={k}>
+          {i > 0 && <span className="lt-step-sep" />}
+          <div className={`lt-step${i < idx ? ' is-done' : ''}${i === idx ? ' is-active' : ''}`} aria-current={i === idx ? 'step' : undefined}>
+            <span className="lt-step-n">{i < idx ? <LtIcon name="check" size={12} stroke={2.4} /> : i + 1}</span>
+            {label}
+          </div>
+        </React.Fragment>
+      ))}
+    </nav>
+  );
+}
+
+// ─── Framsteg under inläsning ─────────────────────────────────────────────
+function ProgressList({ stages, active }) {
+  return (
+    <ul className="lt-progress" aria-live="polite">
+      {stages.map((s, i) => (
+        <li key={s} className={i < active ? 'is-done' : i === active ? 'is-active' : ''}>
+          <span className="mark">
+            {i < active ? <LtIcon name="check" size={14} stroke={2.4} /> : i === active ? <span className="lt-spinner" style={{ width: 12, height: 12 }} /> : null}
+          </span>
+          {s}
+        </li>
+      ))}
+    </ul>
+  );
+}
+function useStagedProgress(running, count, ms = 1400) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    if (!running) { setI(0); return; }
+    const t = setInterval(() => setI(v => Math.min(v + 1, count - 1)), ms);
+    return () => clearInterval(t);
+  }, [running, count, ms]);
+  return i;
+}
+
+// ─── Täckningspanel (höger kolumn i mappningssteget) ──────────────────────
+function CoverageRail({ coverage, loading, onNext, canNext, blockReason }) {
+  return (
+    <aside className="lt-rail">
+      <div className="lt-panel lt-panel-pad">
+        <div className="lt-eyebrow" style={{ marginBottom: 12 }}>Analysförmåga {loading && <span className="lt-spinner" style={{ width: 10, height: 10, marginLeft: 6, verticalAlign: -1 }} />}</div>
+        {coverage ? (
+          <>
+            <div className="lt-cov-head">
+              <ScoreRing value={coverage.score} />
+              <div>
+                <div className="lt-cov-level">{coverage.level_label}</div>
+                <div className="lt-cov-sub lt-num">{coverage.ready_count} fulla · {coverage.partial_count} begränsade · {coverage.locked_count} låsta</div>
+              </div>
+            </div>
+            <ul className="lt-cov-list">
+              {coverage.analyses.map(a => (
+                <li key={a.key} className={a.status}>
+                  <span className={`lt-status-dot ${a.status}`} />{a.name}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : <div className="lt-hint">Beräknas…</div>}
+      </div>
+      <div className="lt-rail-cta">
+        <button className="lt-btn lt-btn-primary lt-btn-lg lt-btn-block" onClick={onNext} disabled={!canNext}>
+          Visa analysförmåga <LtIcon name="arrow" />
+        </button>
+        {blockReason && <div className="lt-hint">{blockReason}</div>}
+      </div>
+    </aside>
+  );
+}
+
+// ─── Mappningstabell för en fil ───────────────────────────────────────────
+function MappingTable({ file, fileKey, values, onChange, fields, filter }) {
+  const cols = Object.entries(file.columns || {});
+  const counts = {};
+  Object.values(values).forEach(v => { if (v && !v.startsWith('__') && !isPeriodField(v)) counts[v] = (counts[v] || 0) + 1; });
+  const groups = [];
+  fields.forEach(f => { let g = groups.find(x => x.name === f.group); if (!g) groups.push(g = { name: f.group, items: [] }); g.items.push(f); });
+
+  const rows = cols.map(([col, s]) => {
+    const v = values[col] || '';
+    const st = rowStatus(s, v);
+    const dup = v && counts[v] > 1;
+    return { col, s, v, st, dup };
+  }).filter(r => filter === 'all' || r.st.review || r.dup);
+
+  if (!rows.length) return <div className="lt-empty">Inga kolumner behöver granskas i den här filen.</div>;
+
+  return (
+    <div className="lt-table-wrap">
+      <table className="lt-table">
+        <thead>
+          <tr><th>Kolumn i filen</th><th>Exempelvärden</th><th>Ifyllt</th><th>Logitide-fält</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          {rows.map(({ col, s, v, st, dup }) => {
+            const inCatalog = (x) => fields.some(f => f.key === x);
+            const extras = [...new Set([v, s.field, s.suggested].filter(x => x && !inCatalog(x)))];
+            const why = dup ? `${fieldLabel(v)} används av flera kolumner — välj en` : s.explanation;
+            return (
+              <tr key={col} className={dup ? 'is-error' : st.review ? 'is-review' : ''}>
+                <td>
+                  <div className="lt-col-name">{col}</div>
+                  {why && <div className="lt-col-why">{why}</div>}
+                </td>
+                <td>
+                  <div className="lt-samples">
+                    {(s.samples || []).slice(0, 3).map((x, i) => <span key={i} className="lt-sample" title={x}>{x}</span>)}
+                    {!(s.samples || []).length && <span className="lt-subtle" style={{ fontSize: 12 }}>tom</span>}
+                  </div>
+                </td>
+                <td>
+                  <div className="lt-fill"><span className="lt-fill-bar"><i className={s.fill_pct < 70 ? 'low' : ''} style={{ width: `${s.fill_pct}%` }} /></span>{s.fill_pct}%</div>
+                </td>
+                <td className="lt-map-cell">
+                  <label className="lt-sr" htmlFor={`map-${fileKey}-${col}`}>Logitide-fält för {col}</label>
+                  <select id={`map-${fileKey}-${col}`} className={`lt-select${!v ? ' is-empty' : ''}${dup ? ' is-error' : ''}`}
+                    value={v} onChange={e => onChange(col, e.target.value)}>
+                    <option value="">Ignorera</option>
+                    {extras.map(x => <option key={x} value={x}>{fieldLabel(x)}</option>)}
+                    {groups.map(g => (
+                      <optgroup key={g.name} label={g.name}>
+                        {g.items.map(f => <option key={f.key} value={f.key}>{f.key}</option>)}
+                      </optgroup>
+                    ))}
+                    {file.is_transaction_file && (
+                      <optgroup label="Transaktioner">
+                        {['__date__', '__qty__'].filter(x => !extras.includes(x)).map(x =>
+                          <option key={x} value={x}>{fieldLabel(x)}</option>)}
+                      </optgroup>
+                    )}
+                  </select>
+                </td>
+                <td><span className={dup ? 'lt-chip lt-chip-err' : st.cls}>{dup ? 'Dubblett' : st.label}</span></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── Konsultens bedömning — deterministisk text från täckningen ───────────
+function adviceFor(cov, meta) {
+  if (!cov) return [];
+  const out = [];
+  const byKey = Object.fromEntries(cov.analyses.map(a => [a.key, a]));
+  if (!cov.base_ok) {
+    out.push('Grunddata saknas: analysen kräver artikelnummer, lagersaldo och någon form av förbrukning.');
+    return out;
+  }
+  if (cov.level === 3) out.push('Datan räcker för en fullständig analys — statistiskt säkerhetslager, trend och prognos, kapitalbindning och slotting kan räknas fram.');
+  else if (cov.level === 2) out.push('Datan räcker för inköpsstyrning och kapitalanalys. Några analyser blir begränsade tills fler fält finns med.');
+  else out.push('Datan räcker för en grundanalys: lagerstatus, täcktid och inköpsförslag. Värdebaserade analyser kräver inköpspris.');
+  if (byKey.status?.notes?.length) out.push(`${byKey.status.notes[0]} — brist- och beställningsdatum blir därför ungefärliga.`);
+  const top = (cov.suggestions || []).find(s => s.unlocks.length) || (cov.suggestions || [])[0];
+  if (top) {
+    const what = top.unlocks.length ? `låser upp ${top.unlocks.join(', ')}` : `förbättrar ${top.improves.slice(0, 3).join(', ')}`;
+    out.push(`Viktigast att komplettera: ${top.label.toLowerCase()} — ${what}.`);
+  }
+  if (meta?.lowJoin) out.push(`Obs: ${meta.lowJoin}`);
+  return out;
+}
+
+// ─── Importstudion ────────────────────────────────────────────────────────
+const LOAD_STAGES = ['Läser filerna och hittar rubrikraden', 'Profilerar varje kolumns innehåll', 'Matchar mot Logitides datamodell', 'Granskar osäkra kolumner', 'Beräknar analysförmåga'];
+const RUN_STAGES = ['Slår ihop filerna per artikelnummer', 'Beräknar förbrukning och variation', 'ABC × XYZ och säkerhetslager', 'Inköpsförslag, kapital och slotting'];
+
+function ImportStudio({ auth, onAnalysis, latest, analysisCount, onOpenLatest }) {
+  const [step, setStep] = useState('files');
+  const [files, setFiles] = useState([]);
+  const [over, setOver] = useState(false);
+  const [busy, setBusy] = useState(null); // 'suggest' | 'run'
+  const [error, setError] = useState(null);
+  const [sugg, setSugg] = useState(null);
+  const [mapping, setMapping] = useState({});
+  const [active, setActive] = useState('file_0');
+  const [filter, setFilter] = useState('all');
+  const [coverage, setCoverage] = useState(null);
+  const [covLoading, setCovLoading] = useState(false);
+  const inputRef = React.useRef(null);
+  const authHeaders = auth?.token ? { Authorization: `Bearer ${auth.token}` } : {};
+
+  const loadStage = useStagedProgress(busy === 'suggest', LOAD_STAGES.length);
+  const runStage = useStagedProgress(busy === 'run', RUN_STAGES.length, 1800);
+
+  const addFiles = (list) => {
+    setError(null);
+    const incoming = Array.from(list || []);
+    const bad = incoming.find(f => !/\.(xlsx|xls|xlsm|csv)$/i.test(f.name));
+    if (bad) { setError(`${bad.name}: bara Excel (.xlsx, .xls) och CSV stöds.`); return; }
+    const big = incoming.find(f => f.size > LT_MAX_BYTES);
+    if (big) { setError(`${big.name} är ${fmtBytes(big.size)} — max 20 MB per fil.`); return; }
+    setFiles(prev => {
+      const names = new Set(prev.map(f => f.name));
+      const merged = [...prev, ...incoming.filter(f => !names.has(f.name))];
+      if (merged.length > LT_MAX_FILES) setError(`Max ${LT_MAX_FILES} filer per analys — de första ${LT_MAX_FILES} används.`);
+      return merged.slice(0, LT_MAX_FILES);
+    });
+  };
+
+  // Steg 1 → 2
+  const readFiles = async () => {
+    if (!files.length) return;
+    setBusy('suggest'); setError(null);
+    try {
+      const form = new FormData();
+      files.forEach(f => form.append('files', f));
+      const res = await fetch(`${API_URL}/import/suggest-mappings`, { method: 'POST', body: form, headers: authHeaders });
+      if (!res.ok) throw new Error(await readError(res, 'Kunde inte läsa filerna.'));
+      const data = await res.json();
+      const m = {};
+      Object.entries(data.files || {}).forEach(([fk, fd]) => {
+        m[fk] = {};
+        Object.entries(fd.columns || {}).forEach(([col, s]) => { m[fk][col] = s.field || ''; });
+      });
+      setSugg(data);
+      setMapping(m);
+      setCoverage(data.coverage || null);
+      const firstReview = Object.entries(data.files || {}).find(([, fd]) =>
+        Object.values(fd.columns).some(s => rowStatus(s, s.field || '').review));
+      setActive(firstReview ? firstReview[0] : 'file_0');
+      setFilter('all');
+      setStep('mapping');
+    } catch (e) {
+      setError(e instanceof TypeError ? 'Kunde inte nå servern. Försök igen om en stund.' : e.message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Levande täckning när mappningen ändras
+  const mappedFields = React.useMemo(() => {
+    const set = new Set();
+    let hasTrans = false;
+    Object.values(mapping).forEach(fm => Object.values(fm).forEach(v => {
+      if (!v) return;
+      if (v === '__date__') hasTrans = true;
+      if (!v.startsWith('__')) set.add(v);
+    }));
+    const periods = [...set].filter(isPeriodField).length;
+    return { fields: [...set].sort(), periods: hasTrans ? Math.max(periods, 12) : periods };
+  }, [mapping]);
+
+  const firstRun = React.useRef(true);
+  useEffect(() => {
+    if (step !== 'mapping' && step !== 'coverage') return;
+    if (firstRun.current) { firstRun.current = false; return; } // första täckningen kommer från servern
+    const t = setTimeout(async () => {
+      setCovLoading(true);
+      try {
+        const res = await fetch(`${API_URL}/import/coverage`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders },
+          body: JSON.stringify(mappedFields)
+        });
+        if (res.ok) setCoverage(await res.json());
+      } catch {} finally { setCovLoading(false); }
+    }, 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mappedFields]);
+
+  const setField = (fk, col, val) => setMapping(prev => ({ ...prev, [fk]: { ...prev[fk], [col]: val } }));
+
+  // Dubbletter per fil blockerar körning
+  const dupIssues = React.useMemo(() => {
+    const out = [];
+    Object.entries(mapping).forEach(([fk, fm]) => {
+      const seen = {};
+      Object.entries(fm).forEach(([col, v]) => {
+        if (!v || v.startsWith('__') || isPeriodField(v)) return;
+        if (seen[v]) out.push(`${sugg?.files?.[fk]?.filename}: ${v}`); else seen[v] = col;
+      });
+    });
+    return out;
+  }, [mapping, sugg]);
+
+  const reviewCount = (fk) => {
+    const fd = sugg?.files?.[fk];
+    if (!fd) return 0;
+    return Object.entries(fd.columns).filter(([col, s]) => rowStatus(s, mapping[fk]?.[col] || '').review).length;
+  };
+
+  // Steg 3 → analys
+  const runAnalysis = async () => {
+    setBusy('run'); setError(null);
+    try {
+      const form = new FormData();
+      files.forEach(f => form.append('files', f));
+      form.append('mapping', JSON.stringify(mapping));
+      collectSettingsInto(form);
+      const res = await fetch(`${API_URL}/import/run`, { method: 'POST', body: form, headers: authHeaders });
+      if (!res.ok) throw new Error(await readError(res, 'Analysen misslyckades.'));
+      const data = await res.json();
+      window._lastAnalysisData = data;
+      window._lastUploadedFile = files.length === 1 ? files[0] : null; // inköpslista-export använder originalfilen
+      onAnalysis(data);
+    } catch (e) {
+      setError(e instanceof TypeError ? 'Kunde inte nå servern. Försök igen om en stund.' : e.message);
+      setBusy(null);
+    }
+  };
+
+  const reset = () => { setStep('files'); setSugg(null); setMapping({}); setCoverage(null); setError(null); firstRun.current = true; };
+
+  const fileEntries = Object.entries(sugg?.files || {});
+  const cur = sugg?.files?.[active];
+  const allCols = fileEntries.reduce((n, [, fd]) => n + Object.keys(fd.columns).length, 0);
+  const totalReview = fileEntries.reduce((n, [fk]) => n + reviewCount(fk), 0);
+  const blockReason = !coverage?.base_ok
+    ? 'Mappa artikelnummer, lagersaldo och förbrukning (per dag/månad/år, månadskolumner eller transaktioner) för att gå vidare.'
+    : dupIssues.length ? `Samma fält är valt för flera kolumner: ${dupIssues.join(', ')}.` : null;
+
+  // ── Steg 1: filer ──
+  if (step === 'files') {
+    return (
+      <>
+        <StepRail step="files" />
+        <div className="lt-head">
           <div>
-            <h1 className="logo-text">Logitide</h1>
-            <p className="logo-sub">OPTIMIZER</p>
+            <div className="lt-eyebrow">Ny analys</div>
+            <h1>Från ERP-export till beslutsunderlag</h1>
+            <p>Ladda upp en eller flera filer — artikelregister, saldolista, förbrukning eller transaktioner.
+              Logitide läser kolumnerna, kopplar ihop filerna och visar vilka analyser datan räcker till innan något räknas.</p>
           </div>
         </div>
-        <h2 className="upload-headline" style={{ fontSize: 24, marginBottom: 24 }}>Logga in</h2>
-        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <input
-            type="email"
-            placeholder="E-post"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            required
-            style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #334155', background: '#1e293b', color: '#f1f5f9', fontSize: 14 }}
-          />
-          <input
-            type="password"
-            placeholder="Lösenord"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            required
-            style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #334155', background: '#1e293b', color: '#f1f5f9', fontSize: 14 }}
-          />
-          {error && <div style={{ color: '#ef4444', fontSize: 13 }}>⚠️ {error}</div>}
-          <button
-            type="submit"
-            disabled={loading}
-            style={{ padding: '11px 0', borderRadius: 8, background: '#6366f1', color: '#fff', border: 'none', fontWeight: 700, fontSize: 15, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}
-          >
-            {loading ? 'Loggar in…' : 'Logga in'}
-          </button>
-        </form>
+
+        <div className="lt-grid-upload">
+          <div>
+            {busy === 'suggest' ? (
+              <div className="lt-drop" style={{ cursor: 'default' }}>
+                <ProgressList stages={LOAD_STAGES} active={loadStage} />
+              </div>
+            ) : (
+              <div className={`lt-drop${over ? ' is-over' : ''}`} role="button" tabIndex={0}
+                onClick={() => inputRef.current?.click()}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inputRef.current?.click(); } }}
+                onDragOver={e => { e.preventDefault(); setOver(true); }}
+                onDragLeave={() => setOver(false)}
+                onDrop={e => { e.preventDefault(); setOver(false); addFiles(e.dataTransfer.files); }}>
+                <div className="lt-drop-icon"><LtIcon name="upload" size={20} /></div>
+                <h3>Släpp filer här eller klicka för att välja</h3>
+                <p>Upp till {LT_MAX_FILES} filer · max 20 MB per fil</p>
+                <div className="lt-drop-types">
+                  <span className="lt-chip lt-mono">.xlsx</span><span className="lt-chip lt-mono">.xls</span><span className="lt-chip lt-mono">.csv</span>
+                </div>
+                <input ref={inputRef} type="file" multiple accept=".xlsx,.xls,.xlsm,.csv" hidden
+                  onChange={e => { addFiles(e.target.files); e.target.value = ''; }} />
+              </div>
+            )}
+
+            {files.length > 0 && busy !== 'suggest' && (
+              <div className="lt-files">
+                {files.map((f, i) => {
+                  const ext = (f.name.split('.').pop() || '').toLowerCase();
+                  return (
+                    <div className="lt-file" key={f.name}>
+                      <span className={`lt-file-ico ${ext === 'csv' ? 'csv' : 'xls'}`}>{ext.toUpperCase().slice(0, 4)}</span>
+                      <div style={{ minWidth: 0 }}>
+                        <div className="lt-file-name" title={f.name}>{f.name}</div>
+                        <div className="lt-file-meta">{fmtBytes(f.size)}</div>
+                      </div>
+                      <span />
+                      <button className="lt-icon-btn" onClick={() => setFiles(p => p.filter((_, j) => j !== i))} aria-label={`Ta bort ${f.name}`}>
+                        <LtIcon name="x" size={14} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {error && <div className="lt-alert lt-alert-error" role="alert" style={{ marginTop: 12 }}><LtIcon name="alert" /><span>{error}</span></div>}
+
+            <div className="lt-actions">
+              <span className="lt-hint">
+                {files.length ? `${files.length} ${files.length === 1 ? 'fil' : 'filer'} redo` : 'Filerna kan ha vilka kolumnnamn som helst — de tolkas automatiskt.'}
+              </span>
+              <button className="lt-btn lt-btn-primary lt-btn-lg" onClick={readFiles} disabled={!files.length || !!busy}>
+                {busy === 'suggest' ? <><span className="lt-spinner" /> Läser in…</> : <>Läs in och granska <LtIcon name="arrow" /></>}
+              </button>
+            </div>
+          </div>
+
+          <aside className="lt-panel lt-panel-pad lt-guide">
+            <div className="lt-panel-title">Vad Logitide behöver</div>
+            <div className="lt-hint">Kolumnnamnen spelar ingen roll. Ju mer data, desto djupare analys.</div>
+            <h4>Grunddata <span className="lt-subtle">— krävs</span></h4>
+            <div className="lt-guide-row req"><span>Artikelnummer</span><span>nyckel</span></div>
+            <div className="lt-guide-row req"><span>Lagersaldo</span><span>antal i lager</span></div>
+            <div className="lt-guide-row req"><span>Förbrukning</span><span>dag, månad, år eller historik</span></div>
+            <h4>Låser upp mer</h4>
+            <div className="lt-guide-row"><span>Inköpspris</span><span>kapitalbindning, värde-ABC</span></div>
+            <div className="lt-guide-row"><span>Ledtid</span><span>exakta bristdatum</span></div>
+            <div className="lt-guide-row"><span>Månadshistorik 6–12 mån</span><span>XYZ, trend, statistiskt SS</span></div>
+            <div className="lt-guide-row"><span>Lagerposition</span><span>slotting</span></div>
+            <div className="lt-guide-row"><span>MOQ · Beställt · ETA</span><span>exakta orderförslag</span></div>
+          </aside>
+        </div>
+
+        {latest?.summary && (
+          <section className="lt-panel lt-latest" aria-label="Senaste analys">
+            <div className="lt-latest-head">
+              <div>
+                <div className="lt-panel-title" style={{ margin: 0 }}>Senaste analys</div>
+                <div className="lt-hint">
+                  {latest.created_at ? new Date(latest.created_at).toLocaleDateString('sv-SE', { day: 'numeric', month: 'long', year: 'numeric' }) : ''}
+                  {latest.filename ? ` · ${latest.filename}` : ''}
+                  {analysisCount > 1 ? ` · ${analysisCount} sparade` : ''}
+                </div>
+              </div>
+              <button className="lt-btn lt-btn-secondary" onClick={onOpenLatest} disabled={!latest.full_data?.articles}>
+                Öppna analysen <LtIcon name="arrow" />
+              </button>
+            </div>
+            <div className="lt-kpis">
+              {[
+                ['Artiklar', fmtInt(latest.summary.total_articles), ''],
+                ['Kritiska', fmtInt(latest.summary.critical), latest.summary.critical > 0 ? 'crit' : 'good'],
+                ['Att beställa', fmtInt(latest.summary.articles_to_order), latest.summary.articles_to_order > 0 ? 'warn' : ''],
+                ['Servicenivå A', latest.summary.a_service_level_pct != null ? `${latest.summary.a_service_level_pct} %` : '—', latest.summary.a_service_level_pct >= 95 ? 'good' : 'warn'],
+                ['Bundet kapital', latest.summary.has_cost_data ? `${fmtInt(latest.summary.total_stock_value_sek / 1000)} tkr` : '—', ''],
+              ].map(([l, v, c]) => (
+                <div className="lt-kpi" key={l}><div className="lt-kpi-label">{l}</div><div className={`lt-kpi-value ${c}`}>{v}</div></div>
+              ))}
+            </div>
+          </section>
+        )}
+      </>
+    );
+  }
+
+  // ── Steg 2: kolumner ──
+  if (step === 'mapping') {
+    return (
+      <>
+        <StepRail step="mapping" />
+        <div className="lt-head">
+          <div>
+            <div className="lt-eyebrow">Granska tolkningen</div>
+            <h1>{totalReview ? `${totalReview} ${totalReview === 1 ? 'kolumn' : 'kolumner'} att granska` : 'Alla kolumner är tolkade'}</h1>
+            <p>{allCols} kolumner i {fileEntries.length} {fileEntries.length === 1 ? 'fil' : 'filer'}.
+              {sugg?.ai?.enabled ? ' AI har granskat de kolumner regelmotorn var osäker på.' : sugg?.ai?.available === false ? ' AI-assistans är inte aktiverad — förslagen kommer från regelmotorn.' : ''}
+              {' '}Ändra ett fält i listan så räknas analysförmågan om direkt.</p>
+          </div>
+          <button className="lt-btn lt-btn-ghost" onClick={reset}><LtIcon name="back" /> Byt filer</button>
+        </div>
+
+        <div className="lt-grid-map">
+          <div className="lt-panel" style={{ overflow: 'hidden' }}>
+            {fileEntries.length > 1 && (
+              <div className="lt-tabs" role="tablist">
+                {fileEntries.map(([fk, fd]) => {
+                  const n = reviewCount(fk);
+                  return (
+                    <button key={fk} role="tab" aria-selected={active === fk} className={`lt-tab${active === fk ? ' is-active' : ''}`} onClick={() => setActive(fk)}>
+                      {fd.filename}
+                      <span className={`lt-count${n ? '' : ' ok'}`}>{n ? n : <LtIcon name="check" size={10} stroke={3} />}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {cur && (
+              <>
+                <div className="lt-filehead">
+                  <div className="lt-filehead-row">
+                    <span className="lt-chip">{cur.role_label}</span>
+                    <span className="lt-mono">{fmtInt(cur.rows)} rader</span>
+                    {cur.header_row > 0 && <><span className="lt-sep">·</span><span>Rubriker hittade på rad {cur.header_row + 1}</span></>}
+                    {cur.join?.primary && fileEntries.length > 1 && <><span className="lt-sep">·</span><span>Huvudfil för artiklarna</span></>}
+                    {cur.join?.matched_pct != null && (
+                      <><span className="lt-sep">·</span>
+                        <span style={{ color: cur.join.matched_pct < 80 ? 'var(--orange)' : undefined, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <LtIcon name="link" size={12} /> {cur.join.matched_pct} % av artiklarna matchar huvudfilen
+                        </span></>
+                    )}
+                  </div>
+                  {cur.ai_summary && (
+                    <div className="lt-ai-note"><span className="lt-chip lt-chip-ai"><LtIcon name="sparkle" size={11} /> AI</span><span>{cur.ai_summary}</span></div>
+                  )}
+                  {cur.notes?.length > 0 && <ul className="lt-notes">{cur.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>}
+                </div>
+                <div className="lt-toolbar">
+                  <div className="lt-seg" role="group" aria-label="Filter">
+                    <button className={filter === 'all' ? 'is-active' : ''} onClick={() => setFilter('all')}>Alla kolumner</button>
+                    <button className={filter === 'review' ? 'is-active' : ''} onClick={() => setFilter('review')}>Att granska ({reviewCount(active)})</button>
+                  </div>
+                  <div className="lt-stats">
+                    {(() => {
+                      const vals = Object.entries(cur.columns).map(([c, s]) => rowStatus(s, mapping[active]?.[c] || ''));
+                      return <>
+                        <span><b>{vals.filter(v => v.label === 'Säker').length}</b> säkra</span>
+                        <span><b>{vals.filter(v => v.review).length}</b> att granska</span>
+                        <span><b>{vals.filter(v => v.label === 'Ignoreras' || v.label === 'Ej mappad' || v.label === 'Tom').length}</b> används inte</span>
+                      </>;
+                    })()}
+                  </div>
+                </div>
+                <MappingTable file={cur} fileKey={active} values={mapping[active] || {}} fields={sugg.fields || []}
+                  filter={filter} onChange={(col, v) => setField(active, col, v)} />
+              </>
+            )}
+          </div>
+          <CoverageRail coverage={coverage} loading={covLoading} onNext={() => setStep('coverage')}
+            canNext={!!coverage?.base_ok && !dupIssues.length} blockReason={blockReason} />
+        </div>
+      </>
+    );
+  }
+
+  // ── Steg 3: analysförmåga ──
+  const lowJoin = fileEntries.map(([, fd]) => fd).find(fd => fd.join?.matched_pct != null && fd.join.matched_pct < 80);
+  const advice = adviceFor(coverage, { lowJoin: lowJoin ? `bara ${lowJoin.join.matched_pct} % av artiklarna i ${lowJoin.filename} finns i huvudfilen — kontrollera att artikelnumren har samma format.` : null });
+  const primary = fileEntries.map(([, fd]) => fd).find(fd => fd.join?.primary) || fileEntries[0]?.[1];
+  const articleCount = primary?.join?.total ?? primary?.rows;
+  const hasTrans = fileEntries.some(([, fd]) => fd.is_transaction_file);
+  const nFields = mappedFields.fields.filter(f => !isPeriodField(f)).length;
+  return (
+    <>
+      <StepRail step={busy === 'run' ? 'run' : 'coverage'} />
+      <div className="lt-head">
+        <div>
+          <div className="lt-eyebrow">Innan analysen körs</div>
+          <h1>Det här kan Logitide räkna fram ur er data</h1>
+        </div>
+        <button className="lt-btn lt-btn-ghost" onClick={() => setStep('mapping')} disabled={busy === 'run'}><LtIcon name="back" /> Justera kolumner</button>
       </div>
+
+      {coverage && (
+        <section className="lt-panel">
+          <div className="lt-cap-hero">
+            <ScoreRing value={coverage.score} size={96} stroke={7} />
+            <div>
+              <h2>{coverage.level_label}</h2>
+              <div className="lt-muted" style={{ fontSize: 14 }}>
+                {coverage.ready_count} av {coverage.total} analyser fullt tillgängliga
+                {coverage.partial_count ? `, ${coverage.partial_count} begränsade` : ''}
+                {coverage.locked_count ? `, ${coverage.locked_count} låsta` : ''}.
+              </div>
+              <div className="lt-cap-facts">
+                <span><b>{fileEntries.length}</b> {fileEntries.length === 1 ? 'fil' : 'filer'}</span>
+                <span><b>{fmtInt(articleCount)}</b> artiklar</span>
+                <span><b>{nFields}</b> datafält</span>
+                {hasTrans ? <span><b>Transaktioner</b> → månadshistorik</span> : <span><b>{mappedFields.periods}</b> månaders historik</span>}
+              </div>
+            </div>
+          </div>
+          {advice.length > 0 && (
+            <div className="lt-advice">
+              <div className="lt-eyebrow">Bedömning</div>
+              {advice.map((t, i) => <p key={i}>{t}</p>)}
+            </div>
+          )}
+        </section>
+      )}
+
+      <div className="lt-cards">
+        {(coverage?.analyses || []).map(a => (
+          <article key={a.key} className={`lt-card ${a.status}`}>
+            <div className="lt-card-top">
+              <h3>{a.name}</h3>
+              <span className={`lt-chip ${a.status === 'ready' ? 'lt-chip-ok' : a.status === 'partial' ? 'lt-chip-warn' : 'lt-chip-muted'}`}>
+                <span className="dot" />{a.status === 'ready' ? 'Full' : a.status === 'partial' ? 'Begränsad' : 'Låst'}
+              </span>
+            </div>
+            <p>{a.description}</p>
+            <div className="lt-card-foot">
+              {a.status === 'locked' && <>Kräver <b>{a.missing_required.join(', ')}</b></>}
+              {a.status === 'partial' && (a.notes.length ? a.notes.map((n, i) => <div key={i}>{n}</div>) : <>Blir bättre med <b>{a.missing_recommended.join(', ')}</b></>)}
+              {a.status === 'ready' && <span className="lt-card-where">Visas under {a.tab}</span>}
+            </div>
+          </article>
+        ))}
+      </div>
+
+      {coverage?.suggestions?.length > 0 && (
+        <section className="lt-panel lt-unlock">
+          <div className="lt-panel-pad" style={{ paddingBottom: 8 }}>
+            <div className="lt-panel-title">Så får ni ut mer nästa gång</div>
+            <div className="lt-hint">Lägg till kolumnerna i exporten — Logitide känner igen dem automatiskt.</div>
+          </div>
+          {coverage.suggestions.slice(0, 4).map(s => (
+            <div className="lt-unlock-row" key={s.field}>
+              <span className="lt-unlock-plus"><LtIcon name="plus" size={14} /></span>
+              <div>
+                <b>{s.label}</b>
+                <p>
+                  {s.unlocks.length > 0 && <>Låser upp {s.unlocks.join(', ')}. </>}
+                  {s.improves.length > 0 && <>Förbättrar {s.improves.join(', ')}.</>}
+                </p>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {error && <div className="lt-alert lt-alert-error" role="alert" style={{ marginTop: 16 }}><LtIcon name="alert" /><span>{error}</span></div>}
+
+      <div className="lt-runbar">
+        {busy === 'run' ? <ProgressList stages={RUN_STAGES} active={runStage} /> :
+          <span className="lt-hint">Analysen körs på {files.length} {files.length === 1 ? 'fil' : 'filer'} och sparas i historiken.</span>}
+        <button className="lt-btn lt-btn-primary lt-btn-lg" onClick={runAnalysis} disabled={!!busy || !coverage?.base_ok}>
+          {busy === 'run' ? <><span className="lt-spinner" /> Analyserar…</> : <>Kör analysen <LtIcon name="arrow" /></>}
+        </button>
+      </div>
+    </>
+  );
+}
+
+// ─── Startsida ────────────────────────────────────────────────────────────
+function DashboardHome({ onAnalysis, onOpenAnalysis, existingData, auth, onLogout, theme, onToggleTheme }) {
+  const [latest, setLatest] = useState(null);
+  const [analysisCount, setAnalysisCount] = useState(0);
+
+  useEffect(() => {
+    if (!auth?.token) return;
+    let alive = true;
+    const headers = { Authorization: `Bearer ${auth.token}` };
+    fetch(`${API_URL}/history`, { headers })
+      .then(r => (r.ok ? r.json() : { analyses: [] }))
+      .then(async d => {
+        const list = d.analyses || [];
+        if (!alive) return;
+        setAnalysisCount(list.length);
+        if (!list.length) return;
+        const detail = await fetch(`${API_URL}/history/${list[0].id}`, { headers }).then(r => (r.ok ? r.json() : null));
+        if (alive && detail) setLatest(detail);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [auth]);
+
+  const openLatest = () => {
+    const d = latest?.full_data;
+    if (d?.articles) (onOpenAnalysis || onAnalysis)(d);
+  };
+
+  return (
+    <div className="lt-app">
+      <header className="lt-topbar">
+        <Brand />
+        <div className="lt-topbar-right">
+          {auth?.company && <span className="lt-chip">{auth.company}</span>}
+          {auth?.email && <span className="lt-user">{auth.email}</span>}
+          {existingData && (
+            <button className="lt-btn lt-btn-secondary lt-btn-sm" onClick={() => (onOpenAnalysis || onAnalysis)(existingData)}>
+              Tillbaka till analysen
+            </button>
+          )}
+          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+          <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={onLogout}>Logga ut</button>
+        </div>
+      </header>
+      <main className="lt-page">
+        <ImportStudio auth={auth} onAnalysis={onAnalysis} latest={latest} analysisCount={analysisCount} onOpenLatest={openLatest} />
+      </main>
     </div>
   );
 }
@@ -4421,7 +4965,7 @@ export default function App() {
     setShowHome(false);
   };
 
-  if (!auth) return <LoginPage onLogin={setAuth} />;
+  if (!auth) return <LoginPage onLogin={setAuth} theme={theme} onToggleTheme={toggleTheme} />;
   if (!showHome && analysisData) return <Dashboard data={analysisData} auth={auth} onReset={handleGoHome} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} onLoadAnalysis={handleLoadHistoryAnalysis} />;
   return <DashboardHome onAnalysis={handleAnalysis} onOpenAnalysis={handleOpenFullAnalysis} existingData={analysisData} auth={auth} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />;
 }
