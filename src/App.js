@@ -54,37 +54,41 @@ const abcColor = (abc) => ({ A: '#22c55e', B: '#f59e0b', C: '#6b7280' }[abc] || 
 
 // ─── LOKAL OMRÄKNING NÄR LEDTID ÄNDRAS ───────────────────────────────────
 function recalcArticle(a, newLeadTime) {
+  // Speglar backend v2.11: säkerhetslager, beställningspunkt och status räknas om med ny ledtid.
   const lt = newLeadTime;
-  const cov = a.coverage_days ?? 0;
-  const demand = a.demand_per_day ?? 0;
-  const hasDemand = demand > 0;
+  const d = a.demand_per_day ?? 0;
+  const hasDemand = d > 0;
+  const pos = a.effective_stock ?? a.stock ?? 0;
+  const cov = hasDemand ? pos / d : 999;
+  const raw = hasDemand ? (a.stock ?? 0) / d : 999;
+  let ss = a.safety_stock_units ?? 0;
+  if (hasDemand && a.safety_stock_method === 'STATISTISK' && a.z_value != null && a.demand_cv != null) {
+    const sigmaD = a.demand_cv * d * Math.sqrt(30.44);
+    const sigmaLt = lt * 0.10;
+    ss = Math.min(Math.max(a.z_value * Math.sqrt(lt * sigmaD ** 2 + d ** 2 * sigmaLt ** 2), 1), d * 180);
+  } else if (hasDemand && a.safety_stock_days != null) {
+    ss = d * a.safety_stock_days;
+  }
+  ss = Math.round(ss * 10) / 10;
+  const rop = Math.round((d * lt + ss) * 10) / 10;
+  const upto = Math.round((rop + d * 30) * 10) / 10;
   const abcFactor = { A: 2.0, B: 1.5, C: 1.2 }[a.abc] ?? 1.5;
-
-  // FIX: OVERSTOCK får aldrig dölja CRITICAL — speglar backend classify_status
+  const belowRop = hasDemand && pos <= rop;
+  const late = !!a.order_late && raw < lt;
   let status = 'OK';
-  if (!hasDemand) {
-    status = (a.stock ?? 0) > 0 ? 'DEAD_STOCK' : 'OK';
-  } else if (cov < lt) {
-    status = 'CRITICAL';
-  } else if (cov < lt * abcFactor) {
-    status = 'WATCH';
-  } else if (cov > 365) {
-    status = 'OVERSTOCK';
-  }
-
-  // FIX: Orderformel matchar backend ROP-logik (ej gammal 2×ledtid)
-  // ROP = demand × LT + SS (approximerat som demand × LT × 1.3)
-  // FIX: moq läses från a.moq — a.min_order var fel fältnamn
-  let order_qty = 0;
-  if (status === 'CRITICAL' || status === 'WATCH') {
-    const effectiveStock = a.effective_stock ?? a.stock ?? 0;
-    const rop = demand * lt * 1.3;
-    const needed = Math.max(0, rop - effectiveStock);
-    const moq = a.moq ?? a.min_order ?? 1;
-    order_qty = needed > 0 ? Math.ceil(needed / moq) * moq : 0;
-  }
-
-  return { ...a, lead_time_days: lt, status, order_qty };
+  if (!hasDemand) status = (a.stock ?? 0) > 0 ? 'DEAD_STOCK' : 'OK';
+  else if (cov < lt || a.out_of_stock || a.stockout_before_delivery || late) status = 'CRITICAL';
+  else if (belowRop || cov < lt * abcFactor) status = 'WATCH';
+  else if (cov > 365) status = 'OVERSTOCK';
+  const moq = Math.max(1, a.moq ?? 1);
+  const need = upto - pos;
+  const order_qty = belowRop && need > 0 ? Math.ceil(need / moq) * moq : 0;
+  return {
+    ...a, lead_time_days: lt, lead_time_source: 'fil', status, order_qty,
+    order_value: order_qty * (a.cost ?? 0), safety_stock_units: ss,
+    safety_stock_days: hasDemand ? Math.round(ss / d * 10) / 10 : 0,
+    reorder_point: rop, order_up_to: upto, below_reorder_point: belowRop,
+  };
 }
 
 // ─── DATA QUALITY BANNER ──────────────────────────────────────────────────
@@ -1256,357 +1260,7 @@ function UploadPage({ onAnalysis, auth, onLogout, theme, onToggleTheme }) {
 }
 
 // ─── OVERVIEW TAB ─────────────────────────────────────────────────────────
-function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider }) {
-  const { summary, top_actions, abc_distribution, articles, data_quality, validation } = data;
-  const hasCost = summary.has_cost_data;
-  const hasLoc = summary.has_location_data;
-
-  // Derive sparkline shapes from article coverage distribution — gives real data-based curves
-  // We bucket articles by coverage bucket and use counts as sparkline points
-  const sparkCritical = React.useMemo(() => {
-    if (!articles?.length) return null;
-    // Distribution of coverage_days bucketed into 8 bins for "critical trend" shape
-    const critical = articles.filter(a => a.status === 'CRITICAL' || a.status === 'WATCH');
-    // Simulate a 8-week trend using article coverage spread (lower = more urgent)
-    const buckets = [0,0,0,0,0,0,0,0];
-    critical.forEach(a => {
-      const idx = Math.min(7, Math.floor((a.coverage_days || 0) / 7));
-      buckets[idx]++;
-    });
-    return buckets.reverse(); // ascending = improving trend shape
-  }, [articles]);
-
-  const sparkOrder = React.useMemo(() => {
-    if (!articles?.length) return null;
-    const watchOrCrit = articles.filter(a => a.order_qty > 0);
-    const buckets = [0,0,0,0,0,0,0,0];
-    watchOrCrit.forEach(a => {
-      const idx = Math.min(7, Math.floor(((a.cost || 0) * (a.order_qty || 0)) / 5000));
-      buckets[idx]++;
-    });
-    return buckets;
-  }, [articles]);
-
-  const sparkCapital = React.useMemo(() => {
-    if (!articles?.length || !hasCost) return null;
-    // Bins of stock value: shows capital distribution
-    const vals = articles.filter(a => (a.stock_value || (a.stock || 0) * (a.cost || 0)) > 0)
-      .map(a => a.stock_value || (a.stock || 0) * (a.cost || 0));
-    if (!vals.length) return null;
-    const maxV = Math.max(...vals);
-    const step = maxV / 8;
-    const buckets = Array(8).fill(0);
-    vals.forEach(v => { const i = Math.min(7, Math.floor(v / step)); buckets[i]++; });
-    return buckets;
-  }, [articles, hasCost]);
-
-  const sparkDead = React.useMemo(() => {
-    if (!articles?.length) return null;
-    const dead = articles.filter(a => a.status === 'DEAD_STOCK' || (a.stock > 0 && (a.demand_per_day || 0) === 0));
-    const buckets = [0,0,0,0,0,0,0,0];
-    dead.forEach((a, i) => { buckets[i % 8]++; });
-    // Downward slope = good (decreasing dead stock)
-    return buckets.map((v, i) => Math.max(0, v - i * 0.5));
-  }, [articles]);
-
-  return (
-    <div className="tab-content">
-      <ValidationBanner validation={validation} />
-      <DataQualityBanner summary={summary} dataQuality={data_quality} />
-      {summary.critical > 0 && (
-        <div className="alert-banner">
-          <Icon name="alert" size={18} />
-          {summary.critical} artiklar kräver omedelbar handling — lagret kan stanna.
-        </div>
-      )}
-      <div className="kpi-grid">
-        <KpiCard label="KRITISKA BRISTER" value={fmt(summary.critical)} sub={`${summary.watch} bevakas`} color="#ef4444"
-          sparkPoints={sparkCritical}
-          trend={summary.critical > 0 ? { direction: 'up', pct: Math.round((summary.critical / Math.max(1, summary.total_articles)) * 100) } : null}
-          tooltip={"Kritisk = täcktid ≤ ledtid OCH ingen inköpsorder är lagd.\nBevaka = brist men order är redan på väg.\n\nBevaka-tröskel per ABC-klass:\nA-artiklar: täcktid < 2× ledtid (hög buffer)\nB-artiklar: täcktid < 1.5× ledtid (standard)\nC-artiklar: täcktid < 1.2× ledtid (lägre marginal)"} />
-        <KpiCard label="ATT BESTÄLLA" value={fmt(summary.articles_to_order)}
-          sub={hasCost ? fmtKr(summary.total_order_value_sek) : 'Lägg till inköpspris för ordervärde'}
-          color="#f97316"
-          sparkPoints={sparkOrder}
-          tooltip={"Antal artiklar där systemet rekommenderar inköp — dvs. täcktid understiger bevaka-tröskeln.\n\nInkluderar både kritiska artiklar (brist inom ledtid) och bevaka-artiklar (brist inom bufferttid).\n\nOrderkvantitet beräknas som: (2× ledtid − täcktid) × daglig förbrukning, avrundat till minsta orderenhet."} />
-        <KpiCard
-          label="BUNDET KAPITAL"
-          value={hasCost ? fmtKr(summary.total_stock_value_sek) : null}
-          sub={hasCost ? `varav ${fmtKr(summary.overstock_value_sek)} överlager` : null}
-          color="#a855f7"
-          sparkPoints={sparkCapital}
-          missingReason={!hasCost ? 'Kräver inköpspris (cost) i filen' : null}
-          tooltip={"Totalt lagervärde = saldo × inköpspris för alla artiklar.\n\nÖverlager = artiklar med täcktid > 365 dagar (mer än ett års förbrukning i lager).\n\nHögt bundet kapital i överlager är en signal om att köpa stopp bör läggas tills lagret normaliserats."}
-        />
-        <KpiCard
-          label="ATT FLYTTA"
-          value={hasLoc ? fmt(summary.articles_to_move) : null}
-          sub={hasLoc ? 'snabbare plock' : null}
-          color="#3b82f6"
-          missingReason={!hasLoc ? 'Kräver lagerposition (loc) i filen' : null}
-          tooltip={"Antal artiklar vars lagerposition inte stämmer med ABC-klassen.\n\nA-artiklar bör stå närmast plockzonen (guldzon).\nC-artiklar kan placeras längre bort.\n\nKorrekt slotting minskar plocket-id och höjer produktiviteten."}
-        />
-        <KpiCard label="DÖTT LAGER" value={fmt(summary.dead_stock)}
-          sub={hasCost ? fmtKr(summary.dead_stock_value_sek) : `${summary.dead_stock} artiklar utan förbrukning`}
-          color="#6b7280"
-          sparkPoints={sparkDead}
-          tooltip={"Artiklar med saldo > 0 men registrerad förbrukning = 0.\n\nKan bero på felregistrering, utgångna produkter eller kassationer som ej bokförts.\n\nDött lager binder kapital utan att bidra till servicenivån — överväg utförsäljning eller skrotning."} />
-      </div>
-      {top_actions?.length > 0 && (
-        <div className="section">
-          <div className="section-header">
-            <h3>Åtgärder idag</h3>
-            <span className="badge">{top_actions.length} prioriterade</span>
-          </div>
-          <div className="actions-list">
-            {top_actions.map((a, i) => (
-              <ActionRow key={i} a={a} hasCost={hasCost} articles={articles} />
-            ))}
-          </div>
-        </div>
-      )}
-      <div className="two-col">
-        <div className="section">
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            ABC-fördelning {!hasCost && <span className="section-note">(baserad på förbrukning)</span>}
-            <InfoTooltip text="A = topp 80 % av årsvolymsvärdet. B = 80–95 %. C = 95–100 %. Klassificering baseras på förbrukning × inköpspris × 365 dagar." />
-          </h3>
-          {['A', 'B', 'C'].map(cls => (
-            <div key={cls} className="abc-row">
-              <span className="abc-badge" style={{ background: abcColor(cls) }}>{cls}</span>
-              <span className="abc-count">{fmt(abc_distribution?.[cls]?.count)} art.</span>
-              <div className="abc-bar-wrap">
-                <div className="abc-bar" style={{ width: `${abc_distribution?.[cls]?.pct || 0}%`, background: abcColor(cls) }} />
-              </div>
-              {hasCost
-                ? <span className="abc-val">{fmtKr(abc_distribution?.[cls]?.value_sek)}</span>
-                : <span className="abc-val abc-dim">{abc_distribution?.[cls]?.pct}% av artiklar</span>
-              }
-            </div>
-          ))}
-        </div>
-        <div className="section">
-          <h3>Snabbåtgärder</h3>
-          <div className="quick-actions">
-            <div className="qa-row"><Icon name="alert" size={16} /><div><b>Kritiska brister</b><p>{summary.critical} artiklar</p></div></div>
-            <div className="qa-row"><Icon name="trending" size={16} /><div><b>Inköpsförslag</b><p>{summary.articles_to_order} att beställa{hasCost ? ` · ${fmtKr(summary.total_order_value_sek)}` : ''}</p></div></div>
-            <div className="qa-row"><Icon name="move" size={16} /><div><b>Slotting</b><p>{hasLoc ? `${summary.articles_to_move} att flytta` : 'Lagerposition saknas i filen'}</p></div></div>
-            <div className="qa-row"><Icon name="grid" size={16} /><div><b>ABC/XYZ-analys</b><p>{summary.total_articles} artiklar</p></div></div>
-          </div>
-        </div>
-      </div>
-      <div className="section">
-        <div className="section-header">
-          <h3>Alla artiklar</h3>
-          <span className="badge">{fmt(summary.total_articles)} st</span>
-        </div>
-        <ArticleTable articles={articles} hasCost={hasCost} hasLoc={hasLoc} onLedtidChange={onLedtidChange} ledtidOverrides={ledtidOverrides} onResetLedtider={onResetLedtider} />
-      </div>
-    </div>
-  );
-}
-
 // ─── ARTICLE DETAIL PANEL ─────────────────────────────────────────────────
-function ArticleDetailPanel({ article, onClose, onLedtidChange, ledtidOverride }) {
-  const [explanation, setExplanation] = useState(null);
-  const [loadingAI, setLoadingAI] = useState(false);
-  const [editingLedtid, setEditingLedtid] = useState(false);
-  const [ledtidInput, setLedtidInput] = useState('');
-  const a = article;
-
-  useEffect(() => {
-    if (!a) return;
-    setExplanation(null);
-    setLoadingAI(true);
-    fetch(`${API}/explain-article`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        article: a.article,
-        name: a.name || '',
-        abc: a.abc || '',
-        xyz: a.xyz || null,
-        status: a.status || '',
-        stock: a.stock ?? 0,
-        demand_per_day: a.demand_per_day ?? 0,
-        coverage_days: a.coverage_days ?? 0,
-        lead_time_days: a.lead_time_days ?? 14,
-        order_qty: a.order_qty ?? 0,
-        cost: a.cost ?? 0,
-        loc: a.loc || '',
-        ordered_qty: a.ordered_qty ?? 0,
-        eta_date: a.eta_date || null,
-        annual_value: a.annual_value ?? 0,
-      })
-    })
-      .then(r => r.json())
-      .then(d => setExplanation(d.explanation || null))
-      .catch(() => setExplanation(null))
-      .finally(() => setLoadingAI(false));
-  }, [a?.article]);
-
-  if (!a) return null;
-
-  // Gauge: coverage vs lead_time
-  const cov = a.coverage_days ?? 0;
-  const lt = a.lead_time_days ?? 14;
-  const maxDays = Math.max(cov, lt * 3, 60);
-  const covPct = Math.min((cov / maxDays) * 100, 100);
-  const ltPct = Math.min((lt / maxDays) * 100, 100);
-  const gaugeColor = a.status === 'CRITICAL' ? '#ef4444' : a.status === 'WATCH' ? '#f97316' : a.status === 'OVERSTOCK' ? '#a855f7' : '#22c55e';
-
-  return (
-    <div
-      style={{ position: 'fixed', inset: 0, zIndex: 1100, display: 'flex', alignItems: 'stretch' }}
-      onClick={onClose}
-    >
-      {/* Backdrop */}
-      <div style={{ flex: 1, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(2px)' }} />
-      {/* Panel */}
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          width: 400, maxWidth: '95vw', background: '#0c1420',
-          borderLeft: '1px solid #1e293b', display: 'flex', flexDirection: 'column',
-          height: '100vh', overflowY: 'auto', boxShadow: '-16px 0 48px rgba(0,0,0,0.6)',
-          animation: 'slideIn 0.18s ease-out',
-        }}
-      >
-        <style>{`@keyframes slideIn { from { transform: translateX(40px); opacity:0; } to { transform: translateX(0); opacity:1; } }`}</style>
-        {/* Header */}
-        <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid #1e293b', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <span style={{
-                background: statusColor(a.status) + '22', color: statusColor(a.status),
-                border: `1px solid ${statusColor(a.status)}44`,
-                borderRadius: 5, padding: '2px 8px', fontSize: 11, fontWeight: 700
-              }}>{statusLabel(a.status)}</span>
-              <span style={{ background: abcColor(a.abc) + '22', color: abcColor(a.abc), borderRadius: 5, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
-                {a.abc}{a.xyz ? `/${a.xyz}` : ''}
-              </span>
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#f1f5f9', lineHeight: 1.3 }}>{a.name || '—'}</div>
-            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{a.article}</div>
-          </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 20, cursor: 'pointer', lineHeight: 1, padding: '0 4px', flexShrink: 0 }}>✕</button>
-        </div>
-
-        {/* Coverage gauge */}
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b' }}>
-          <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>TÄCKTID VS LEDTID</div>
-          <div style={{ position: 'relative', height: 10, background: '#1e293b', borderRadius: 5, marginBottom: 8 }}>
-            {/* Lead time marker */}
-            <div style={{
-              position: 'absolute', left: `${ltPct}%`, top: -4, bottom: -4,
-              width: 2, background: '#f97316', borderRadius: 1, transform: 'translateX(-50%)', zIndex: 2
-            }} />
-            {/* Coverage bar */}
-            <div style={{ width: `${covPct}%`, height: '100%', background: gaugeColor, borderRadius: 5, transition: 'width 0.5s', position: 'relative', zIndex: 1 }} />
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, alignItems: 'center' }}>
-            <span style={{ color: gaugeColor, fontWeight: 700 }}>Täcktid: {fmtDays(cov)}</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              {editingLedtid ? (
-                <>
-                  <input
-                    type="number" min="1" max="365"
-                    value={ledtidInput}
-                    onChange={e => setLedtidInput(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') {
-                        const days = parseInt(ledtidInput);
-                        if (days > 0 && onLedtidChange) { onLedtidChange(a.article, days); }
-                        setEditingLedtid(false);
-                      }
-                      if (e.key === 'Escape') setEditingLedtid(false);
-                    }}
-                    autoFocus
-                    style={{ width: 60, padding: '2px 6px', background: '#1e293b', border: '1px solid #6366f1', borderRadius: 5, color: '#f1f5f9', fontSize: 11, textAlign: 'right' }}
-                  />
-                  <button onClick={() => {
-                    const days = parseInt(ledtidInput);
-                    if (days > 0 && onLedtidChange) { onLedtidChange(a.article, days); }
-                    setEditingLedtid(false);
-                  }} style={{ background: '#6366f1', border: 'none', borderRadius: 5, color: '#fff', fontSize: 11, padding: '2px 8px', cursor: 'pointer' }}>✓</button>
-                  <button onClick={() => setEditingLedtid(false)} style={{ background: 'none', border: '1px solid #334155', borderRadius: 5, color: '#64748b', fontSize: 11, padding: '2px 6px', cursor: 'pointer' }}>✕</button>
-                </>
-              ) : (
-                <button onClick={() => { setLedtidInput(String(Math.round(lt))); setEditingLedtid(true); }}
-                  style={{ background: 'none', border: 'none', color: ledtidOverride ? '#6366f1' : '#f97316', cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', gap: 3, padding: 0 }}>
-                  Ledtid: {Math.round(lt)} d {onLedtidChange && <span style={{ fontSize: 9 }}>✎</span>}
-                  {ledtidOverride && <span style={{ fontSize: 9, color: '#6366f1' }}>(ändrad)</span>}
-                </button>
-              )}
-            </span>
-          </div>
-          {cov < lt && (
-            <div style={{ marginTop: 8, padding: '6px 10px', background: '#ef444418', border: '1px solid #ef444430', borderRadius: 6, fontSize: 11, color: '#fca5a5' }}>
-              ⚠️ Täcktid understiger ledtid med {Math.round(lt - cov)} dagar
-            </div>
-          )}
-        </div>
-
-        {/* Key metrics */}
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b' }}>
-          <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>NYCKELDATA</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px' }}>
-            {[
-              { label: 'Lagersaldo', val: fmt(a.stock) + ' st' },
-              { label: 'Förbrukning/dag', val: (a.demand_per_day != null && a.demand_per_day !== '') ? `${Number(a.demand_per_day).toFixed(1)} st` : '—' },
-              { label: 'Inköpspris', val: a.cost > 0 ? `${fmt(a.cost)} kr` : '—' },
-              { label: 'Lagervärde', val: a.cost > 0 ? fmtKr(a.stock * a.cost) : '—' },
-              ...(a.order_qty > 0 ? [{ label: 'Rekommenderad order', val: `${fmt(a.order_qty)} st`, highlight: true }] : []),
-              ...(a.ordered_qty > 0 ? [{ label: 'Beställt (på väg)', val: `${fmt(a.ordered_qty)} st` }] : []),
-              ...(a.eta_date && !['NaT', 'nat', 'null', 'None', 'undefined', ''].includes(String(a.eta_date).trim()) ? [{ label: 'Förväntat leverans', val: String(a.eta_date).slice(0, 10) }] : []),
-              ...(a.loc && a.loc !== a.abc && a.loc.length > 1 ? [{ label: 'Lagerplats', val: a.loc }] : []),
-              ...(a.recommended_zone && a.suggest_move ? [{ label: 'Rekomm. zon', val: `Zon ${a.recommended_zone}`, highlight: true }] : []),
-            ].map((row, i) => (
-              <div key={i} style={{ background: row.highlight ? '#3b82f618' : '#1e293b', borderRadius: 6, padding: '8px 10px', border: row.highlight ? '1px solid #3b82f640' : 'none' }}>
-                <div style={{ fontSize: 10, color: '#64748b', marginBottom: 2 }}>{row.label}</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: row.highlight ? '#60a5fa' : '#f1f5f9' }}>{row.val}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Action recommendation */}
-        {(a.status === 'CRITICAL' || a.status === 'WATCH' || a.status === 'OVERSTOCK' || a.status === 'DEAD_STOCK') && (
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b' }}>
-            <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>REKOMMENDERAD ÅTGÄRD</div>
-            <div style={{ padding: '10px 14px', background: statusColor(a.status) + '18', border: `1px solid ${statusColor(a.status)}30`, borderRadius: 8, fontSize: 13, color: '#f1f5f9', lineHeight: 1.6 }}>
-              {a.status === 'CRITICAL' && `Beställ ${fmt(a.order_qty || Math.ceil((lt * 2 - cov) * (a.demand_per_day || 1)))} st omgående. Täcktiden är under ledtid — risk för lagerbrist.`}
-              {a.status === 'WATCH' && `Planera inköp inom kort. ${a.order_qty > 0 ? `Föreslaget antal: ${fmt(a.order_qty)} st.` : 'Täcktiden närmar sig kritisk gräns.'}`}
-              {a.status === 'OVERSTOCK' && `Pausa inköp. Täcktiden är ${fmtDays(cov)} — överväg utförsäljning eller omfördelning.`}
-              {a.status === 'DEAD_STOCK' && `Ingen registrerad förbrukning. Överväg utrangering, försäljning eller bokföring av kassation.`}
-            </div>
-          </div>
-        )}
-
-        {/* AI explanation */}
-        <div style={{ padding: '16px 20px', flex: 1, minHeight: 0 }}>
-          <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 10 }}>✦ AI-ANALYS</div>
-          {loadingAI && (
-            <div style={{ color: '#64748b', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 12, height: 12, border: '2px solid #334155', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-              Analyserar artikel…
-              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-            </div>
-          )}
-          {!loadingAI && explanation && (
-            <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.7, borderLeft: '3px solid #6366f1', paddingLeft: 12 }}>
-              {explanation}
-            </div>
-          )}
-          {!loadingAI && !explanation && (
-            <div style={{ fontSize: 12, color: '#475569' }}>Ingen AI-analys tillgänglig.</div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── ARTICLE TABLE ────────────────────────────────────────────────────────
 function ArticleTable({ articles, showExplanation = true, hasCost = true, hasLoc = true, onLedtidChange, ledtidOverrides = {}, onResetLedtider }) {
   const [filter, setFilter] = useState('Alla');
@@ -2021,6 +1675,11 @@ function SlottingTab({ data }) {
       const incoming = articles?.filter(a => a.suggest_move && String(a.recommended_zone || '').toUpperCase() === z) || [];
       zoneStats[z] = { total: inZone.length, correct: correct.length, misplaced: misplaced.length, incoming: incoming.length };
     });
+    const otherZones = Object.entries((articles || []).reduce((m, a) => {
+      const z = String(a.loc || '');
+      if (z && z !== 'Okänd' && !zones.includes(z)) m[z] = (m[z] || 0) + 1;
+      return m;
+    }, {})).sort((x, y) => y[1] - x[1]);
     const filteredMoves = incomingFilter
       ? moves.filter(a => String(a.recommended_zone || '').toUpperCase() === incomingFilter)
       : zoneFilter
@@ -2163,6 +1822,12 @@ function SlottingTab({ data }) {
                 <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: '#22c55e' }} />
                 Korrekt placerade
               </div>
+              {otherZones.length > 0 && (
+                <div style={{ fontSize: 11, color: 'var(--text3)', flexBasis: '100%' }}>
+                  Övriga zoner: {otherZones.map(([z, n]) => `${z} ${n}`).join(' · ')}.
+                  {summary.special_zone_articles > 0 && ' Specialzoner (t.ex. kyl och extern) styrs av artikelns krav och får inga flyttförslag.'}
+                </div>
+              )}
               {(zoneFilter || incomingFilter) && (
                 <button onClick={() => { setZoneFilter(null); setIncomingFilter(null); }} style={{ marginLeft: 'auto', fontSize: 11, color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
                   ✕ Rensa filter {incomingFilter ? `(på väg in till zon ${incomingFilter})` : `(visar zon ${zoneFilter})`}
@@ -3312,23 +2977,661 @@ function SettingsTab({ data }) {
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// DASHBOARD v3 — skal och Översikt
+// Principer: värden i neutral text, färg bara som statusmarkör + etikett,
+// inga simulerade trender, allt klickbart leder till rätt flik.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const fixReason = (t) => String(t || '')
+  .replace(/Brist om 0\.0 dagar/g, 'Slut i lager')
+  .replace(/brist om 0\.0 dagar/g, 'slut i lager');
+
+const fmtMoney = (n) => {
+  if (n == null) return { v: '—', u: '' };
+  const a = Math.abs(n);
+  if (a >= 1e6) return { v: (n / 1e6).toLocaleString('sv-SE', { maximumFractionDigits: 1, minimumFractionDigits: 1 }), u: 'Mkr' };
+  if (a >= 1e4) return { v: Math.round(n / 1e3).toLocaleString('sv-SE'), u: 'tkr' };
+  return { v: Math.round(n).toLocaleString('sv-SE'), u: 'kr' };
+};
+
+// ─── Uträkning och säkerhet per artikel (motor v2.11) ─────────────────────
+const nf = (n, d = 1) => (n == null || Number.isNaN(Number(n)) ? '—'
+  : Number(n).toLocaleString('sv-SE', { maximumFractionDigits: d }));
+const LT_SOURCE = { fil: 'från filen', 'leverantör': 'från leverantörsinställningen', standard: 'standardvärde – saknas i filen' };
+const STATUS_SV = { CRITICAL: 'Kritisk', WATCH: 'Bevaka', OK: 'OK', OVERSTOCK: 'Överlager', DEAD_STOCK: 'Dött lager' };
+const CONF_LABEL = { 'HÖG': 'Hög', MEDEL: 'Medel', 'LÅG': 'Låg' };
+const CONF_TONE = { 'HÖG': 'good', MEDEL: 'warn', 'LÅG': 'crit' };
+
+function ConfidenceChip({ a }) {
+  if (!a?.confidence) return null;
+  const reasons = a.confidence_reasons || [];
+  return (
+    <span className={`lt-conf ${CONF_TONE[a.confidence] || ''}`}
+      title={reasons.length ? `Säkerhet ${CONF_LABEL[a.confidence].toLowerCase()}:\n${reasons.join('\n')}` : 'Säkerhet hög: komplett underlag'}>
+      <span className={`lt-tone-dot ${CONF_TONE[a.confidence] || ''}`} />Säkerhet {CONF_LABEL[a.confidence]?.toLowerCase()}
+    </span>
+  );
+}
+
+function CalcBreakdown({ a, cycleDays = 30 }) {
+  if (!a) return null;
+  if (a.reorder_point == null) {
+    return <p className="lt-calc-note">Uträkningen visas för analyser som körts efter uppdateringen. Kör analysen igen för att se den.</p>;
+  }
+  const d = Number(a.demand_per_day) || 0;
+  if (d <= 0) {
+    return (
+      <div className="lt-calc">
+        <p className="lt-calc-note">
+          Ingen förbrukning registrerad{a.stock > 0 ? `, men ${nf(a.stock, 0)} st i lager (${fmtKr(a.stock_value)}). Därför räknas artikeln som dött lager.` : '.'}
+        </p>
+      </div>
+    );
+  }
+  const dd = d < 0.1 ? 4 : d < 1 ? 3 : 2;
+  const lt = Number(a.lead_time_days) || 0;
+  const ss = Number(a.safety_stock_units) || 0;
+  const rop = Number(a.reorder_point);
+  const pos = Number(a.effective_stock ?? a.stock) || 0;
+  const upto = Number(a.order_up_to ?? rop + d * cycleDays);
+  const moq = Number(a.moq) || 1;
+  const rows = [
+    { k: 'Förbrukning', v: `${nf(d, dd)} st/dag`, s: a.demand_source || '' },
+    { k: 'Ledtid', v: `${nf(lt, 0)} dagar`, s: LT_SOURCE[a.lead_time_source] || '' },
+    { k: 'Säkerhetslager', v: `${nf(ss)} st`,
+      s: `${nf(a.safety_stock_days)} dagars förbrukning · servicenivåmål ${nf(a.service_target_pct)} %${a.service_target_source === 'inställning' ? ' (din inställning)' : ''}` },
+    { k: 'Beställningspunkt', v: `${nf(rop)} st`, s: `${nf(d, dd)} × ${nf(lt, 0)} + ${nf(ss)}`, strong: true },
+    { k: 'Lagerposition', v: `${nf(pos, 0)} st`,
+      s: a.ordered_qty > 0 ? `saldo ${nf(a.stock, 0)} + beställt ${nf(a.ordered_qty, 0)}` : 'saldo, inget beställt' },
+  ];
+  if (a.order_qty > 0) {
+    rows.push({ k: 'Beställ upp till', v: `${nf(upto)} st`, s: `beställningspunkt + ${cycleDays} dagars förbrukning` });
+    rows.push({ k: 'Förslag', v: `${nf(a.order_qty, 0)} st`, strong: true,
+      s: `${nf(upto)} − ${nf(pos, 0)} = ${nf(Math.max(0, upto - pos))}, ${moq > 1 ? `avrundat uppåt till hela ${nf(moq, 0)}-tal` : 'avrundat uppåt'}` });
+  }
+  let rule;
+  if (a.order_qty > 0) rule = `Förslaget gäller så länge lagerpositionen är högst ${nf(rop, 0)} st. Ändras förbrukning eller ledtid räknas det om.`;
+  else if (a.status === 'CRITICAL' && a.ordered_qty > 0) rule = 'Lagerpositionen räcker, men saldot tar slut innan leveransen kommer. Det som hjälper är en tidigare leverans.';
+  else if (a.status === 'OVERSTOCK') rule = `Lagret räcker ${nf(a.coverage_days, 0)} dagar. Målet är högst 180 dagar – inget behöver köpas in.`;
+  else rule = `Beställ när lagerpositionen når ${nf(rop, 0)} st${a.reorder_date && a.reorder_date !== 'Idag' ? `, omkring ${a.reorder_date}` : ''}.`;
+  const reasons = a.confidence_reasons || [];
+  return (
+    <div className="lt-calc">
+      <dl>
+        {rows.map(r => (
+          <div key={r.k} className={r.strong ? 'strong' : ''}>
+            <dt>{r.k}</dt>
+            <dd><b className="lt-num">{r.v}</b>{r.s && <span>{r.s}</span>}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="lt-calc-rule">{rule}</p>
+      {a.confidence && (
+        <div className="lt-calc-conf">
+          <ConfidenceChip a={a} />
+          <span>{reasons.length ? reasons.join(' · ') : 'Komplett underlag: historik, ledtid och pris finns.'}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Artikelpanel ─────────────────────────────────────────────────────────
+function ArticleDetailPanel({ article, onClose, onLedtidChange, ledtidOverride }) {
+  const [explanation, setExplanation] = useState(null);
+  const [loadingAI, setLoadingAI] = useState(false);
+  const [aiFailed, setAiFailed] = useState(false);
+  const [editingLedtid, setEditingLedtid] = useState(false);
+  const [ledtidInput, setLedtidInput] = useState('');
+  const a = article;
+
+  useEffect(() => { setExplanation(null); setAiFailed(false); }, [a?.article]);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  if (!a) return null;
+
+  const askAI = () => {
+    setLoadingAI(true); setAiFailed(false);
+    fetch(`${API}/explain-article`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        article: a.article, name: a.name || '', abc: a.abc || '', xyz: a.xyz || null, status: a.status || '',
+        stock: a.stock ?? 0, demand_per_day: a.demand_per_day ?? 0, coverage_days: a.coverage_days ?? 0,
+        lead_time_days: a.lead_time_days ?? 14, order_qty: a.order_qty ?? 0, cost: a.cost ?? 0, loc: a.loc || '',
+        ordered_qty: a.ordered_qty ?? 0, eta_date: a.eta_date || null, annual_value: a.annual_value ?? 0,
+        demand_trend: a.demand_trend || '', forecast_next_30d: a.forecast_next_30d ?? 0,
+        safety_stock_days: a.safety_stock_days ?? 0,
+      }),
+    })
+      .then(r => r.json())
+      .then(d => (d.explanation ? setExplanation(d.explanation) : setAiFailed(true)))
+      .catch(() => setAiFailed(true))
+      .finally(() => setLoadingAI(false));
+  };
+
+  const saveLedtid = () => {
+    const days = parseInt(ledtidInput, 10);
+    if (days > 0 && onLedtidChange) onLedtidChange(a.article, days);
+    setEditingLedtid(false);
+  };
+
+  const cov = Number(a.coverage_days ?? 0);
+  const raw = Number(a.raw_coverage_days ?? cov);
+  const lt = Number(a.lead_time_days ?? 14);
+  const hasDemand = (a.demand_per_day || 0) > 0;
+  const scale = Math.max(lt * 2, Math.min(cov, 400), 30);
+  const pct = (v) => `${Math.max(0, Math.min(100, v / scale * 100))}%`;
+  const tone = { CRITICAL: 'crit', WATCH: 'warn', OVERSTOCK: 'over', DEAD_STOCK: 'dead' }[a.status] || 'good';
+  const eta = a.eta_date && !['NaT', 'nat', 'null', 'None', 'undefined', ''].includes(String(a.eta_date).trim()) ? String(a.eta_date).slice(0, 10) : null;
+  const kv = [
+    ['Saldo', `${fmt(a.stock)} st`],
+    ['Beställt', a.ordered_qty > 0 ? `${fmt(a.ordered_qty)} st${eta ? ` · ${eta}` : ''}${a.order_late ? ' · försenad' : ''}` : '—'],
+    ['Förbrukning', hasDemand ? `${nf(a.demand_per_day, 2)} st/dag` : '—'],
+    ['Inköpspris', a.cost > 0 ? `${nf(a.cost, 2)} kr` : '—'],
+    ['Lagervärde', a.cost > 0 ? fmtKr(a.stock_value ?? a.stock * a.cost) : '—'],
+    ['Plats', a.loc_original && a.loc_original !== 'nan' ? `${a.loc_original}${a.suggest_move ? ` → zon ${a.recommended_zone}` : ''}` : (a.loc || '—')],
+  ];
+
+  return (
+    <div className="lt-drawer-wrap" onClick={onClose}>
+      <aside className="lt-drawer" role="dialog" aria-modal="true" aria-label={`Artikel ${a.article}`} onClick={e => e.stopPropagation()}>
+        <header className="lt-drawer-head">
+          <div>
+            <div className="lt-drawer-tags">
+              <span className={`lt-status-pill ${tone}`}><span className={`lt-tone-dot ${tone}`} />{STATUS_SV[a.status] || a.status}</span>
+              {a.abc && <span className={`lt-abc-key k${a.abc} sm`}>{a.abc}</span>}
+              {a.xyz && <span className="lt-chip lt-mono">{a.xyz}</span>}
+              <ConfidenceChip a={a} />
+            </div>
+            <h2>{a.name || a.article}</h2>
+            <div className="lt-mono lt-subtle">{a.article}{a.supplier ? ` · ${a.supplier}` : ''}</div>
+          </div>
+          <button className="lt-icon-btn" onClick={onClose} aria-label="Stäng"><LtIcon name="x" /></button>
+        </header>
+
+        {hasDemand && (
+          <section className="lt-drawer-sec">
+            <div className="lt-drawer-label">Täcktid mot ledtid</div>
+            <div className="lt-cov" role="img" aria-label={`Lagret räcker ${nf(cov)} dagar, ledtid ${nf(lt, 0)} dagar`}>
+              <i className={tone} style={{ width: pct(cov) }} />
+              {raw < cov && <i className="raw" style={{ width: pct(raw) }} />}
+              <b style={{ left: pct(lt) }} />
+            </div>
+            <div className="lt-cov-legend">
+              <span><b className="lt-num">{cov >= 999 ? '—' : nf(cov)}</b> dagar{raw < cov ? ` (saldo ${nf(raw)} + inkommande)` : ''}</span>
+              {editingLedtid ? (
+                <span className="lt-cov-edit">
+                  <input type="number" min="1" max="365" value={ledtidInput} autoFocus aria-label="Ny ledtid i dagar"
+                    onChange={e => setLedtidInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') saveLedtid(); if (e.key === 'Escape') setEditingLedtid(false); }} />
+                  <button className="lt-btn lt-btn-primary lt-btn-sm" onClick={saveLedtid}>Spara</button>
+                  <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={() => setEditingLedtid(false)}>Avbryt</button>
+                </span>
+              ) : (
+                <button className="lt-link-btn" onClick={() => { setLedtidInput(String(Math.round(lt))); setEditingLedtid(true); }}
+                  disabled={!onLedtidChange}>
+                  Ledtid {nf(lt, 0)} dagar{ledtidOverride ? ' (ändrad)' : ''}{onLedtidChange ? ' · ändra' : ''}
+                </button>
+              )}
+            </div>
+          </section>
+        )}
+
+        {a.explanation && (
+          <section className="lt-drawer-sec">
+            <div className="lt-drawer-label">Rekommendation</div>
+            <p className="lt-drawer-rec">{a.explanation}</p>
+          </section>
+        )}
+
+        <section className="lt-drawer-sec">
+          <div className="lt-drawer-label">Nyckeltal</div>
+          <dl className="lt-kv">
+            {kv.map(([k, v]) => <div key={k}><dt>{k}</dt><dd className="lt-num">{v}</dd></div>)}
+          </dl>
+        </section>
+
+        <section className="lt-drawer-sec">
+          <div className="lt-drawer-label">Så räknade vi</div>
+          <CalcBreakdown a={a} />
+        </section>
+
+        <section className="lt-drawer-sec">
+          {!explanation && (
+            <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={askAI} disabled={loadingAI}>
+              {loadingAI ? <span className="lt-spinner" style={{ width: 12, height: 12 }} /> : <LtIcon name="sparkle" size={13} />}
+              Förklara med AI
+            </button>
+          )}
+          {explanation && <div className="lt-action-ai" style={{ margin: 0 }}><span className="lt-chip lt-chip-ai">AI</span><p>{explanation}</p></div>}
+          {aiFailed && <p className="lt-subtle" style={{ fontSize: 12.5 }}>Förklaringen kunde inte hämtas just nu.</p>}
+        </section>
+      </aside>
+    </div>
+  );
+}
+
+const ACTION_TYPES = {
+  OUT_OF_STOCK:   { label: 'Slut i lager', tone: 'crit' },
+  ORDER_CRITICAL: { label: 'Beställ nu', tone: 'crit' },
+  ORDER_URGENT:   { label: 'Beställ', tone: 'warn' },
+  EXPEDITE:       { label: 'Påskynda', tone: 'warn' },
+  MOVE:           { label: 'Flytta', tone: 'info' },
+  REDUCE_STOCK:   { label: 'Kapital', tone: 'muted' },
+};
+
+// ─── KPI-kort ─────────────────────────────────────────────────────────────
+function KpiTile({ label, value, unit, sub, tone, tooltip, onClick, missing, children }) {
+  const Tag = onClick ? 'button' : 'div';
+  if (missing) {
+    return (
+      <div className="lt-kpi-tile is-missing">
+        <div className="lt-kpi-tile-label">{label}</div>
+        <div className="lt-kpi-tile-value lt-subtle">—</div>
+        <div className="lt-kpi-tile-sub">{missing}</div>
+      </div>
+    );
+  }
+  return (
+    <Tag className={`lt-kpi-tile${onClick ? ' is-link' : ''}`} onClick={onClick} type={onClick ? 'button' : undefined}>
+      <div className="lt-kpi-tile-label">
+        {tone && <span className={`lt-tone-dot ${tone}`} />}
+        {label}
+        {tooltip && <InfoTooltip text={tooltip} />}
+      </div>
+      <div className="lt-kpi-tile-value">{value}{unit && <span className="lt-unit">{unit}</span>}</div>
+      {sub && <div className="lt-kpi-tile-sub">{sub}</div>}
+      {children}
+    </Tag>
+  );
+}
+
+// ─── Lagerstatus som en stapel ────────────────────────────────────────────
+const STATUS_SEGMENTS = [
+  { key: 'critical', label: 'Kritisk', cls: 'crit' },
+  { key: 'watch', label: 'Bevaka', cls: 'warn' },
+  { key: 'ok', label: 'OK', cls: 'good' },
+  { key: 'overstock', label: 'Överlager', cls: 'over' },
+  { key: 'dead_stock', label: 'Dött lager', cls: 'dead' },
+];
+function StatusBar({ summary }) {
+  const total = Math.max(1, summary.total_articles || 0);
+  const segs = STATUS_SEGMENTS.map(s => ({ ...s, n: summary[s.key] || 0 })).filter(s => s.n > 0);
+  return (
+    <div>
+      <div className="lt-statusbar" role="img"
+        aria-label={segs.map(s => `${s.label} ${s.n}`).join(', ')}>
+        {segs.map(s => (
+          <span key={s.key} className={`seg ${s.cls}`} style={{ flexGrow: s.n }}
+            title={`${s.label}: ${s.n} artiklar (${Math.round(s.n / total * 100)} %)`} />
+        ))}
+      </div>
+      <div className="lt-statuslegend">
+        {STATUS_SEGMENTS.map(s => (
+          <div key={s.key}>
+            <span className={`lt-tone-dot ${s.cls}`} />
+            <span>{s.label}</span>
+            <b className="lt-num">{fmt(summary[s.key] || 0)}</b>
+            <span className="lt-subtle lt-num">{Math.round((summary[s.key] || 0) / total * 100)} %</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── ABC-fördelning ───────────────────────────────────────────────────────
+function AbcBars({ dist, hasCost, total }) {
+  const maxPct = Math.max(1, ...['A', 'B', 'C'].map(c => dist?.[c]?.pct || 0));
+  return (
+    <div className="lt-abc">
+      {['A', 'B', 'C'].map(c => {
+        const d = dist?.[c] || {};
+        const share = hasCost ? (d.pct || 0) : Math.round((d.count || 0) / Math.max(1, total) * 100);
+        return (
+          <div className="lt-abc-row" key={c}>
+            <span className={`lt-abc-key k${c}`}>{c}</span>
+            <div className="lt-abc-track" title={`${c}: ${fmt(d.count)} artiklar · ${share} %`}>
+              <i style={{ width: `${Math.max(2, (hasCost ? share / maxPct : share / 100) * 100)}%` }} />
+            </div>
+            <span className="lt-abc-n lt-num">{fmt(d.count)} art.</span>
+            <span className="lt-abc-v lt-num">{hasCost ? fmtKr(d.value_sek) : `${share} %`}</span>
+            <span className="lt-abc-p lt-num lt-subtle">{hasCost ? `${share} %` : ''}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Åtgärdsrad ───────────────────────────────────────────────────────────
+function ActionItem({ a, rank, hasCost, articles }) {
+  const [explanation, setExplanation] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [showCalc, setShowCalc] = useState(false);
+  const t = ACTION_TYPES[a.type] || { label: 'Åtgärd', tone: 'muted' };
+  const art = React.useMemo(() => articles?.find(r => r.article === a.article), [articles, a.article]);
+
+  const explain = async () => {
+    if (explanation) { setOpen(o => !o); return; }
+    setLoading(true); setFailed(false);
+    try {
+      const art = articles?.find(r => r.article === a.article) || {};
+      const res = await fetch(`${API}/explain-article`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          article: a.article, name: a.name || art.name || '', abc: a.abc || art.abc || '', xyz: art.xyz || null,
+          status: art.status || '', stock: art.stock ?? 0, demand_per_day: art.demand_per_day ?? 0,
+          coverage_days: art.coverage_days ?? 0, lead_time_days: art.lead_time_days ?? 14,
+          order_qty: art.order_qty ?? 0, cost: art.cost ?? 0, loc: art.loc || '',
+          ordered_qty: art.ordered_qty ?? 0, eta_date: art.eta_date || null, annual_value: art.annual_value ?? 0,
+          demand_trend: art.demand_trend || '', forecast_next_30d: art.forecast_next_30d ?? 0,
+          safety_stock_days: art.safety_stock_days ?? 0,
+        })
+      });
+      const data = await res.json();
+      if (data.explanation) { setExplanation(data.explanation); setOpen(true); } else setFailed(true);
+    } catch { setFailed(true); }
+    setLoading(false);
+  };
+
+  return (
+    <li className="lt-action">
+      <div className="lt-action-main">
+        <span className="lt-action-rank lt-mono">{String(rank).padStart(2, '0')}</span>
+        <span className={`lt-action-type ${t.tone}`}>{t.label}</span>
+        <div className="lt-action-body">
+          <div className="lt-action-title">
+            <b>{a.name || a.article}</b>
+            {a.name && <span className="lt-mono lt-subtle">{a.article}</span>}
+            {a.abc && <span className={`lt-abc-key k${a.abc} sm`}>{a.abc}</span>}
+          </div>
+          <div className="lt-action-desc">
+            <span className="lt-action-do">{a.action}</span> · {fixReason(a.reason)}
+            {hasCost && a.risk_sek > 0 && <> · <span className="lt-action-risk">{fmtKr(a.risk_sek)} i risk</span></>}
+          </div>
+        </div>
+        <span className="lt-action-value lt-num">
+          {hasCost && a.value_sek > 0 && (
+            <span className="lt-action-vwrap">{fmtKr(a.value_sek)}
+              <span className="lt-action-vlabel">{a.type === 'REDUCE_STOCK' ? 'över målet' : 'ordervärde'}</span>
+            </span>
+          )}
+          {art?.confidence && art.confidence !== 'HÖG' && <ConfidenceChip a={art} />}
+        </span>
+        <div className="lt-action-btns">
+          {art && art.reorder_point != null && (
+            <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={() => setShowCalc(v => !v)} aria-expanded={showCalc}>
+              {showCalc ? 'Dölj uträkning' : 'Uträkning'}
+            </button>
+          )}
+          <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={explain} disabled={loading} aria-expanded={open}>
+            {loading ? <span className="lt-spinner" style={{ width: 12, height: 12 }} /> : <LtIcon name="sparkle" size={13} />}
+            {open ? 'Dölj' : 'Förklara'}
+          </button>
+        </div>
+      </div>
+      {showCalc && art && <div className="lt-action-calc"><CalcBreakdown a={art} /></div>}
+      {open && explanation && <div className="lt-action-ai"><span className="lt-chip lt-chip-ai">AI</span><p>{explanation}</p></div>}
+      {failed && <div className="lt-action-ai"><p className="lt-subtle">Förklaringen kunde inte hämtas just nu.</p></div>}
+    </li>
+  );
+}
+
+// ─── Datakontroll (ersätter två banners) ──────────────────────────────────
+function DataCheck({ validation, summary }) {
+  const [open, setOpen] = useState(false);
+  const warnings = validation?.warnings || [];
+  const missing = [];
+  if (!summary.has_cost_data) missing.push('Inköpspris saknas — kapital och ordervärde kan inte räknas');
+  if (!summary.has_location_data) missing.push('Lagerposition saknas — slotting kan inte räknas');
+  if (!summary.has_lead_time_data) missing.push('Ledtid saknas — standard 14 dagar används');
+  else if (summary.lead_time_default_count > 0) missing.push(`Ledtid saknas för ${fmt(summary.lead_time_default_count)} artiklar — standardvärde används för dem`);
+  if (summary.orders_late > 0) missing.push(`${fmt(summary.orders_late)} öppna order har passerat leveransdatum — de räknas som på väg`);
+  if (summary.orders_no_eta > 0) missing.push(`${fmt(summary.orders_no_eta)} öppna order saknar leveransdatum — de räknas som på väg`);
+  if (summary.confidence_low > 0) missing.push(`${fmt(summary.confidence_low)} förslag har låg säkerhet — se skälen under Uträkning`);
+  const items = [...missing, ...warnings];
+  if (!validation?.summary && !items.length) return null;
+  return (
+    <div className="lt-datacheck">
+      <div className="lt-datacheck-row">
+        <span className="lt-eyebrow">Datakontroll</span>
+        {validation?.ai_generated && <span className="lt-chip lt-chip-ai"><LtIcon name="sparkle" size={11} /> AI</span>}
+        <span className="lt-datacheck-text">{validation?.summary || `${items.length} saker att känna till om datan.`}</span>
+        {items.length > 0 && (
+          <button className="lt-link-btn" onClick={() => setOpen(o => !o)} aria-expanded={open}>
+            {open ? 'Dölj' : `${items.length} ${items.length === 1 ? 'anmärkning' : 'anmärkningar'}`}
+          </button>
+        )}
+      </div>
+      {open && <ul className="lt-notes" style={{ marginTop: 8 }}>{items.map((w, i) => <li key={i}>{w}</li>)}</ul>}
+    </div>
+  );
+}
+
+// ─── Översikt ─────────────────────────────────────────────────────────────
+function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider, onNavigate = () => {} }) {
+  const { summary, top_actions, abc_distribution, articles, validation } = data;
+  const hasCost = summary.has_cost_data;
+  const hasLoc = summary.has_location_data;
+
+  const facts = React.useMemo(() => {
+    const crit = (articles || []).filter(a => a.status === 'CRITICAL');
+    return {
+      critA: crit.filter(a => a.abc === 'A').length,
+      outOfStock: summary.out_of_stock ?? crit.filter(a => (a.stock || 0) <= 0).length,
+      outNoOrder: summary.out_of_stock_no_order ?? null,
+      incoming: (articles || []).filter(a => (a.ordered_qty || 0) > 0).length,
+    };
+  }, [articles]);
+
+  const share = (v) => (hasCost && summary.total_stock_value_sek > 0 ? (v || 0) / summary.total_stock_value_sek * 100 : null);
+  const pctLabel = (x) => (x == null ? '—' : x > 0 && x < 1 ? '<1' : String(Math.round(x)));
+  const overRaw = share(summary.overstock_value_sek), deadRaw = share(summary.dead_stock_value_sek);
+  const overPct = overRaw == null ? null : Math.round(overRaw);
+  const deadPct = deadRaw == null ? null : Math.round(deadRaw);
+  const cap = fmtMoney(summary.total_stock_value_sek);
+
+  // Läget i en mening
+  let brief;
+  if (summary.critical > 0) {
+    brief = {
+      tone: 'crit',
+      title: `${fmt(summary.critical)} av ${fmt(summary.articles_with_demand ?? summary.total_articles)} artiklar riskerar brist`,
+      text: [
+        facts.outOfStock > 0 ? `${fmt(facts.outOfStock)} är redan slut i lager${facts.outNoOrder ? ` (${fmt(facts.outNoOrder)} utan order)` : ''}` : null,
+        facts.critA > 0 ? `${fmt(facts.critA)} är A-artiklar` : null,
+      ].filter(Boolean).join(' och ') + (facts.outOfStock || facts.critA ? '. ' : '') +
+        (hasCost && summary.total_risk_sek > 0 ? `Förbrukning för ${fmtKr(summary.total_risk_sek)} hinner inte täckas om inget görs. ` : '') +
+        (hasCost && summary.total_order_value_sek > 0 ? `Inköpsförslaget: ${fmt(summary.articles_to_order)} artiklar för ${fmtKr(summary.total_order_value_sek)}.` : 'Se inköpsförslaget för kvantiteter.'),
+      cta: 'Öppna inköpslistan', tab: 'purchasing',
+    };
+  } else if (summary.articles_to_order > 0) {
+    brief = { tone: 'warn', title: `${fmt(summary.articles_to_order)} artiklar bör beställas snart`,
+      text: 'Ingen akut brist, men lagerpositionen har nått beställningspunkten för dessa artiklar.', cta: 'Öppna inköpslistan', tab: 'purchasing' };
+  } else {
+    brief = { tone: 'good', title: 'Lagret är i balans', text: `${fmt(summary.total_articles)} artiklar utan akut brist.`, cta: null };
+  }
+
+  return (
+    <div className="tab-content lt-overview">
+      <section className={`lt-brief ${brief.tone}`}>
+        <div className="lt-brief-main">
+          <div className="lt-eyebrow">Läget just nu</div>
+          <h2>{brief.title}</h2>
+          <p>{brief.text}</p>
+          {overPct != null && overPct >= 10 && (
+            <p className="lt-brief-second">
+              {fmtKr(summary.overstock_value_sek)} ({overPct} % av lagervärdet) är bundet i överlager.{' '}
+              <button className="lt-link-btn" onClick={() => onNavigate('capital')}>Se kapital</button>
+            </p>
+          )}
+        </div>
+        {brief.cta && (
+          <button className="lt-btn lt-btn-primary lt-btn-lg" onClick={() => onNavigate(brief.tab)}>
+            {brief.cta} <LtIcon name="arrow" />
+          </button>
+        )}
+      </section>
+
+      <DataCheck validation={validation} summary={summary} />
+
+      <div className="lt-kpi-row">
+        <KpiTile label="Kritiska brister" tone="crit" value={fmt(summary.critical)}
+          sub={`${fmt(summary.watch)} bevakas${facts.outOfStock ? ` · ${fmt(facts.outOfStock)} slut i lager` : ''}`}
+          onClick={() => onNavigate('purchasing')}
+          tooltip={"Kritisk = slut i lager, tar slut innan inkommande leverans, eller saldo + inkommande räcker kortare än ledtiden.\nBevaka = lagerpositionen har nått beställningspunkten, eller täcktiden är under 2× (A), 1,5× (B), 1,2× (C) ledtiden."} />
+        <KpiTile label="Att beställa" tone="warn" value={fmt(summary.articles_to_order)}
+          sub={hasCost ? `Ordervärde ${fmtKr(summary.total_order_value_sek)}` : 'Lägg till inköpspris för ordervärde'}
+          onClick={() => onNavigate('purchasing')}
+          tooltip={"Lagerpositionen (saldo + alla öppna order) är nere på beställningspunkten: förbrukning × ledtid + säkerhetslager.\nKvantiteten fyller upp till beställningspunkten + 30 dagars förbrukning, avrundat uppåt till MOQ."} />
+        <KpiTile label="Bundet kapital" value={hasCost ? cap.v : null} unit={hasCost ? cap.u : null}
+          missing={!hasCost ? 'Kräver inköpspris i filen' : null}
+          sub={hasCost ? `${fmtKr(summary.total_stock_value_sek)}` : null}
+          onClick={hasCost ? () => onNavigate('capital') : undefined}
+          tooltip={"Saldo × inköpspris för alla artiklar.\nÖverlager = täcktid över 365 dagar. Dött lager = saldo utan förbrukning."}>
+          {hasCost && (
+            <div className="lt-mini">
+              <div className="lt-minibar" role="img" aria-label={`Överlager ${overPct} %, dött lager ${deadPct} %`}>
+                <span className="seg over" style={{ width: `${overPct}%` }} />
+                <span className="seg dead" style={{ width: `${deadRaw > 0 ? Math.max(1, deadRaw) : 0}%` }} />
+              </div>
+              <div className="lt-mini-legend">
+                <span><span className="lt-tone-dot over" />Överlager {pctLabel(overRaw)} %</span>
+                <span><span className="lt-tone-dot dead" />Dött {pctLabel(deadRaw)} %</span>
+              </div>
+            </div>
+          )}
+        </KpiTile>
+        <KpiTile label="Att flytta" value={hasLoc ? fmt(summary.articles_to_move) : null}
+          missing={!hasLoc ? 'Kräver lagerposition i filen' : null}
+          sub={summary.special_zone_articles ? `${fmt(summary.special_zone_articles)} i specialzoner räknas inte` : 'A-artiklar långt från plock'} onClick={hasLoc ? () => onNavigate('slotting') : undefined}
+          tooltip={"Artiklar vars zon inte matchar ABC-klassen. A-artiklar bör stå närmast plock."} />
+        <KpiTile label="Dött lager" tone="dead" value={fmt(summary.dead_stock)}
+          sub={hasCost ? `${fmtKr(summary.dead_stock_value_sek)} utan förbrukning` : 'artiklar utan förbrukning'}
+          onClick={() => onNavigate('capital')}
+          tooltip={"Saldo > 0 men ingen registrerad förbrukning. Binder kapital utan att bidra till servicenivån."} />
+      </div>
+
+      {top_actions?.length > 0 && (
+        <section className="lt-panel lt-actionpanel">
+          <div className="lt-panel-head">
+            <div>
+              <h3>Åtgärder i prioritetsordning</h3>
+              <div className="lt-hint">Leveransrisk först, sorterad efter kronor i risk. Sedan kapital och flyttar.</div>
+            </div>
+            <span className="lt-chip lt-mono">{top_actions.length}</span>
+          </div>
+          <ol className="lt-action-list">
+            {top_actions.map((a, i) => <ActionItem key={`${a.article}-${i}`} a={a} rank={i + 1} hasCost={hasCost} articles={articles} />)}
+          </ol>
+        </section>
+      )}
+
+      <div className="lt-two">
+        <section className="lt-panel lt-panel-pad">
+          <div className="lt-panel-head flat">
+            <h3>Lagerstatus</h3>
+            <span className="lt-hint lt-num">{fmt(summary.total_articles)} artiklar</span>
+          </div>
+          <StatusBar summary={summary} />
+        </section>
+        <section className="lt-panel lt-panel-pad">
+          <div className="lt-panel-head flat">
+            <h3>ABC-fördelning <InfoTooltip text="A = artiklar som står för 80 % av årsvärdet (förbrukning × pris). B = nästa 15 %. C = sista 5 %." /></h3>
+            <span className="lt-hint">{hasCost ? 'andel av lagervärdet' : 'baserad på förbrukning'}</span>
+          </div>
+          <AbcBars dist={abc_distribution} hasCost={hasCost} total={summary.total_articles} />
+          <button className="lt-link-btn" style={{ marginTop: 12 }} onClick={() => onNavigate('abcxyz')}>Öppna ABC/XYZ-matrisen →</button>
+        </section>
+      </div>
+
+      <section className="section">
+        <div className="section-header">
+          <h3>Alla artiklar</h3>
+          <span className="badge">{fmt(summary.total_articles)} st</span>
+        </div>
+        <ArticleTable articles={articles} hasCost={hasCost} hasLoc={hasLoc} onLedtidChange={onLedtidChange} ledtidOverrides={ledtidOverrides} onResetLedtider={onResetLedtider} />
+      </section>
+    </div>
+  );
+}
+
+// ─── Sidomenyns servicenivå + datakvalitet ────────────────────────────────
+function ServiceLevelCard({ summary }) {
+  const v = summary?.a_service_level_pct;
+  let target = 95;
+  try { target = Number(JSON.parse(localStorage.getItem('logitide-globalSettings') || '{}').serviceLevelA) || 95; } catch {}
+  const tone = v >= target ? 'good' : v >= target - 10 ? 'warn' : 'crit';
+  return (
+    <div className="lt-sl">
+      <div className="lt-sl-head">
+        <span>Servicenivå A-artiklar</span>
+        <InfoTooltip text={`Andel A-artiklar med förbrukning som klarar ledtiden: inte slut i lager, tar inte slut innan leverans och saldo + inkommande räcker över ledtiden. Mål: ${target} %.`} />
+      </div>
+      <div className="lt-sl-value lt-num">{v ?? '—'}<span className="lt-unit">%</span></div>
+      <div className="lt-sl-track" role="img" aria-label={`Servicenivå ${v} procent, mål ${target} procent`}>
+        <i className={tone} style={{ width: `${Math.min(100, v || 0)}%` }} />
+        <b style={{ left: `${target}%` }} title={`Mål ${target} %`} />
+      </div>
+      <div className="lt-sl-foot">
+        <span className={`lt-tone-dot ${tone}`} />{v >= target ? 'På mål' : `${(target - (v || 0)).toFixed(1).replace('.', ',')} procentenheter under mål ${target} %`}
+      </div>
+      <div className="lt-sl-all lt-num">Alla artiklar: <b>{summary?.service_level_pct ?? '—'} %</b>
+        {summary?.a_in_stock_pct != null && <> · i lager nu: <b>{summary.a_in_stock_pct} %</b></>}</div>
+    </div>
+  );
+}
+
+function QualityChecks({ summary, dataQuality }) {
+  const checks = [
+    { ok: summary.has_cost_data, label: 'Inköpspris' },
+    { ok: summary.has_location_data, label: 'Lagerposition' },
+    { ok: summary.has_lead_time_data, label: 'Ledtid' },
+    { ok: !!summary.xyz_available, label: 'Månadshistorik' },
+  ];
+  const ok = checks.filter(c => c.ok).length;
+  return (
+    <div className="lt-qc">
+      <div className="lt-sl-head"><span>Dataunderlag</span><span className="lt-mono">{ok}/{checks.length}</span></div>
+      {summary.confidence_high != null && (
+        <div className="lt-qc-conf lt-num" title="Hur säkra förslagen är, baserat på historik, ledtid, pris och öppna order.">
+          Säkerhet: <b>{fmt(summary.confidence_high)}</b> hög · <b>{fmt(summary.confidence_medium)}</b> medel · <b>{fmt(summary.confidence_low)}</b> låg
+        </div>
+      )}
+      <ul>
+        {checks.map(c => (
+          <li key={c.label} className={c.ok ? '' : 'miss'}>
+            <span className="mark">{c.ok ? <LtIcon name="check" size={12} stroke={2.4} /> : '–'}</span>{c.label}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+const DASH_ICONS = { overview: 'home', abcxyz: 'grid', purchasing: 'trending', slotting: 'move', capital: 'money', history: 'refresh', settings: 'info' };
+
 function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme, onLoadAnalysis }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [ledtidOverrides, setLedtidOverrides] = useState({});
+  const mainRef = React.useRef(null);
 
   const handleLedtidChange = (articleId, newDays) => {
     setLedtidOverrides(prev => ({ ...prev, [articleId]: newDays }));
   };
-
   const handleResetLedtider = () => {
-    if (window.confirm('Återställ alla manuella ledtider till originalvärden?')) {
-      setLedtidOverrides({});
-    }
+    if (window.confirm('Återställ alla manuella ledtider till originalvärden?')) setLedtidOverrides({});
   };
 
-  // Bygg effectiveData — bara ledtids-overrides.
-  // All zonmappning och slottinglogik hanteras av backend vid uppladdning.
-  // zone_config skickas med i formData vid /analyze och bearbetas där.
+  // Ledtids-overrides räknas om lokalt; övrig logik (zoner, slotting) görs i backend
   const effectiveData = React.useMemo(() => {
     if (Object.keys(ledtidOverrides).length === 0) return data;
     const articles = (data.articles || []).map(a => {
@@ -3338,112 +3641,92 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme, onLoad
     return { ...data, articles };
   }, [data, ledtidOverrides]);
 
+  const go = (tab) => {
+    setActiveTab(tab);
+    try { window.scrollTo({ top: 0 }); } catch {}
+  };
+
   const { summary } = effectiveData;
   const tabs = [
-    { id: 'overview', label: 'Översikt', icon: 'home' },
-    { id: 'abcxyz', label: 'ABC/XYZ', icon: 'grid' },
-    { id: 'purchasing', label: 'Inköp', icon: 'trending', badge: summary?.articles_to_order },
-    { id: 'slotting', label: 'Slotting', icon: 'move', badge: summary?.has_location_data ? summary?.articles_to_move : null },
-    { id: 'capital', label: 'Kapital', icon: 'money', badge: summary?.has_cost_data ? (summary?.dead_stock + (summary?.overstock || 0)) : null },
-    ...(auth ? [{ id: 'history', label: 'Historik', icon: 'trending' }] : []),
-    { id: 'settings', label: 'Inställningar', icon: 'info' },
+    { id: 'overview', label: 'Översikt' },
+    { id: 'abcxyz', label: 'ABC/XYZ' },
+    { id: 'purchasing', label: 'Inköp', badge: summary?.articles_to_order, tone: summary?.critical > 0 ? 'crit' : '' },
+    { id: 'slotting', label: 'Slotting', badge: summary?.has_location_data ? summary?.articles_to_move : null },
+    { id: 'capital', label: 'Kapital', badge: summary?.has_cost_data ? ((summary?.dead_stock || 0) + (summary?.overstock || 0)) : null },
+    ...(auth ? [{ id: 'history', label: 'Historik' }] : []),
+    { id: 'settings', label: 'Inställningar' },
   ];
+  const current = tabs.find(t => t.id === activeTab);
+  const meta = effectiveData?.import_meta;
+  const sourceName = meta?.filenames?.length ? (meta.filenames.length === 1 ? meta.filenames[0] : `${meta.filenames[0]} + ${meta.filenames.length - 1}`) : null;
+
   return (
-    <div className="dashboard">
-      <div className="sidebar">
-        <div className="sidebar-logo">
-          <span>📦</span>
-          <div>
-            <div className="sidebar-brand">Logitide</div>
-            <div className="sidebar-sub">OPTIMIZER</div>
-          </div>
+    <div className="lt-dash">
+      <aside className="lt-side">
+        <div className="lt-side-top">
+          <Brand size={26} />
+          <button className="lt-btn lt-btn-secondary lt-btn-block lt-side-new" onClick={onReset}>
+            <LtIcon name="plus" size={14} /> Ny analys
+          </button>
         </div>
-        <button className="back-btn" onClick={onReset}><Icon name="home" size={14} /> Startsida</button>
-        <nav className="sidebar-nav">
+        <nav className="lt-side-nav" aria-label="Flikar">
           {tabs.map(t => (
-            <button
-              key={t.id}
-              className={`nav-btn ${activeTab === t.id ? 'active' : ''}`}
-              onClick={() => setActiveTab(t.id)}
-            >
-              <Icon name={t.icon} size={16} />
+            <button key={t.id} className={`lt-nav${activeTab === t.id ? ' is-active' : ''}`} onClick={() => go(t.id)}
+              aria-current={activeTab === t.id ? 'page' : undefined}>
+              <Icon name={DASH_ICONS[t.id]} size={15} />
               <span>{t.label}</span>
-              {t.badge > 0 && <span className="nav-badge">{t.badge}</span>}
+              {t.badge > 0 && <span className={`lt-nav-badge ${t.tone || ''}`}>{t.badge}</span>}
             </button>
           ))}
         </nav>
-        <div className="sidebar-footer">
-          <div className="service-level">
-            <span>SERVICENIVÅ A-ART. <InfoTooltip text="Andel A-artiklar (högprioriterade) där saldo + inkommande order täcker ledtiden. Mål: ≥95%. Dessa artiklar är kritiska för driften — det är denna siffra som räknas." /></span>
-            <div className="sl-bars">
-              <span className="sl-low">95%</span>
-              <span className="sl-cur" style={{
-                color: summary?.a_service_level_pct >= 95 ? 'var(--green)'
-                  : summary?.a_service_level_pct >= 85 ? 'var(--orange)' : 'var(--red)',
-                background: summary?.a_service_level_pct >= 95 ? 'var(--green-soft)'
-                  : summary?.a_service_level_pct >= 85 ? 'var(--orange-soft)' : 'var(--red-soft)'
-              }}>{summary?.a_service_level_pct ?? '—'}%</span>
-              <span className="sl-high">99%</span>
-            </div>
-            <div style={{ fontSize: 10, color: '#64748b', marginTop: 2, lineHeight: 1.4, wordBreak: 'break-word', overflowWrap: 'break-word' }}>
-              A-artiklar med täckning ≥ ledtid. Mål: ≥95%.
-            </div>
-            <div style={{ fontSize: 10, color: '#475569', marginTop: 6, borderTop: '1px solid #1e293b', paddingTop: 5 }}>
-              <span style={{ color: '#64748b' }}>Alla artiklar: </span>
-              <span style={{
-                fontWeight: 600,
-                color: (summary?.service_level_pct ?? 0) >= 95 ? '#22c55e'
-                  : (summary?.service_level_pct ?? 0) >= 85 ? '#f97316' : '#ef4444'
-              }}>{summary?.service_level_pct ?? '—'}%</span>
-              <span style={{ color: '#475569' }}> (inkl. B/C)</span>
-            </div>
-          </div>
-          {summary && <ConfidenceWidget summary={summary} dataQuality={data?.data_quality} />}
-          <div className="data-info">
-            <span className="data-dot">●</span> Data aktiv<br />
-            <span className="data-count">{fmt(summary?.total_articles)} artiklar</span>
-          </div>
-          <div className="version">v2.5 · {summary?.analysis_timestamp}</div>
-          {auth && (
-            <div style={{ fontSize: 10, color: '#475569', marginTop: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>{auth.email}</span>
-              <button onClick={onLogout} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 10, padding: 0 }}>Logga ut</button>
-            </div>
-          )}
+        <div className="lt-side-foot">
+          {summary && <ServiceLevelCard summary={summary} />}
+          {summary && <QualityChecks summary={summary} dataQuality={data?.data_quality} />}
           {summary && (
-            <button className="pdf-btn" onClick={() => openPDFReport()} title="Generera månadsrapport som PDF" style={{ marginTop: 8, width: '100%', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 0', cursor: 'pointer', fontWeight: 600, fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-              <Icon name="download" size={13} /> Månadsrapport PDF
+            <button className="lt-btn lt-btn-secondary lt-btn-block" onClick={() => openPDFReport()} title="Generera månadsrapport som PDF">
+              <Icon name="download" size={13} /> Månadsrapport
             </button>
           )}
+          {auth && (
+            <div className="lt-side-user">
+              <span title={auth.email}>{auth.email}</span>
+              <button className="lt-link-btn" onClick={onLogout}>Logga ut</button>
+            </div>
+          )}
         </div>
-      </div>
-      <div className="main-content">
-        <div className="top-bar">
-          <div>
-            <h2 className="page-title">{tabs.find(t => t.id === activeTab)?.label}</h2>
-            <div className="top-stats">
-              <span className="stat-crit">● {summary?.critical} kritiska</span>
-              <span className="stat-order">{summary?.articles_to_order} att beställa</span>
-              {summary?.overstock > 0 && <span className="stat-over">{summary?.overstock} överlager</span>}
+      </aside>
+
+      <main className="lt-main main-content" ref={mainRef}>
+        <header className="lt-main-top">
+          <div style={{ minWidth: 0 }}>
+            <h1>{current?.label}</h1>
+            <div className="lt-main-meta">
+              {sourceName && <span className="lt-mono" title={sourceName}>{sourceName}</span>}
+              <span className="lt-num">{fmt(summary?.total_articles)} artiklar</span>
+              {summary?.analysis_timestamp && <span>Analyserad {summary.analysis_timestamp}</span>}
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div className="top-tabs">
-              {tabs.filter(t => t.id !== 'overview').map(t => (
-                <button key={t.id} className={`top-tab ${activeTab === t.id ? 'active' : ''}`} onClick={() => setActiveTab(t.id)}>{t.label}</button>
-              ))}
-            </div>
+          <div className="lt-main-actions">
+            {summary?.critical > 0 && (
+              <button className="lt-chip lt-chip-err lt-chip-btn" onClick={() => go('purchasing')}><span className="dot" />{summary.critical} kritiska</button>
+            )}
+            {summary?.articles_to_order > 0 && (
+              <button className="lt-chip lt-chip-warn lt-chip-btn" onClick={() => go('purchasing')}>{summary.articles_to_order} att beställa</button>
+            )}
+            {summary?.overstock > 0 && summary?.has_cost_data && (
+              <button className="lt-chip lt-chip-btn" onClick={() => go('capital')}>{summary.overstock} överlager</button>
+            )}
             <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           </div>
-        </div>
-        {activeTab === 'overview' && <OverviewTab data={effectiveData} onLedtidChange={handleLedtidChange} ledtidOverrides={ledtidOverrides} onResetLedtider={Object.keys(ledtidOverrides).length > 0 ? handleResetLedtider : null} />}
+        </header>
+        {activeTab === 'overview' && <OverviewTab data={effectiveData} onNavigate={go} onLedtidChange={handleLedtidChange} ledtidOverrides={ledtidOverrides} onResetLedtider={Object.keys(ledtidOverrides).length > 0 ? handleResetLedtider : null} />}
         {activeTab === 'abcxyz' && <AbcXyzTab data={effectiveData} />}
         {activeTab === 'purchasing' && <PurchasingTab data={effectiveData} />}
         {activeTab === 'slotting' && <SlottingTab data={effectiveData} />}
         {activeTab === 'capital' && <CapitalTab data={effectiveData} />}
         {activeTab === 'history' && auth && <HistoryTab token={auth.token} onLoadAnalysis={onLoadAnalysis} />}
         {activeTab === 'settings' && <SettingsTab data={effectiveData} />}
-      </div>
+      </main>
     </div>
   );
 }
@@ -3540,6 +3823,8 @@ function collectSettingsInto(form) {
     if (Object.keys(valid).length) form.append('supplier_lead_times', JSON.stringify(valid));
     const gs = JSON.parse(localStorage.getItem('logitide-globalSettings') || '{}');
     if (gs.defaultLeadTime) form.append('global_lead_time', String(gs.defaultLeadTime));
+    const sl = { A: gs.serviceLevelA, B: gs.serviceLevelB, C: gs.serviceLevelC };
+    if (Object.values(sl).some(v => v != null && v !== '')) form.append('service_levels', JSON.stringify(sl));
   } catch {}
 }
 
