@@ -2521,7 +2521,7 @@ function AbcXyzTab({ data }) {
     ['X','Y','Z'].forEach(xyz => {
       const key = abc + xyz;
       const arts = enrichedArticles.filter(a => a.abc === abc && a.xyz === xyz);
-      const value = arts.reduce((s, a) => s + (a.stock_value || a.annual_value || 0), 0);
+      const value = arts.reduce((s, a) => s + (a.stock_value ?? 0), 0);
       const critical = arts.filter(a => a.status === 'CRITICAL').length;
       matrix[key] = { arts, count: arts.length, value, critical };
     });
@@ -2531,13 +2531,13 @@ function AbcXyzTab({ data }) {
   const abcGroups = {};
   ['A','B','C'].forEach(abc => {
     const arts = enrichedArticles.filter(a => a.abc === abc);
-    const value = arts.reduce((s, a) => s + (a.stock_value || a.annual_value || 0), 0);
+    const value = arts.reduce((s, a) => s + (a.stock_value ?? 0), 0);
     const critical = arts.filter(a => a.status === 'CRITICAL').length;
     abcGroups[abc] = { arts, count: arts.length, value, critical };
   });
 
   const totalArticles = enrichedArticles.length || 1;
-  const totalValue = enrichedArticles.reduce((s, a) => s + (a.stock_value || a.annual_value || 0), 0) || 1;
+  const totalValue = enrichedArticles.reduce((s, a) => s + (a.stock_value ?? 0), 0) || 1;
 
   const abcColor2 = { A: '#22c55e', B: '#f59e0b', C: '#6b7280' };
   const xyzColor  = { X: '#22c55e', Y: '#f59e0b', Z: '#ef4444' };
@@ -3378,8 +3378,10 @@ function Dashboard({ data, onReset, auth, onLogout, theme, onToggleTheme, onLoad
             <div className="sl-bars">
               <span className="sl-low">95%</span>
               <span className="sl-cur" style={{
-                color: summary?.a_service_level_pct >= 95 ? '#22c55e'
-                  : summary?.a_service_level_pct >= 85 ? '#f97316' : '#ef4444'
+                color: summary?.a_service_level_pct >= 95 ? 'var(--green)'
+                  : summary?.a_service_level_pct >= 85 ? 'var(--orange)' : 'var(--red)',
+                background: summary?.a_service_level_pct >= 95 ? 'var(--green-soft)'
+                  : summary?.a_service_level_pct >= 85 ? 'var(--orange-soft)' : 'var(--red-soft)'
               }}>{summary?.a_service_level_pct ?? '—'}%</span>
               <span className="sl-high">99%</span>
             </div>
