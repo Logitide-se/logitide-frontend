@@ -1917,7 +1917,9 @@ function SlottingTab({ data }) {
   const q = query.trim().toLowerCase();
   const rows = (lists[view] || []).filter(a => !q || String(a.article).toLowerCase().includes(q) || String(a.name || '').toLowerCase().includes(q));
   const zoneA = zones[0];
-  const fmtV = (x) => nf(x, x < 1 ? 2 : 1);
+  // Plock per dag med fast antal decimaler (1,0 i stället för 1) så att talen i zonraden går att jämföra
+  const fmtV = (x) => (x == null || Number.isNaN(Number(x)) ? '—'
+    : Number(x).toLocaleString('sv-SE', { minimumFractionDigits: x < 1 ? 2 : 1, maximumFractionDigits: x < 1 ? 2 : 1 }));
 
   let brief;
   if (!placementKnown) {
@@ -2241,9 +2243,9 @@ function AbcXyzTab({ data }) {
 
   // Cell-strategi
   const strategy = {
-    AX: 'Automatisera inköp',  AY: 'Bevaka månadsvis',     AZ: 'Konsultbeställning',
-    BX: 'Standardintervall',   BY: 'Kvartalsvis granskning', BZ: 'Behovsstyrt',
-    CX: 'Massbeställ',         CY: 'Årlig granskning',       CZ: 'Avveckla',
+    AX: 'Fasta beställningspunkter, kan automatiseras', AY: 'Följ upp månadsvis',          AZ: 'Bevaka noga, beställ manuellt',
+    BX: 'Fasta beställningspunkter',                     BY: 'Följ upp kvartalsvis',        BZ: 'Beställ efter behov',
+    CX: 'Större order mer sällan',                       CY: 'Granska årligen',             CZ: 'Beställ mot behov, granska om de ska lagerföras',
   };
 
   // Artiklar för vald cell
@@ -2255,10 +2257,10 @@ function AbcXyzTab({ data }) {
   const az = matrix['AZ'] || {};
   const cz = matrix['CZ'] || {};
   const bz = matrix['BZ'] || {};
-  if (ax.count > 0) insights.push({ color: '#22c55e', icon: '⭐', text: `${ax.count} AX — automatisera inköpen, stabila A-artiklar` });
-  if (az.count > 0) insights.push({ color: '#f97316', icon: '⚠️', text: `${az.count} AZ — högt värde men oregelbunden, manuell styrning krävs` });
-  if (bz.count > 0) insights.push({ color: '#f59e0b', icon: '📊', text: `${bz.count} BZ — behovsstyrd inköpsstrategi rekommenderas` });
-  if (cz.count > 0) insights.push({ color: '#6b7280', icon: '🗑️', text: `${cz.count} CZ — avvecklingskandidater, lågt värde och oregelbunden` });
+  if (ax.count > 0) insights.push({ tone: 'good', text: `${fmt(ax.count)} AX — högt värde och jämn förbrukning. Fasta beställningspunkter fungerar bra och kan automatiseras.` });
+  if (az.count > 0) insights.push({ tone: 'warn', text: `${fmt(az.count)} AZ — högt värde men ojämn förbrukning. Bevaka noga; säkerhetslagret blir stort, så kontrollera förslagen innan beställning.` });
+  if (bz.count > 0) insights.push({ tone: 'warn', text: `${fmt(bz.count)} BZ — ojämn förbrukning. Beställ efter faktiskt behov snarare än fasta intervall.` });
+  if (cz.count > 0) insights.push({ tone: 'muted', text: `${fmt(cz.count)} CZ — lågt värde och ojämn förbrukning. Granska om de behöver lagerföras eller kan beställas mot order.` });
 
   return (
     <div className="tab-content" style={{ paddingTop: 0 }}>
@@ -2268,7 +2270,6 @@ function AbcXyzTab({ data }) {
           borderRadius: 8, padding: '10px 16px', marginBottom: 12,
           fontSize: 12, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 8
         }}>
-          <span>⚠️</span>
           <span>
             <strong>XYZ baseras på uppskattning</strong> — filen saknar månadshistorik.
             Lägg till kolumner för jan–dec (12 månaders förbrukning) för exakt XYZ-klassificering baserad på variationskoefficient.
@@ -2454,7 +2455,7 @@ function AbcXyzTab({ data }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {insights.map((ins, i) => (
                   <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                    <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>{ins.icon}</span>
+                    <span className={`lt-tone-dot ${ins.tone}`} style={{ marginTop: 5 }} aria-hidden="true" />
                     <span style={{ fontSize: 12, color: 'var(--text3)', lineHeight: 1.5 }}>
                       {ins.text}
                     </span>
@@ -3501,8 +3502,23 @@ const cleanAiText = (t) => String(t || '')
   .trim();
 
 // ─── Datakontroll (ersätter två banners) ──────────────────────────────────
-function DataCheck({ validation, summary }) {
+// Platskontroll: artiklar på en plats där saldot kan vara fel (bara en varning — beräkningen ändras inte)
+function locationCheckCsv(rows, location) {
+  const head = ['Artikelnummer', 'Benämning', 'Plats', 'Saldo', 'Förbrukning per år', 'Status i analysen', 'Föreslaget antal', 'Ordervärde (kr)'];
+  const esc = (x) => { const t = String(x ?? ''); return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const lines = rows.map(a => [a.article, a.name, a.loc_original, a.stock ?? 0,
+    String(Math.round((Number(a.demand_per_day) || 0) * 365 * 10) / 10).replace('.', ','),
+    STATUS_SV[a.status] || a.status, a.order_qty || 0, Math.round(a.order_value || 0)].map(esc).join(';'));
+  const blob = new Blob(['\ufeff' + [head.join(';'), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const el = document.createElement('a');
+  el.href = url; el.download = `logitide-kontrollera-saldo-${String(location).replace(/[^a-z0-9åäö]+/gi, '-').toLowerCase()}.csv`; el.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function DataCheck({ validation, summary, articles = [] }) {
   const [open, setOpen] = useState(false);
+  const suspect = summary.suspect_locations || [];
   const warnings = validation?.warnings || [];
   const missing = [];
   if (!summary.has_cost_data) missing.push('Inköpspris saknas — kapital och ordervärde kan inte räknas');
@@ -3520,19 +3536,39 @@ function DataCheck({ validation, summary }) {
   if (summary.safety_stock_fallback > 0 && summary.xyz_available === false) missing.push(`Månadshistorik saknas — säkerhetslagret bygger på en antagen variation (${String(summary.safety_stock_assumed_cv ?? 0.5).replace('.', ',')}). Med 12 månaders historik blir det exaktare`);
   if (summary.confidence_low > 0) missing.push(`${fmt(summary.confidence_low)} förslag har låg säkerhet — se skälen under Uträkning`);
   const items = [...missing, ...warnings];
-  if (!validation?.summary && !items.length) return null;
+  const locItems = suspect.map(l => ({
+    l,
+    text: `Platsen ”${l.location}”: ${fmt(l.articles_zero_stock)} artiklar har förbrukning men saldo 0 (${l.share_pct} % av platsens artiklar). ` +
+      `Kontrollera om saldot stämmer — om varorna finns på plats är de inte slut. ` +
+      `Det gäller ${fmt(l.critical)} av de kritiska${l.order_value_sek > 0 ? ` och ${fmtKr(l.order_value_sek)} av inköpsförslaget` : ''}.`,
+  }));
+  if (!validation?.summary && !items.length && !locItems.length) return null;
+  const total = items.length + locItems.length;
   return (
     <div className="lt-datacheck">
       <div className="lt-datacheck-row">
         <span className="lt-eyebrow">Datakontroll</span>
         {validation?.ai_generated && <span className="lt-chip lt-chip-ai"><LtIcon name="sparkle" size={11} /> AI</span>}
         <span className="lt-datacheck-text">{cleanAiText(validation?.summary) || `${items.length} saker att känna till om datan.`}</span>
-        {items.length > 0 && (
+        {total > 0 && (
           <button className="lt-link-btn" onClick={() => setOpen(o => !o)} aria-expanded={open}>
-            {open ? 'Dölj' : `${items.length} ${items.length === 1 ? 'anmärkning' : 'anmärkningar'}`}
+            {open ? 'Dölj' : `${total} ${total === 1 ? 'anmärkning' : 'anmärkningar'}`}
           </button>
         )}
       </div>
+      {locItems.length > 0 && (
+        <div className="lt-loccheck">
+          {locItems.map(({ l, text }) => (
+            <div key={l.location} className="lt-loccheck-row">
+              <span className="lt-tone-dot warn" aria-hidden="true" />
+              <span className="lt-loccheck-text">{text}</span>
+              <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={() => locationCheckCsv(articles.filter(a => a.location_check && String(a.loc_original).toLowerCase() === String(l.location).toLowerCase()), l.location)}>
+                Exportera lista
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {open && <ul className="lt-notes" style={{ marginTop: 8 }}>{items.map((w, i) => <li key={i}>{w}</li>)}</ul>}
     </div>
   );
@@ -3603,7 +3639,7 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider, o
         )}
       </section>
 
-      <DataCheck validation={validation} summary={summary} />
+      <DataCheck validation={validation} summary={summary} articles={articles} />
 
       <div className="lt-kpi-row">
         <KpiTile label="Kritiska brister" tone="crit" value={fmt(summary.critical)}
@@ -3667,10 +3703,11 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider, o
         </section>
         <section className="lt-panel lt-panel-pad">
           <div className="lt-panel-head flat">
-            <h3>ABC-fördelning <InfoTooltip text="A = artiklar som står för 80 % av årsvärdet (förbrukning × pris). B = nästa 15 %. C = sista 5 %." /></h3>
-            <span className="lt-hint">{hasCost ? 'andel av lagervärdet' : 'baserad på förbrukning'}</span>
+            <h3>ABC-fördelning <InfoTooltip text="Klassen sätts efter årsförbrukningens värde (förbrukning × pris): A = artiklarna som står för de första 80 % av värdet, B = nästa 15 %, C = resten. Staplarna visar hur lagervärdet (saldo × pris) fördelar sig på klasserna." /></h3>
+            <span className="lt-hint">{hasCost ? 'lagervärde per klass' : 'antal artiklar per klass'}</span>
           </div>
           <AbcBars dist={abc_distribution} hasCost={hasCost} total={summary.total_articles} />
+          <p className="lt-hint lt-abc-note">Klass efter årsförbrukningens värde · staplarna visar lagervärdet</p>
           <button className="lt-link-btn" style={{ marginTop: 12 }} onClick={() => onNavigate('abcxyz')}>Öppna ABC/XYZ-matrisen →</button>
         </section>
       </div>
@@ -3688,26 +3725,32 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider, o
 
 // ─── Sidomenyns servicenivå + datakvalitet ────────────────────────────────
 function ServiceLevelCard({ summary }) {
+  // Visar andelen A-artiklar som klarar ledtiden som antal — inte mot servicenivåmålet, som är en annan sak
+  // (målet styr säkerhetslagret per artikel; andelen här är hur många som just nu riskerar brist).
   const v = summary?.a_service_level_pct;
-  let target = Number(summary?.service_targets?.A) || 98;
-  try { target = Number(JSON.parse(localStorage.getItem('logitide-globalSettings') || '{}').serviceLevelA) || target; } catch {}
-  const tone = v >= target ? 'good' : v >= target - 10 ? 'warn' : 'crit';
+  const nA = summary?.a_articles_with_demand;
+  const risk = summary?.a_at_risk;
+  const hasCounts = nA != null && risk != null;
+  const okA = hasCounts ? nA - risk : null;
+  const tone = hasCounts ? (risk === 0 ? 'good' : (v ?? 100) >= 90 ? 'warn' : 'crit') : ((v ?? 0) >= 95 ? 'good' : (v ?? 0) >= 85 ? 'warn' : 'crit');
   return (
     <div className="lt-sl">
       <div className="lt-sl-head">
-        <span>Servicenivå A-artiklar</span>
-        <InfoTooltip text={`Andel A-artiklar med förbrukning som klarar ledtiden: inte slut i lager, tar inte slut innan leverans och saldo + inkommande räcker över ledtiden. Mål: ${target} %.`} />
+        <span>A-artiklar utan bristrisk</span>
+        <InfoTooltip text="Andel A-artiklar med förbrukning vars lager räcker över ledtiden: inte slut i lager, tar inte slut innan leverans och saldo + inkommande räcker längre än ledtiden. Servicenivåmålen i Inställningar styr säkerhetslagret per artikel och jämförs inte med den här siffran." />
       </div>
-      <div className="lt-sl-value lt-num">{v ?? '—'}<span className="lt-unit">%</span></div>
-      <div className="lt-sl-track" role="img" aria-label={`Servicenivå ${v} procent, mål ${target} procent`}>
+      <div className="lt-sl-value lt-num">{v != null ? String(v).replace('.', ',') : '—'}<span className="lt-unit">%</span></div>
+      <div className="lt-sl-track" role="img" aria-label={`${v} procent av A-artiklarna utan bristrisk`}>
         <i className={tone} style={{ width: `${Math.min(100, v || 0)}%` }} />
-        <b style={{ left: `${target}%` }} title={`Mål ${target} %`} />
       </div>
       <div className="lt-sl-foot">
-        <span className={`lt-tone-dot ${tone}`} />{v >= target ? 'På mål' : `${(target - (v || 0)).toFixed(1).replace('.', ',')} procentenheter under mål ${target} %`}
+        <span className={`lt-tone-dot ${tone}`} />
+        {hasCounts
+          ? (risk === 0 ? `Alla ${fmt(nA)} A-artiklar klarar ledtiden` : `${fmt(risk)} av ${fmt(nA)} A-artiklar riskerar brist`)
+          : 'Kör analysen igen för att se antal'}
       </div>
-      <div className="lt-sl-all lt-num">Alla artiklar: <b>{summary?.service_level_pct ?? '—'} %</b>
-        {summary?.a_in_stock_pct != null && <> · i lager nu: <b>{summary.a_in_stock_pct} %</b></>}</div>
+      <div className="lt-sl-all lt-num">Alla artiklar: <b>{summary?.service_level_pct != null ? String(summary.service_level_pct).replace('.', ',') : '—'} %</b>
+        {summary?.a_in_stock_pct != null && <> · A i lager nu: <b>{String(summary.a_in_stock_pct).replace('.', ',')} %</b></>}</div>
     </div>
   );
 }
@@ -4483,7 +4526,7 @@ function ImportStudio({ auth, onAnalysis, latest, analysisCount, onOpenLatest })
                 ['Artiklar', fmtInt(latest.summary.total_articles), ''],
                 ['Kritiska', fmtInt(latest.summary.critical), latest.summary.critical > 0 ? 'crit' : 'good'],
                 ['Att beställa', fmtInt(latest.summary.articles_to_order), latest.summary.articles_to_order > 0 ? 'warn' : ''],
-                ['Servicenivå A', latest.summary.a_service_level_pct != null ? `${latest.summary.a_service_level_pct} %` : '—', latest.summary.a_service_level_pct >= 95 ? 'good' : 'warn'],
+                ['A utan bristrisk', latest.summary.a_service_level_pct != null ? `${latest.summary.a_service_level_pct} %` : '—', latest.summary.a_service_level_pct >= 95 ? 'good' : 'warn'],
                 ['Bundet kapital', latest.summary.has_cost_data ? `${fmtInt(latest.summary.total_stock_value_sek / 1000)} tkr` : '—', ''],
               ].map(([l, v, c]) => (
                 <div key={l}><div className="lt-kpi-label">{l}</div><div className={`lt-kpi-value ${c}`}>{v}</div></div>
@@ -4815,7 +4858,7 @@ function HistoryDetailModal({ analysisId, token, onClose }) {
                 {[
                   { label: 'Artiklar', value: fmt(s.total_articles), color: '#f1f5f9' },
                   { label: 'Kritiska', value: s.critical ?? '—', color: s.critical > 0 ? '#ef4444' : '#22c55e' },
-                  { label: 'Servicenivå A', value: `${s.a_service_level_pct ?? '—'}%`, color: (s.a_service_level_pct ?? 0) >= 95 ? '#22c55e' : '#f97316' },
+                  { label: 'A utan bristrisk', value: `${s.a_service_level_pct ?? '—'}%`, color: (s.a_service_level_pct ?? 0) >= 95 ? '#22c55e' : '#f97316' },
                   { label: 'Att beställa', value: s.articles_to_order ?? '—', color: '#f97316' },
                   { label: 'Dött lager', value: s.dead_stock ?? '—', color: '#6b7280' },
                   { label: 'Överlager', value: s.overstock ?? '—', color: '#a855f7' },
@@ -4972,7 +5015,7 @@ function ComparePanel({ idA, idB, token, labelA, labelB, onClose }) {
         // Fallback: build delta cards from summary objects
         return (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
-            {deltaCard('Servicenivå A', sA.a_service_level_pct, sB.a_service_level_pct, '%', false)}
+            {deltaCard('A utan bristrisk', sA.a_service_level_pct, sB.a_service_level_pct, '%', false)}
             {deltaCard('Kritiska artiklar', sA.critical, sB.critical, '', true)}
             {deltaCard('Att beställa', sA.articles_to_order, sB.articles_to_order, '', true)}
             {deltaCard('Dött lager', sA.dead_stock, sB.dead_stock, '', true)}
@@ -5057,12 +5100,18 @@ function HistoryTab({ token, onLoadAnalysis }) {
 
   // Trend sparkline data (oldest first for chart, newest first in array)
   // Servicenivå och kritiska räknas annorlunda från motor 2.11 — jämför bara inom samma version
+  // Jämförelser görs bara mellan analyser av SAMMA fil (samma lager). Servicenivå och kritiska dessutom bara
+  // inom samma motorversion, eftersom de räknas annorlunda från motor 2.11 och 3.0.
   const engineOf = (h) => h?.summary?.engine_version || '2.10';
-  const sameEngine = history.filter(h => engineOf(h) === engineOf(latest));
-  const prevSame = prev && engineOf(prev) === engineOf(latest) ? prev : null;
+  const fileKey = (h) => String(h?.filename || '').trim().toLowerCase();
+  const fileHist = history.filter(h => fileKey(h) === fileKey(latest));
+  const prevFile = fileHist[1] || null;
+  const sameEngine = fileHist.filter(h => engineOf(h) === engineOf(latest));
+  const prevSame = prevFile && engineOf(prevFile) === engineOf(latest) ? prevFile : null;
+  const otherFileNote = !prevFile && prev ? 'Ingen tidigare analys av samma fil att jämföra med' : null;
   const slValues = [...sameEngine].reverse().map(h => h.summary?.a_service_level_pct ?? 0);
   const critValues = [...sameEngine].reverse().map(h => h.summary?.critical ?? 0);
-  const capValues = [...history].reverse().map(h => Math.round((h.summary?.total_stock_value_sek ?? 0) / 1000));
+  const capValues = [...fileHist].reverse().map(h => Math.round((h.summary?.total_stock_value_sek ?? 0) / 1000));
 
   const fmtDate = (d) => {
     const dt = new Date(d);
@@ -5105,15 +5154,18 @@ function HistoryTab({ token, onLoadAnalysis }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
         {[
           {
-            label: 'SERVICENIVÅ A-ART.',
+            label: 'A-ARTIKLAR UTAN BRISTRISK',
             value: `${latest.summary?.a_service_level_pct ?? '—'}%`,
             color: (latest.summary?.a_service_level_pct ?? 0) >= 95 ? '#22c55e' : '#f97316',
             sparkValues: slValues,
             sparkColor: '#22c55e',
             inverted: false,
-            diff: prevSame ? `${latest.summary?.a_service_level_pct >= prevSame.summary?.a_service_level_pct ? '▲' : '▼'} ${Math.abs(((latest.summary?.a_service_level_pct ?? 0) - (prevSame.summary?.a_service_level_pct ?? 0))).toFixed(1).replace('.', ',')} procentenheter` : null,
+            diff: prevSame ? (() => {
+              const d = (latest.summary?.a_service_level_pct ?? 0) - (prevSame.summary?.a_service_level_pct ?? 0);
+              return Math.abs(d) < 0.05 ? '± 0 procentenheter' : `${d > 0 ? '▲' : '▼'} ${Math.abs(d).toFixed(1).replace('.', ',')} procentenheter`;
+            })() : null,
             improved: prevSame ? latest.summary?.a_service_level_pct >= prevSame.summary?.a_service_level_pct : null,
-            note: prev && !prevSame ? 'Ny beräkning — jämförs inte med äldre analyser' : null,
+            note: prevFile && !prevSame ? 'Ny beräkning — jämförs inte med äldre analyser' : otherFileNote,
           },
           {
             label: 'KRITISKA ARTIKLAR',
@@ -5122,9 +5174,12 @@ function HistoryTab({ token, onLoadAnalysis }) {
             sparkValues: critValues,
             sparkColor: '#ef4444',
             inverted: true, // lower = better, so invert sparkline direction
-            diff: prevSame ? `${latest.summary?.critical <= prevSame.summary?.critical ? '▼' : '▲'} ${Math.abs((latest.summary?.critical ?? 0) - (prevSame.summary?.critical ?? 0))}` : null,
+            diff: prevSame ? (() => {
+              const d = (latest.summary?.critical ?? 0) - (prevSame.summary?.critical ?? 0);
+              return d === 0 ? '± 0' : `${d < 0 ? '▼' : '▲'} ${fmt(Math.abs(d))}`;
+            })() : null,
             improved: prevSame ? latest.summary?.critical <= prevSame.summary?.critical : null,
-            note: prev && !prevSame ? 'Ny beräkning — jämförs inte med äldre analyser' : null,
+            note: prevFile && !prevSame ? 'Ny beräkning — jämförs inte med äldre analyser' : otherFileNote,
           },
           {
             label: 'BUNDET KAPITAL',
@@ -5133,11 +5188,12 @@ function HistoryTab({ token, onLoadAnalysis }) {
             sparkValues: capValues,
             sparkColor: '#a78bfa',
             inverted: true, // lower capital = better
-            diff: prev && prev.summary?.total_stock_value_sek != null ? (() => {
-              const d = Math.round(((latest.summary?.total_stock_value_sek ?? 0) - (prev.summary?.total_stock_value_sek ?? 0)) / 1000);
-              return `${d >= 0 ? '▲' : '▼'} ${fmt(Math.abs(d))} tkr`;
+            diff: prevFile && prevFile.summary?.total_stock_value_sek != null ? (() => {
+              const d = Math.round(((latest.summary?.total_stock_value_sek ?? 0) - (prevFile.summary?.total_stock_value_sek ?? 0)) / 1000);
+              return d === 0 ? '± 0 tkr' : `${d > 0 ? '▲' : '▼'} ${fmt(Math.abs(d))} tkr`;
             })() : null,
-            improved: prev ? (latest.summary?.total_stock_value_sek ?? 0) <= (prev.summary?.total_stock_value_sek ?? 0) : null,
+            improved: prevFile ? (latest.summary?.total_stock_value_sek ?? 0) <= (prevFile.summary?.total_stock_value_sek ?? 0) : null,
+            note: otherFileNote,
           },
         ].map((card, i) => (
           <div key={i} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
@@ -5200,7 +5256,7 @@ function HistoryTab({ token, onLoadAnalysis }) {
               <th style={{ padding: '8px 12px' }}>FIL</th>
               <th style={{ padding: '8px 12px' }}>ARTIKLAR</th>
               <th style={{ padding: '8px 12px' }}>KRITISKA</th>
-              <th style={{ padding: '8px 12px' }}>SERVICENIVÅ A</th>
+              <th style={{ padding: '8px 12px' }}>A UTAN BRISTRISK</th>
               <th style={{ padding: '8px 12px' }}>KAPITAL</th>
               <th style={{ padding: '8px 12px', textAlign: 'right' }}></th>
             </tr>
