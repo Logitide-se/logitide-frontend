@@ -42,6 +42,21 @@ const fmtKr = (n, hasCostData = true) => {
   return `${Math.round(n).toLocaleString('sv-SE')} kr`;
 };
 const fmtDays = (n) => n === 999 ? '∞' : `${parseFloat(n).toFixed(1)} d`;
+const svNum = (n, d = 1) => Number(n).toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: d });
+// Förbrukning i en enhet som inte avrundas till 0 (samma regel som motorn: st/dag, st/mån eller st/år)
+function fmtRate(d) {
+  const v = Number(d) || 0;
+  if (v <= 0) return '0 st/dag';
+  if (v >= 0.95) return `${svNum(v)} st/dag`;
+  if (v * 365 / 12 >= 0.95) return `${svNum(v * 365 / 12)} st/mån`;
+  return `${svNum(v * 365)} st/år`;
+}
+// Långa tider i år i stället för tusentals dagar
+function fmtDuration(days) {
+  const v = Number(days) || 0;
+  if (v < 730) return `${Math.round(v)} dagar`;
+  return `ca ${svNum(v / 365, v < 3650 ? 1 : 0)} år`;
+}
 const statusColor = (s) => ({
   CRITICAL: '#ef4444', WATCH: '#f97316', OK: '#22c55e',
   OVERSTOCK: '#a855f7', DEAD_STOCK: '#6b7280'
@@ -54,7 +69,7 @@ const abcColor = (abc) => ({ A: '#22c55e', B: '#f59e0b', C: '#6b7280' }[abc] || 
 
 // ─── LOKAL OMRÄKNING NÄR LEDTID ÄNDRAS ───────────────────────────────────
 function recalcArticle(a, newLeadTime) {
-  // Speglar backend v2.11: säkerhetslager, beställningspunkt och status räknas om med ny ledtid.
+  // Speglar motor 3.0: säkerhetslager, beställningspunkt och status räknas om med ny ledtid.
   const lt = newLeadTime;
   const d = a.demand_per_day ?? 0;
   const hasDemand = d > 0;
@@ -62,9 +77,10 @@ function recalcArticle(a, newLeadTime) {
   const cov = hasDemand ? pos / d : 999;
   const raw = hasDemand ? (a.stock ?? 0) / d : 999;
   let ss = a.safety_stock_units ?? 0;
-  if (hasDemand && a.safety_stock_method === 'STATISTISK' && a.z_value != null && a.demand_cv != null) {
-    const sigmaD = a.demand_cv * d * Math.sqrt(30.44);
-    const sigmaLt = lt * 0.10;
+  const cvUsed = a.demand_cv_used ?? a.demand_cv;
+  if (hasDemand && (a.safety_stock_method === 'STATISTISK' || a.safety_stock_method === 'ANTAGEN_VARIATION') && a.z_value != null && cvUsed != null) {
+    const sigmaD = cvUsed * d * Math.sqrt(365 / 12);
+    const sigmaLt = a.lead_time_std_source === 'fil' && a.lead_time_std_used != null ? Math.min(a.lead_time_std_used, lt * 0.5) : lt * 0.10;
     ss = Math.min(Math.max(a.z_value * Math.sqrt(lt * sigmaD ** 2 + d ** 2 * sigmaLt ** 2), 1), d * 180);
   } else if (hasDemand && a.safety_stock_days != null) {
     ss = d * a.safety_stock_days;
@@ -75,19 +91,24 @@ function recalcArticle(a, newLeadTime) {
   const abcFactor = { A: 2.0, B: 1.5, C: 1.2 }[a.abc] ?? 1.5;
   const belowRop = hasDemand && pos <= rop;
   const late = !!a.order_late && raw < lt;
+  const confirmEta = hasDemand && !!a.order_no_eta && raw < lt;
   let status = 'OK';
   if (!hasDemand) status = (a.stock ?? 0) > 0 ? 'DEAD_STOCK' : 'OK';
   else if (cov < lt || a.out_of_stock || a.stockout_before_delivery || late) status = 'CRITICAL';
-  else if (belowRop || cov < lt * abcFactor) status = 'WATCH';
+  else if (belowRop || cov < lt * abcFactor || confirmEta) status = 'WATCH';
   else if (cov > 365) status = 'OVERSTOCK';
   const moq = Math.max(1, a.moq ?? 1);
   const need = upto - pos;
   const order_qty = belowRop && need > 0 ? Math.ceil(need / moq) * moq : 0;
+  const afterDays = hasDemand ? (pos + order_qty) / d : 0;
+  const moq_warning = order_qty > 0 && moq > 1 && afterDays > 365;
   return {
     ...a, lead_time_days: lt, lead_time_source: 'fil', status, order_qty,
     order_value: order_qty * (a.cost ?? 0), safety_stock_units: ss,
     safety_stock_days: hasDemand ? Math.round(ss / d * 10) / 10 : 0,
     reorder_point: rop, order_up_to: upto, below_reorder_point: belowRop,
+    order_confirm_eta: confirmEta && status !== 'CRITICAL',
+    moq_warning, moq_warning_days: moq_warning ? Math.round(afterDays) : 0,
   };
 }
 
@@ -1436,6 +1457,7 @@ const shortDate = (iso) => {
 function purchaseTag(a) {
   if (a.late_days > 0 && a.out_of_stock) return { label: 'Slut i lager', tone: 'crit' };
   if (a.late_days > 0) return { label: 'För sent', tone: 'crit' };
+  if (a.moq_warning) return { label: 'Kontrollera MOQ', tone: 'warn' };
   const n = dayDiff(a.last_order_date);
   if (n != null && n <= 0) return { label: 'Sista dag idag', tone: 'warn' };
   if (n != null && n <= 7) return { label: 'Inom 7 dagar', tone: 'info' };
@@ -1484,6 +1506,7 @@ function PurchaseLine({ a, dec, onDecide, hasCost }) {
           <div className="lt-po-qty-note">
             {qty !== a.order_qty ? `förslag ${fmt(a.order_qty)}` : (moq > 1 ? `MOQ ${fmt(moq)}` : '')}
             {offPack && <span className="lt-warn-text"> · ej hel förp.</span>}
+            {after != null && after > 365 && <span className="lt-warn-text"> · räcker {fmtDuration(after)}</span>}
           </div>
         </td>
         <td className="num lt-num">{hasCost ? fmtKr(qty * (Number(a.cost) || 0)) : '—'}</td>
@@ -2002,7 +2025,7 @@ function SlottingTab({ data }) {
                         <span className="lt-num">{a.suggest_move ? `${a.loc} → ${a.recommended_zone}` : `Zon ${a.recommended_zone}`}</span>
                       </td>
                     )}
-                    <td className="lt-slot-reason">{a.move_reason || (activeView === 'changes' ? `Plockas ${fmtV(a.pick_velocity || 0)} st/dag` : '')}</td>
+                    <td className="lt-slot-reason">{a.move_reason || (activeView === 'changes' ? `Plockas ${fmtRate(a.pick_velocity || 0)}` : '')}</td>
                     {(activeView === 'top' || activeView === 'all') && (
                       <td><input type="checkbox" checked={!!done[a.article]} aria-label={`Markera ${a.article} som flyttad`}
                         onChange={() => setDone(d => ({ ...d, [a.article]: !d[a.article] }))} /></td>
@@ -2523,7 +2546,7 @@ function SettingsTab({ data }) {
   };
 
   const [globalSettings, setGlobalSettings] = useState(() => loadLS('logitide-globalSettings', {
-    defaultLeadTime: 14, serviceLevelA: 95, serviceLevelB: 90, serviceLevelC: 85,
+    defaultLeadTime: 14, serviceLevelA: 98, serviceLevelB: 95, serviceLevelC: 90,
   }));
   const [supplierSettings, setSupplierSettings] = useState(() => loadLS('logitide-supplierSettings', {}));
   const [slottingConfig, setSlottingConfig] = useState(() => loadLS('logitide-slottingConfig', {
@@ -2654,8 +2677,8 @@ function SettingsTab({ data }) {
               <div>
                 <label style={labelStyle}>Servicenivå A-artiklar (%)</label>
                 <input style={inputStyle} type="number" min="80" max="99"
-                  value={globalSettings.serviceLevelA ?? 95}
-                  onChange={e => setGlobalSettings(s => ({ ...s, serviceLevelA: parseInt(e.target.value) || 95 }))}
+                  value={globalSettings.serviceLevelA ?? 98}
+                  onChange={e => setGlobalSettings(s => ({ ...s, serviceLevelA: parseInt(e.target.value) || 98 }))}
                   onFocus={e => e.target.style.borderColor = '#6366f1'}
                   onBlur={e => e.target.style.borderColor = 'var(--border)'} />
                 <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>Rekommenderat: 95–99%</div>
@@ -2663,8 +2686,8 @@ function SettingsTab({ data }) {
               <div>
                 <label style={labelStyle}>Servicenivå B-artiklar (%)</label>
                 <input style={inputStyle} type="number" min="70" max="99"
-                  value={globalSettings.serviceLevelB ?? 90}
-                  onChange={e => setGlobalSettings(s => ({ ...s, serviceLevelB: parseInt(e.target.value) || 90 }))}
+                  value={globalSettings.serviceLevelB ?? 95}
+                  onChange={e => setGlobalSettings(s => ({ ...s, serviceLevelB: parseInt(e.target.value) || 95 }))}
                   onFocus={e => e.target.style.borderColor = '#6366f1'}
                   onBlur={e => e.target.style.borderColor = 'var(--border)'} />
                 <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>Rekommenderat: 90–95%</div>
@@ -2672,8 +2695,8 @@ function SettingsTab({ data }) {
               <div>
                 <label style={labelStyle}>Servicenivå C-artiklar (%)</label>
                 <input style={inputStyle} type="number" min="60" max="99"
-                  value={globalSettings.serviceLevelC ?? 85}
-                  onChange={e => setGlobalSettings(s => ({ ...s, serviceLevelC: parseInt(e.target.value) || 85 }))}
+                  value={globalSettings.serviceLevelC ?? 90}
+                  onChange={e => setGlobalSettings(s => ({ ...s, serviceLevelC: parseInt(e.target.value) || 90 }))}
                   onFocus={e => e.target.style.borderColor = '#6366f1'}
                   onBlur={e => e.target.style.borderColor = 'var(--border)'} />
                 <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>Rekommenderat: 85–92%</div>
@@ -3020,10 +3043,14 @@ function CalcBreakdown({ a, cycleDays = 30 }) {
   const upto = Number(a.order_up_to ?? rop + d * cycleDays);
   const moq = Number(a.moq) || 1;
   const rows = [
-    { k: 'Förbrukning', v: `${nf(d, dd)} st/dag`, s: a.demand_source || '' },
+    { k: 'Förbrukning', v: fmtRate(d),
+      s: [a.demand_source, a.demand_method === 'trendnivå' ? `tydlig ${a.demand_trend === 'MINSKANDE' ? 'minskning' : 'ökning'} – nivån senaste månaden används` : null,
+          d < 0.95 ? `${nf(d, dd)} st/dag` : null].filter(Boolean).join(' · ') },
     { k: 'Ledtid', v: `${nf(lt, 0)} dagar`, s: LT_SOURCE[a.lead_time_source] || '' },
     { k: 'Säkerhetslager', v: `${nf(ss)} st`,
-      s: `${nf(a.safety_stock_days)} dagars förbrukning · servicenivåmål ${nf(a.service_target_pct)} %${a.service_target_source === 'inställning' ? ' (din inställning)' : ''}` },
+      s: [`${nf(a.safety_stock_days)} dagars förbrukning · servicenivåmål ${nf(a.service_target_pct)} %${a.service_target_source === 'inställning' ? ' (din inställning)' : ''}`,
+          a.demand_cv_used != null ? `variation ${nf(a.demand_cv_used, 2)}${a.demand_cv_source === 'antagen' ? ' (antagen – historik saknas)' : ''}` : null,
+          a.lead_time_std_source === 'antagen' ? 'ledtidsvariation antagen 10 %' : null].filter(Boolean).join(' · ') },
     { k: 'Beställningspunkt', v: `${nf(rop)} st`, s: `${nf(d, dd)} × ${nf(lt, 0)} + ${nf(ss)}`, strong: true },
     { k: 'Lagerposition', v: `${nf(pos, 0)} st`,
       s: a.ordered_qty > 0 ? `saldo ${nf(a.stock, 0)} + beställt ${nf(a.ordered_qty, 0)}` : 'saldo, inget beställt' },
@@ -3034,7 +3061,9 @@ function CalcBreakdown({ a, cycleDays = 30 }) {
       s: `${nf(upto)} − ${nf(pos, 0)} = ${nf(Math.max(0, upto - pos))}, ${moq > 1 ? `avrundat uppåt till hela ${nf(moq, 0)}-tal` : 'avrundat uppåt'}` });
   }
   let rule;
-  if (a.order_qty > 0) rule = `Förslaget gäller så länge lagerpositionen är högst ${nf(rop, 0)} st. Ändras förbrukning eller ledtid räknas det om.`;
+  if (a.order_qty > 0 && a.moq_warning) rule = `MOQ ${nf(moq, 0)} st gör att lagret räcker ${fmtDuration(a.moq_warning_days)}. Kontrollera med leverantören om mindre antal går, eller om artikeln ska beställas mot order.`;
+  else if (a.order_confirm_eta) rule = `Saldot räcker ${nf(a.raw_coverage_days)} dagar och ledtiden är ${nf(lt, 0)} dagar. ${nf(a.ordered_qty, 0)} st är beställda men saknar leveransdatum – bekräfta datumet med leverantören.`;
+  else if (a.order_qty > 0) rule = `Förslaget gäller så länge lagerpositionen är högst ${nf(rop, 0)} st. Ändras förbrukning eller ledtid räknas det om.`;
   else if (a.status === 'CRITICAL' && a.ordered_qty > 0) rule = 'Lagerpositionen räcker, men saldot tar slut innan leveransen kommer. Det som hjälper är en tidigare leverans.';
   else if (a.status === 'OVERSTOCK') rule = `Lagret räcker ${nf(a.coverage_days, 0)} dagar. Målet är högst 180 dagar – inget behöver köpas in.`;
   else rule = `Beställ när lagerpositionen når ${nf(rop, 0)} st${a.reorder_date && a.reorder_date !== 'Idag' ? `, omkring ${a.reorder_date}` : ''}.`;
@@ -3114,7 +3143,7 @@ function ArticleDetailPanel({ article, onClose, onLedtidChange, ledtidOverride }
   const kv = [
     ['Saldo', `${fmt(a.stock)} st`],
     ['Beställt', a.ordered_qty > 0 ? `${fmt(a.ordered_qty)} st${eta ? ` · ${eta}` : ''}${a.order_late ? ' · försenad' : ''}` : '—'],
-    ['Förbrukning', hasDemand ? `${nf(a.demand_per_day, 2)} st/dag` : '—'],
+    ['Förbrukning', hasDemand ? fmtRate(a.demand_per_day) : '—'],
     ['Inköpspris', a.cost > 0 ? `${nf(a.cost, 2)} kr` : '—'],
     ['Lagervärde', a.cost > 0 ? fmtKr(a.stock_value ?? a.stock * a.cost) : '—'],
     ['Plats', a.loc_original && a.loc_original !== 'nan' ? `${a.loc_original}${a.suggest_move ? ` → zon ${a.recommended_zone}` : ''}` : (a.loc || '—')],
@@ -3204,6 +3233,7 @@ const ACTION_TYPES = {
   ORDER_CRITICAL: { label: 'Beställ nu', tone: 'crit' },
   ORDER_URGENT:   { label: 'Beställ', tone: 'warn' },
   EXPEDITE:       { label: 'Påskynda', tone: 'warn' },
+  CONFIRM_ETA:    { label: 'Bekräfta datum', tone: 'warn' },
   MOVE:           { label: 'Flytta', tone: 'info' },
   REDUCE_STOCK:   { label: 'Kapital', tone: 'muted' },
 };
@@ -3389,6 +3419,9 @@ function DataCheck({ validation, summary }) {
     const [hy, hm] = summary.history_last_period.split('-');
     missing.push(`Förbrukningshistoriken slutar ${LT_MONTHS[Number(hm) - 1]} ${hy}, ${summary.history_age_months} månader sedan — prognosen bygger på den`);
   }
+  if (summary.moq_warning_count > 0) missing.push(`${fmt(summary.moq_warning_count)} inköpsförslag styrs av MOQ och ger lager för mer än ett år${summary.moq_warning_value_sek > 0 ? ` (${fmtKr(summary.moq_warning_value_sek)})` : ''} — kontrollera med leverantören`);
+  if (summary.orders_confirm_eta > 0) missing.push(`${fmt(summary.orders_confirm_eta)} artiklar har order utan leveransdatum och saldo som inte räcker ledtiden — bekräfta datum`);
+  if (summary.safety_stock_fallback > 0 && summary.xyz_available === false) missing.push(`Månadshistorik saknas — säkerhetslagret bygger på en antagen variation (${String(summary.safety_stock_assumed_cv ?? 0.5).replace('.', ',')}). Med 12 månaders historik blir det exaktare`);
   if (summary.confidence_low > 0) missing.push(`${fmt(summary.confidence_low)} förslag har låg säkerhet — se skälen under Uträkning`);
   const items = [...missing, ...warnings];
   if (!validation?.summary && !items.length) return null;
@@ -3443,7 +3476,7 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider, o
         facts.critA > 0 ? `${fmt(facts.critA)} är A-artiklar` : null,
       ].filter(Boolean).join(' och ') + (facts.outOfStock || facts.critA ? '. ' : '') +
         (hasCost && summary.total_risk_sek > 0 ? `Förbrukning för ${fmtKr(summary.total_risk_sek)} hinner inte täckas om inget görs. ` : '') +
-        (hasCost && summary.total_order_value_sek > 0 ? `Inköpsförslaget: ${fmt(summary.articles_to_order)} artiklar för ${fmtKr(summary.total_order_value_sek)}.` : 'Se inköpsförslaget för kvantiteter.'),
+        (hasCost && summary.total_order_value_sek > 0 ? `Inköpsförslaget: ${fmt(summary.articles_to_order)} artiklar för ${fmtKr(summary.total_order_value_sek)}${summary.moq_warning_value_sek > 0 ? `, varav ${fmtKr(summary.moq_warning_value_sek)} styrs av MOQ och bör kontrolleras` : ''}.` : 'Se inköpsförslaget för kvantiteter.'),
       cta: 'Öppna inköpslistan', tab: 'purchasing',
     };
   } else if (summary.articles_to_order > 0) {
@@ -3560,8 +3593,8 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider, o
 // ─── Sidomenyns servicenivå + datakvalitet ────────────────────────────────
 function ServiceLevelCard({ summary }) {
   const v = summary?.a_service_level_pct;
-  let target = 95;
-  try { target = Number(JSON.parse(localStorage.getItem('logitide-globalSettings') || '{}').serviceLevelA) || 95; } catch {}
+  let target = Number(summary?.service_targets?.A) || 98;
+  try { target = Number(JSON.parse(localStorage.getItem('logitide-globalSettings') || '{}').serviceLevelA) || target; } catch {}
   const tone = v >= target ? 'good' : v >= target - 10 ? 'warn' : 'crit';
   return (
     <div className="lt-sl">
