@@ -2,6 +2,31 @@ import React, { useState, useCallback, useEffect } from 'react';
 import './App.css';
 const API_URL = 'https://web-production-2ab93.up.railway.app';
 
+// ─── INLOGGNING PÅ ALLA ANROP ─────────────────────────────────────────────
+// Varje anrop till Logitide-API:t får inloggningens token automatiskt. Svarar servern 401
+// (inloggningen har gått ut) skickas en händelse så att appen visar inloggningen igen.
+const AUTH_EXPIRED_EVENT = 'logitide-auth-expired';
+(function installApiAuth() {
+  if (typeof window === 'undefined' || !window.fetch || window.__logitideFetch) return;
+  const original = window.fetch.bind(window);
+  window.__logitideFetch = true;
+  window.fetch = async (input, init) => {
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    if (!url.startsWith(API_URL)) return original(input, init);
+    const opts = { ...(init || {}) };
+    const headers = new Headers(opts.headers || {});
+    let token = null;
+    try { token = localStorage.getItem('logitide_token'); } catch {}
+    if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
+    opts.headers = headers;
+    const res = await original(input, opts);
+    if (res.status === 401 && !url.includes('/auth/login')) {
+      try { window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT)); } catch {}
+    }
+    return res;
+  };
+})();
+
 // ─── THEME ────────────────────────────────────────────────────────────────
 function useTheme() {
   const [theme, setTheme] = useState(() => {
@@ -2537,6 +2562,75 @@ function exportCSV(rows) {
 
 
 // ─── SETTINGS TAB ─────────────────────────────────────────────────────────
+// ─── Byt lösenord ─────────────────────────────────────────────────────────
+function ChangePasswordCard() {
+  const [open, setOpen] = useState(false);
+  const [cur, setCur] = useState('');
+  const [pw1, setPw1] = useState('');
+  const [pw2, setPw2] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null); // {tone, text}
+  let email = '';
+  try { email = localStorage.getItem('logitide_email') || ''; } catch {}
+  const problem = pw1 && pw1.length < 10 ? 'Minst 10 tecken.'
+    : pw2 && pw1 !== pw2 ? 'Lösenorden är inte lika.' : null;
+  const submit = async (e) => {
+    e.preventDefault();
+    if (problem || !cur || !pw1 || !pw2) return;
+    setBusy(true); setMsg(null);
+    try {
+      const res = await fetch(`${API_URL}/auth/change-password`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ current_password: cur, new_password: pw1 }),
+      });
+      if (!res.ok) throw new Error(await readError(res, 'Lösenordet kunde inte bytas.'));
+      setMsg({ tone: 'info', text: 'Lösenordet är bytt. Använd det nya nästa gång du loggar in.' });
+      setCur(''); setPw1(''); setPw2('');
+    } catch (err) {
+      setMsg({ tone: 'error', text: err instanceof TypeError ? 'Kunde inte nå servern. Försök igen.' : err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="lt-panel lt-account">
+      <div className="lt-account-head">
+        <div>
+          <h3>Konto</h3>
+          <p>{email ? `Inloggad som ${email}` : 'Inloggad'}</p>
+        </div>
+        <button type="button" className="lt-btn lt-btn-ghost lt-btn-sm" onClick={() => { setOpen(o => !o); setMsg(null); }} aria-expanded={open}>
+          {open ? 'Avbryt' : 'Byt lösenord'}
+        </button>
+      </div>
+      {open && (
+        <form className="lt-account-form" onSubmit={submit} noValidate>
+          <label className="lt-field">
+            <span>Nuvarande lösenord</span>
+            <input id="lt-pw-current" className="lt-input" type="password" autoComplete="current-password" value={cur} onChange={e => setCur(e.target.value)} />
+          </label>
+          <label className="lt-field">
+            <span>Nytt lösenord (minst 10 tecken)</span>
+            <input id="lt-pw-new" className="lt-input" type="password" autoComplete="new-password" value={pw1} onChange={e => setPw1(e.target.value)} />
+          </label>
+          <label className="lt-field">
+            <span>Upprepa nytt lösenord</span>
+            <input id="lt-pw-new2" className="lt-input" type="password" autoComplete="new-password" value={pw2} onChange={e => setPw2(e.target.value)} />
+          </label>
+          {problem && <div className="lt-account-hint">{problem}</div>}
+          {msg && <div className={`lt-alert ${msg.tone === 'error' ? 'lt-alert-error' : 'lt-alert-info'}`} role="status">
+            <LtIcon name={msg.tone === 'error' ? 'alert' : 'check'} /><span>{msg.text}</span></div>}
+          <div className="lt-account-actions">
+            <button type="submit" className="lt-btn lt-btn-primary" disabled={busy || !!problem || !cur || !pw1 || !pw2}>
+              {busy ? 'Sparar…' : 'Spara nytt lösenord'}
+            </button>
+          </div>
+        </form>
+      )}
+    </section>
+  );
+}
+
 function SettingsTab({ data }) {
   const loadLS = (key, def) => {
     try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; }
@@ -2645,6 +2739,8 @@ function SettingsTab({ data }) {
 
   return (
     <div className="tab-content" style={{ maxWidth: 760 }}>
+
+      <ChangePasswordCard />
 
       {/* ═══ SEKTION 1: Globala standardvärden ═══════════════════════════ */}
       <div style={cardStyle}>
@@ -3808,6 +3904,7 @@ const LT_ICONS = {
   x: <><path d="M18 6 6 18" /><path d="m6 6 12 12" /></>,
   check: <path d="M20 6 9 17l-5-5" />,
   alert: <><circle cx="12" cy="12" r="9" /><path d="M12 8v4" /><path d="M12 16h.01" /></>,
+  info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></>,
   arrow: <><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></>,
   back: <><path d="M19 12H5" /><path d="m11 18-6-6 6-6" /></>,
   plus: <><path d="M12 5v14" /><path d="M5 12h14" /></>,
@@ -3937,7 +4034,7 @@ function ParetoIllustration() {
   );
 }
 
-function LoginPage({ onLogin, theme, onToggleTheme }) {
+function LoginPage({ onLogin, notice, theme, onToggleTheme }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -3981,7 +4078,7 @@ function LoginPage({ onLogin, theme, onToggleTheme }) {
         </div>
         <ParetoIllustration />
         <ul className="lt-auth-points">
-          <li><b>ABC × XYZ</b>Servicenivå per segment, inte en siffra för hela lagret</li>
+          <li><b>ABC × XYZ</b>Servicenivå per ABC-klass, inte en siffra för hela lagret</li>
           <li><b>SS = Z·√(LT·σ²+d²·σ²LT)</b>Statistiskt säkerhetslager med ledtidsvariation</li>
           <li><b>AI-mappning</b>Förstår era kolumnnamn — ni behöver inte städa filen</li>
         </ul>
@@ -3993,6 +4090,7 @@ function LoginPage({ onLogin, theme, onToggleTheme }) {
         <form className="lt-auth-card" onSubmit={handleLogin} noValidate>
           <h2>Logga in</h2>
           <p>Fortsätt till din lageranalys.</p>
+          {notice && !error && <div className="lt-alert lt-alert-info" role="status"><LtIcon name="info" /><span>{notice}</span></div>}
           <label className="lt-field">
             <span>E-post</span>
             <input id="lt-email" className="lt-input" type="email" autoComplete="email" autoFocus
@@ -5193,14 +5291,25 @@ export default function App() {
     return token ? { token, email, company } : null;
   });
 
-  const handleLogout = () => {
-    localStorage.removeItem('logitide_token');
-    localStorage.removeItem('logitide_email');
-    localStorage.removeItem('logitide_company');
+  const [authNotice, setAuthNotice] = useState(null);
+
+  const handleLogout = useCallback((notice = null) => {
+    try {
+      localStorage.removeItem('logitide_token');
+      localStorage.removeItem('logitide_email');
+      localStorage.removeItem('logitide_company');
+    } catch {}
     setAuth(null);
     setAnalysisData(null);
     setShowHome(true);
-  };
+    setAuthNotice(typeof notice === 'string' ? notice : null);
+  }, []);
+
+  useEffect(() => {
+    const onExpired = () => handleLogout('Inloggningen har gått ut. Logga in igen för att fortsätta – inget av det som är sparat har försvunnit.');
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
+  }, [handleLogout]);
 
   const handleAnalysis = (data) => {
     setAnalysisData(data);
@@ -5221,7 +5330,7 @@ export default function App() {
     setShowHome(false);
   };
 
-  if (!auth) return <LoginPage onLogin={setAuth} theme={theme} onToggleTheme={toggleTheme} />;
+  if (!auth) return <LoginPage onLogin={(a) => { setAuthNotice(null); setAuth(a); }} notice={authNotice} theme={theme} onToggleTheme={toggleTheme} />;
   if (!showHome && analysisData) return <Dashboard data={analysisData} auth={auth} onReset={handleGoHome} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} onLoadAnalysis={handleLoadHistoryAnalysis} />;
   return <DashboardHome onAnalysis={handleAnalysis} onOpenAnalysis={handleOpenFullAnalysis} existingData={analysisData} auth={auth} onLogout={handleLogout} theme={theme} onToggleTheme={toggleTheme} />;
 }
