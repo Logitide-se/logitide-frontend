@@ -249,7 +249,7 @@ function DataQualityBanner({ summary, dataQuality }) {
   const [expanded, setExpanded] = useState(false);
   const missing = [];
   if (!summary.has_cost_data) missing.push({ field: 'Inköpspris (cost)', impact: 'Kapitalanalys och ordervärde kan inte beräknas' });
-  if (!summary.has_location_data) missing.push({ field: 'Lagerposition (loc)', impact: 'Slottingförslag kan inte genereras' });
+  if (!summary.has_location_data) missing.push({ field: 'Lagerplats', impact: 'Slotting ger plockklass och föreslagen zon, men ingen flyttlista' });
   if (!summary.has_lead_time_data) missing.push({ field: 'Ledtid (lead_time_days)', impact: 'Standardvärde 14 dagar används — justera för er verklighet' });
   if (missing.length === 0) return null;
   return (
@@ -434,7 +434,7 @@ function ConfidenceWidget({ summary, dataQuality }) {
   if (!summary) return null;
   const checks = [
     { ok: summary.has_cost_data, label: 'Inköpspris' },
-    { ok: summary.has_location_data, label: 'Lagerposition' },
+    { ok: summary.has_location_data, label: 'Lagerplats' },
     { ok: summary.has_lead_time_data, label: 'Ledtid' },
     { ok: !(dataQuality?.zero_consumption > 0), label: 'Noll-förbrukning' },
     { ok: !(dataQuality?.suspected_errors > 0), label: 'Felinmatning' },
@@ -494,7 +494,7 @@ function OnboardingGuide({ onClose }) {
         { name: 'Ledtid', note: 'Leveranstid i dagar', ex: '14 dagar' },
         { name: 'Inköpspris', note: 'Kostnad per enhet (kr)', ex: '125 kr' },
         { name: 'Artikelnamn / Beskrivning', note: 'Fritext', ex: 'Bult M8×30 Förzinkad' },
-        { name: 'Lagerposition / Plats', note: 'Hyllplats eller zon i lagret', ex: 'A1-02' },
+        { name: 'Lagerplats', note: 'Hyllplats eller zon i lagret', ex: 'A1-02' },
       ]
     },
     {
@@ -610,7 +610,7 @@ const LOGITIDE_FIELDS = [
   { key: 'Inköpspris',    label: 'Inköpspris',     required: false },
   { key: 'Ledtid',        label: 'Ledtid (dagar)', required: false },
   { key: 'MOQ',           label: 'MOQ',            required: false },
-  { key: 'Lagerposition', label: 'Lagerposition',  required: false },
+  { key: 'Lagerposition', label: 'Lagerplats',     required: false },
   { key: 'Beställt antal',label: 'Beställt antal', required: false },
   { key: 'Förväntat leveransdatum', label: 'Förväntat lev.datum', required: false },
   { key: '__date__',      label: 'Datum (transaktion)',  required: false },
@@ -841,7 +841,7 @@ function ImportWizard({ onAnalysis, onClose, auth }) {
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {[
                     { label: 'Artikelnummer', req: true }, { label: 'Lagersaldo', req: true }, { label: 'Förbrukning/Försäljning', req: true },
-                    { label: 'Inköpspris', req: false }, { label: 'Ledtid', req: false }, { label: 'Lagerposition', req: false },
+                    { label: 'Inköpspris', req: false }, { label: 'Ledtid', req: false }, { label: 'Lagerplats', req: false },
                     { label: 'MOQ', req: false }, { label: 'Historisk förbrukning (12 mån)', req: false },
                   ].map(({ label, req }) => (
                     <span key={label} style={{
@@ -1915,7 +1915,7 @@ function SlottingTab({ data }) {
     unplaced: placementKnown ? unplaced : noLocList,
   };
   const q = query.trim().toLowerCase();
-  const rows = (lists[view] || []).filter(a => !q || String(a.article).toLowerCase().includes(q) || String(a.name || '').toLowerCase().includes(q));
+  const rowsFor = (k) => (lists[k] || []).filter(a => !q || String(a.article).toLowerCase().includes(q) || String(a.name || '').toLowerCase().includes(q));
   const zoneA = zones[0];
   // Plock per dag med fast antal decimaler (1,0 i stället för 1) så att talen i zonraden går att jämföra
   const fmtV = (x) => (x == null || Number.isNaN(Number(x)) ? '—'
@@ -1924,7 +1924,7 @@ function SlottingTab({ data }) {
   let brief;
   if (!placementKnown) {
     brief = { title: `${fmt(articles.length)} artiklar har fått en plockklass`,
-      text: 'Filen saknar lagerplatser, så Logitide föreslår en zon per artikel utifrån hur ofta den plockas. Lägg till lagerposition i filen för att få en flyttlista.' };
+      text: 'Filen saknar lagerplatser, så Logitide föreslår en zon per artikel utifrån hur ofta den plockas. Lägg till lagerplats i filen för att få en flyttlista.' };
   } else if (summary.articles_to_move === 0) {
     brief = { title: 'Alla artiklar står i rätt zon', text: 'Ingen flytt behövs utifrån plockfrekvensen just nu.' };
   } else {
@@ -1939,6 +1939,8 @@ function SlottingTab({ data }) {
     ...((placementKnown ? unplaced.length : noLocList.length) ? [['unplaced', placementKnown ? `Saknar plats (${fmt(unplaced.length)})` : `Föreslagen zon (${fmt(noLocList.length)})`]] : []),
   ];
   const activeView = views.some(([k]) => k === view) ? view : (views[0]?.[0] || 'top');
+  // v3.2: tabellen läser den lista som fliken faktiskt visar (tidigare var den tom när fliken byttes automatiskt)
+  const rows = rowsFor(activeView);
 
   return (
     <div className="tab-content lt-overview">
@@ -1963,7 +1965,7 @@ function SlottingTab({ data }) {
         ))}
         <KpiTile label="Rätt zon" value={placementKnown ? `${fmt(summary.correct_zone_count)}` : '—'}
           unit={placementKnown ? ` av ${fmt(summary.placed_articles)}` : null}
-          sub={placementKnown ? (summary.special_zone_articles ? `${fmt(summary.special_zone_articles)} i specialzoner räknas inte` : 'utifrån plockfrekvens och utrymme') : 'Kräver lagerposition i filen'}
+          sub={placementKnown ? (summary.special_zone_articles ? `${fmt(summary.special_zone_articles)} i specialzoner räknas inte` : 'utifrån plockfrekvens och utrymme') : 'Kräver lagerplats i filen'}
           tooltip={"Zonerna fylls i ordning med de artiklar som plockas oftast, upp till det antal platser zonen har i dag.\nArtiklar inom 3 % från en zongräns står kvar för att undvika onödiga flyttar."} />
       </div>
 
@@ -2184,21 +2186,128 @@ function CapitalTab({ data }) {
 
 // ─── ABC/XYZ TAB — KOMPAKT NETSTOCK-STIL ─────────────────────────────────
 
-// Estimerar XYZ lokalt när månadsdata saknas:
-// X = stabil efterfrågan (OK, jämn demand)
-// Y = varierande (WATCH eller demand men låg täckt)
-// Z = oregelbunden (DEAD_STOCK, OVERSTOCK, noll demand med lager, CRITICAL med hög variation)
-function estimateXyz(a) {
-  if (!a) return 'Z';
-  const s = a.status;
-  if (s === 'DEAD_STOCK' || s === 'OVERSTOCK') return 'Z';
-  if (s === 'CRITICAL') {
-    // CRITICAL A-artiklar är troligtvis Y (viktiga men riskerar slut), C är Z
-    return a.abc === 'C' ? 'Z' : 'Y';
-  }
-  if (s === 'WATCH') return 'Y';
-  if (s === 'OK' && (a.demand_per_day ?? 0) > 0) return 'X';
-  return 'Z'; // okänd/noll demand
+// ─── ABC utan historik ────────────────────────────────────────────────────
+// Visas när filen saknar månadshistorik: bara det som går att räkna (ABC efter värde).
+const ABC_DEF = { A: 'de första 80 % av årsförbrukningens värde', B: 'nästa 15 %', C: 'sista 5 % och artiklar utan förbrukning' };
+function AbcOnlyView({ articles, summary }) {
+  const [open, setOpen] = useState(null);
+  const hasCost = summary.has_cost_data;
+  const targets = summary.service_targets || {};
+  const totalStock = articles.reduce((s, a) => s + (a.stock_value || 0), 0);
+  const totalAnnual = articles.reduce((s, a) => s + (a.annual_value || 0), 0);
+  const groups = ['A', 'B', 'C'].map(c => {
+    const arts = articles.filter(a => a.abc === c);
+    return {
+      c, arts, count: arts.length,
+      stock: arts.reduce((s, a) => s + (a.stock_value || 0), 0),
+      annual: arts.reduce((s, a) => s + (a.annual_value || 0), 0),
+      crit: arts.filter(a => a.status === 'CRITICAL').length,
+      watch: arts.filter(a => a.status === 'WATCH').length,
+      over: arts.filter(a => a.status === 'OVERSTOCK').length,
+      dead: arts.filter(a => a.status === 'DEAD_STOCK').length,
+    };
+  });
+  const pct = (v, t) => (t > 0 ? Math.round(v / t * 100) : 0);
+  const sel = groups.find(g => g.c === open);
+  const selRows = sel ? [...sel.arts].sort((x, y) => (y.annual_value || 0) - (x.annual_value || 0) || (y.stock_value || 0) - (x.stock_value || 0)) : [];
+  const A = groups[0];
+  return (
+    <div className="tab-content lt-overview">
+      <div className="lt-datacheck">
+        <div className="lt-datacheck-row">
+          <span className="lt-eyebrow">XYZ</span>
+          <span className="lt-datacheck-text">
+            XYZ visar hur jämn förbrukningen är och kräver minst 3 månaders förbrukningshistorik. Filen saknar historik, så här visas bara ABC.
+            Lägg till en kolumn per månad i exporten för att få XYZ.
+          </span>
+        </div>
+      </div>
+
+      <section className="lt-panel">
+        <div className="lt-panel-head">
+          <h3>ABC-klassning</h3>
+          <span className="lt-hint">{hasCost ? 'klass efter årsförbrukningens värde (pris × förbrukning)' : 'klass efter förbrukning — inköpspris saknas'}</span>
+        </div>
+        <div className="lt-table-wrap">
+          <table className="lt-table lt-abconly">
+            <thead>
+              <tr>
+                <th>Klass</th>
+                <th className="num">Artiklar</th>
+                {hasCost && <th className="num">Årsförbrukning</th>}
+                {hasCost && <th className="num">Lagervärde</th>}
+                <th className="num">Servicemål</th>
+                <th>Läge</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map(g => (
+                <tr key={g.c} className={open === g.c ? 'is-open' : ''}>
+                  <td>
+                    <div className="lt-abconly-class">
+                      <span className={`lt-abc-key k${g.c}`}>{g.c}</span>
+                      <span className="lt-hint">{ABC_DEF[g.c]}</span>
+                    </div>
+                  </td>
+                  <td className="num lt-num">{fmt(g.count)}<div className="lt-hint">{pct(g.count, articles.length)} %</div></td>
+                  {hasCost && <td className="num lt-num">{fmtKr(g.annual)}<div className="lt-hint">{pct(g.annual, totalAnnual)} %</div></td>}
+                  {hasCost && <td className="num lt-num">{fmtKr(g.stock)}<div className="lt-hint">{pct(g.stock, totalStock)} %</div></td>}
+                  <td className="num lt-num">{targets[g.c] != null ? `${String(targets[g.c]).replace('.', ',')} %` : '—'}</td>
+                  <td>
+                    <div className="lt-abconly-state">
+                      {g.crit > 0 && <span><i className="lt-tone-dot crit" aria-hidden="true" /> {fmt(g.crit)} {g.crit === 1 ? 'kritisk' : 'kritiska'}</span>}
+                      {g.watch > 0 && <span><i className="lt-tone-dot warn" aria-hidden="true" /> {fmt(g.watch)} bevaka</span>}
+                      {g.over > 0 && <span><i className="lt-tone-dot over" aria-hidden="true" /> {fmt(g.over)} överlager</span>}
+                      {g.dead > 0 && <span><i className="lt-tone-dot dead" aria-hidden="true" /> {fmt(g.dead)} dött</span>}
+                      {!g.crit && !g.watch && !g.over && !g.dead && <span className="lt-hint">Inget att åtgärda</span>}
+                    </div>
+                  </td>
+                  <td className="num">
+                    {g.count > 0 && <button className="lt-link-btn" aria-expanded={open === g.c} onClick={() => setOpen(open === g.c ? null : g.c)}>{open === g.c ? 'Dölj' : 'Visa artiklar'}</button>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {hasCost && A.count > 0 && (
+          <p className="lt-hint lt-abconly-note">
+            {fmt(A.count)} A-artiklar ({pct(A.count, articles.length)} % av artiklarna) står för {pct(A.annual, totalAnnual)} % av årsförbrukningens värde
+            och {pct(A.stock, totalStock)} % av lagervärdet. Där gör brister och överlager störst skillnad.
+          </p>
+        )}
+      </section>
+
+      {sel && (
+        <section className="lt-panel">
+          <div className="lt-panel-head">
+            <h3>{sel.c}-artiklar · {fmt(sel.count)} st</h3>
+            <span className="lt-hint">sorterade efter årsförbrukningens värde{selRows.length > 100 ? ' · de 100 första visas' : ''}</span>
+          </div>
+          <div className="lt-table-wrap">
+            <table className="lt-table">
+              <thead>
+                <tr><th>Artikel</th>{hasCost && <th className="num">Årsförbrukning</th>}<th className="num">Saldo</th>{hasCost && <th className="num">Lagervärde</th>}<th className="num">Täcktid</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                {selRows.slice(0, 100).map(a => (
+                  <tr key={a.article}>
+                    <td><div>{a.name || a.article}</div><div className="lt-mono lt-subtle">{a.article}</div></td>
+                    {hasCost && <td className="num lt-num">{fmtKr(a.annual_value || 0)}</td>}
+                    <td className="num lt-num">{fmt(a.stock)}</td>
+                    {hasCost && <td className="num lt-num">{fmtKr(a.stock_value || 0)}</td>}
+                    <td className="num lt-num">{a.coverage_days >= 999 ? '—' : `${fmt(Math.round(a.coverage_days))} d`}</td>
+                    <td>{STATUS_SV[a.status] || a.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+    </div>
+  );
 }
 
 function AbcXyzTab({ data }) {
@@ -2207,11 +2316,10 @@ function AbcXyzTab({ data }) {
   const xyzAvailable = summary.xyz_available === true;
   const [selectedCell, setSelectedCell] = React.useState(null);
 
-  // ── Artiklar berikade med estimerad xyz om backend-xyz saknas ──
-  const enrichedArticles = React.useMemo(() => {
-    if (xyzAvailable) return articles || [];
-    return (articles || []).map(a => ({ ...a, xyz: a.xyz || estimateXyz(a) }));
-  }, [articles, xyzAvailable]);
+  // XYZ visas bara när filen har månadshistorik. Utan den finns ingen variation att mäta,
+  // så sidan visar enbart ABC (v3.2 — tidigare gissades XYZ utifrån status).
+  const enrichedArticles = articles || [];
+  if (!xyzAvailable) return <AbcOnlyView articles={enrichedArticles} summary={summary} />;
 
   // ── Matrisdata ──
   const matrix = {};
@@ -2264,18 +2372,6 @@ function AbcXyzTab({ data }) {
 
   return (
     <div className="tab-content" style={{ paddingTop: 0 }}>
-      {!xyzAvailable && (
-        <div style={{
-          background: '#f59e0b11', border: '1px solid #f59e0b33',
-          borderRadius: 8, padding: '10px 16px', marginBottom: 12,
-          fontSize: 12, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 8
-        }}>
-          <span>
-            <strong>XYZ baseras på uppskattning</strong> — filen saknar månadshistorik.
-            Lägg till kolumner för jan–dec (12 månaders förbrukning) för exakt XYZ-klassificering baserad på variationskoefficient.
-          </span>
-        </div>
-      )}
       <style>{`
         .abcxyz-grid { display: grid; grid-template-columns: 1fr 280px; gap: 16px; align-items: start; }
         @media (max-width: 900px) { .abcxyz-grid { grid-template-columns: 1fr; } }
@@ -2299,21 +2395,11 @@ function AbcXyzTab({ data }) {
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '12px 0 16px' }}>
         <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: 'var(--text)' }}>ABC/XYZ-matris</h3>
         <span style={{ fontSize: 12, color: 'var(--text3)' }}>Klicka cell för artiklar och strategi</span>
-        {!xyzAvailable && (
-          <span style={{ fontSize: 11, background: '#f59e0b22', color: '#f59e0b', border: '1px solid #f59e0b44', borderRadius: 5, padding: '1px 7px', fontWeight: 600 }}>Estimerad</span>
-        )}
       </div>
 
       <div className="abcxyz-grid">
         {/* ── VÄNSTER: Matris + artikellista ── */}
         <div>
-          {/* Estimerad-banner */}
-          {!xyzAvailable && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: '#f59e0b0a', border: '1px solid #f59e0b33', borderLeft: '3px solid #f59e0b', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: 'var(--text3)' }}>
-              <Icon name="info" size={14} />
-              <span>XYZ estimeras från lagerstatus (OK→X, Bevaka→Y, Dött/Överlager→Z). Lägg till <b style={{ color: 'var(--text)' }}>månadskolumner jan–dec</b> i filen för exakt variabilitetsanalys.</span>
-            </div>
-          )}
 
           {/* ── MATRIS ── */}
           <table className="abc-matrix-table">
@@ -2381,7 +2467,7 @@ function AbcXyzTab({ data }) {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid var(--border)' }}>
                 <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>
                   {selectedCell} — {selectedArts.length} artiklar
-                  {xyzAvailable && strategy[selectedCell] && (
+                  {strategy[selectedCell] && (
                     <span style={{ marginLeft: 10, fontWeight: 400, color: 'var(--text3)', fontSize: 11 }}>
                       Strategi: {strategy[selectedCell]}
                     </span>
@@ -2981,7 +3067,7 @@ function SettingsTab({ data }) {
                   <span style={{ fontSize: 11, background: '#16a34a22', color: '#4ade80', borderRadius: 5, padding: '1px 7px', fontWeight: 600 }}>Aktiv</span>
                 )}
               </div>
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>Mappar lagerpositioner till zoner för slottinganalys</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>Mappar lagerplatser till zoner för slottinganalys</div>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -3522,7 +3608,7 @@ function DataCheck({ validation, summary, articles = [] }) {
   const warnings = validation?.warnings || [];
   const missing = [];
   if (!summary.has_cost_data) missing.push('Inköpspris saknas — kapital och ordervärde kan inte räknas');
-  if (!summary.has_location_data) missing.push('Lagerposition saknas — slotting kan inte räknas');
+  if (!summary.has_location_data) missing.push('Lagerplats saknas — slotting ger plockklass och föreslagen zon, men ingen flyttlista');
   if (!summary.has_lead_time_data) missing.push('Ledtid saknas — standard 14 dagar används');
   else if (summary.lead_time_default_count > 0) missing.push(`Ledtid saknas för ${fmt(summary.lead_time_default_count)} artiklar — standardvärde används för dem`);
   if (summary.orders_late > 0) missing.push(`${fmt(summary.orders_late)} öppna order har passerat leveransdatum — de räknas som på väg`);
@@ -3669,7 +3755,7 @@ function OverviewTab({ data, onLedtidChange, ledtidOverrides, onResetLedtider, o
           )}
         </KpiTile>
         <KpiTile label="Att flytta" value={hasLoc ? fmt(summary.moves_top_closer ?? summary.articles_to_move) : null}
-          missing={!hasLoc ? 'Kräver lagerposition i filen' : null}
+          missing={!hasLoc ? 'Kräver lagerplats i filen' : null}
           sub={summary.moves_top_closer != null ? `ger 80 % av vinsten · ${fmt(summary.articles_to_move)} totalt` : 'A-artiklar långt från plock'} onClick={hasLoc ? () => onNavigate('slotting') : undefined}
           tooltip={"Flyttar närmare plock för artiklar som plockas ofta. Antalet är de flyttar som tillsammans ger 80 % av vinsten i kortare plockväg."} />
         <KpiTile label="Dött lager" tone="dead" value={fmt(summary.dead_stock)}
@@ -3758,7 +3844,7 @@ function ServiceLevelCard({ summary }) {
 function QualityChecks({ summary, dataQuality }) {
   const checks = [
     { ok: summary.has_cost_data, label: 'Inköpspris' },
-    { ok: summary.has_location_data, label: 'Lagerposition' },
+    { ok: summary.has_location_data, label: 'Lagerplats' },
     { ok: summary.has_lead_time_data, label: summary.lead_time_default_count > 0 && summary.has_lead_time_data ? 'Ledtid (delvis)' : 'Ledtid',
       partial: summary.lead_time_default_count > 0 && summary.has_lead_time_data,
       title: summary.lead_time_default_count > 0 ? `Standardledtid används för ${fmt(summary.lead_time_default_count)} artiklar` : undefined },
@@ -3908,7 +3994,7 @@ const KPI_FIELDS = [
   { key: 'forbruk',   label: 'Förbrukning',       icon: '📈', required: true,  desc: 'Försäljning/uttag' },
   { key: 'pris',      label: 'Inköpspris',        icon: '💰', required: false, desc: 'Aktiverar kapital-KPI:er' },
   { key: 'ledtid',    label: 'Ledtid (dagar)',    icon: '🚚', required: false, desc: 'Förbättrar beställningsanalys' },
-  { key: 'position',  label: 'Lagerposition',     icon: '📍', required: false, desc: 'Aktiverar slotting-analys' },
+  { key: 'position',  label: 'Lagerplats',        icon: '📍', required: false, desc: 'Aktiverar slotting-analys' },
   { key: 'moq',       label: 'MOQ',               icon: '📋', required: false, desc: 'Minsta orderkvantitet' },
   { key: 'inkommande',label: 'Inkommande order',  icon: '🔄', required: false, desc: 'Förbättrar servicenivå' },
 ];
@@ -3970,6 +4056,7 @@ const LT_MONTHS = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep'
 const isPeriodField = (f) => !!f && (/^Period_\d{4}_\d{2}$/.test(f) || /^Månad_\d+$/.test(f));
 function fieldLabel(f) {
   if (!f) return 'Ignorera';
+  if (f === 'Lagerposition') return 'Lagerplats'; // visningsnamn — fältets nyckel är oförändrad
   if (f === '__date__') return 'Transaktionsdatum';
   if (f === '__qty__') return 'Transaktionsantal';
   let m = f.match(/^Period_(\d{4})_(\d{2})$/);
@@ -4504,7 +4591,7 @@ function ImportStudio({ auth, onAnalysis, latest, analysisCount, onOpenLatest })
         {showGuide && (
           <div className="lt-guide-grid">
             {[['Inköpspris', 'Kapitalbindning och värdebaserad ABC'], ['Ledtid', 'Exakta brist- och beställningsdatum'],
-              ['6–12 månaders historik', 'XYZ, trend och statistiskt säkerhetslager'], ['Lagerposition', 'Slotting'],
+              ['6–12 månaders historik', 'XYZ, trend och statistiskt säkerhetslager'], ['Lagerplats', 'Slotting'],
               ['MOQ · Beställt · ETA', 'Exakta orderförslag'], ['Leverantör', 'Ledtid per leverantör']].map(([k, v]) => (
               <div key={k}><b>{k}</b><span>{v}</span></div>
             ))}
