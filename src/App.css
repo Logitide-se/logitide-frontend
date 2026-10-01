@@ -1322,3 +1322,12 @@ body { font-family: var(--font); letter-spacing: -0.005em; -webkit-font-smoothin
 .lt-po-timeline span { display: block; font-size: 11.5px; color: var(--text3); }
 .lt-po-timeline b { font-size: 13px; font-weight: 600; }
 @media (max-width: 720px) { .lt-po-export { align-items: stretch; text-align: left; } }
+
+/* ─── Konto: byt lösenord (Inställningar) ───────────────────────────────── */
+.lt-account { padding: 16px 20px; margin-bottom: 16px; }
+.lt-account-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.lt-account-head h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--text); }
+.lt-account-head p { margin: 2px 0 0; font-size: 12.5px; color: var(--text2); overflow-wrap: anywhere; }
+.lt-account-form { display: grid; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); max-width: 420px; }
+.lt-account-hint { font-size: 12px; color: var(--orange); }
+.lt-account-actions { display: flex; justify-content: flex-start; }
